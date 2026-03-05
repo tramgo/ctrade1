@@ -1,4 +1,4 @@
-import os
+﻿import os
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -10,7 +10,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 import yfinance as yf
 
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import SubprocVecEnv, SubprocVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import VecNormalize
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback, CallbackList
@@ -28,6 +29,8 @@ import joblib
 import time
 import plotly.io as pio
 import traceback
+from functools import partial
+import threading
 
 from ta.momentum import StochasticOscillator
 from ta.volume import ChaikinMoneyFlowIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator
@@ -120,6 +123,16 @@ FEATURES_TO_SCALE = [
 
 LOG_TRANSFORM_FEATURES = ["Close", "Volume", "Chaikin_MF"]  # or whichever are strictly > 0
 
+
+def build_single_stock_env(env_kwargs: dict):
+    """Top-level constructor used by SubprocVecEnv workers (pickle-safe)."""
+    return SingleStockTradingEnv(**env_kwargs)
+
+
+def make_env_factory(env_kwargs: dict):
+    """Create a subprocess-safe environment factory that builds a fresh env per worker."""
+    return partial(build_single_stock_env, env_kwargs=env_kwargs)
+
 class SingleStockTradingEnv(gym.Env):
     metadata = {'render.modes': ['human']}
 
@@ -206,6 +219,11 @@ class SingleStockTradingEnv(gym.Env):
             self.reward_weights = reward_weights
         else:
             self.reward_weights = {'reward_scale': 1.0}
+
+        # Cooldowns (in steps) between forced trigger events.
+        self.sl_cooldown_steps = int(self.reward_weights.get("sl_cooldown_steps", 10))
+        self.tp_cooldown_steps = int(self.reward_weights.get("tp_cooldown_steps", 10))
+        self.dd_cooldown_steps = int(self.reward_weights.get("dd_cooldown_steps", 20))
         
         self.cumulative_reward = 0.0  # Running total updated each step.
         self._force_termination = False  # Flag set by early stopping.
@@ -251,9 +269,12 @@ class SingleStockTradingEnv(gym.Env):
         # 2) Ratios: balance, net worth, position
         obs_dict["Balance_Ratio"] = self.balance / self.profit_reference
         obs_dict["NetWorth_Ratio"] = self.net_worth / self.profit_reference
-        obs_dict["Position_Ratio"] = self.position / self.profit_reference
+        # Keep units consistent: position value (currency) / reference (currency).
+        current_price = float(current_data.get("Close", 0.0))
+        position_value = float(self.position) * current_price
+        obs_dict["Position_Ratio"] = position_value / max(self.profit_reference, 1e-9)
 
-        # 3) Market Phase (Bull, Bear, Sideways) – one-hot
+        # 3) Market Phase (Bull, Bear, Sideways) â€“ one-hot
         phase = 'Sideways'
         adx_val = float(current_data.get('ADX', 0.0))
         if adx_val > 25:
@@ -326,6 +347,9 @@ class SingleStockTradingEnv(gym.Env):
         self.history = []
         self.prev_net_worth = self.net_worth
         self.last_action = 0.0
+        self.prev_action = 0.0
+        self.prev_policy_action = 0.0
+        self.prev_target_value = 0.0
         self.peak = self.net_worth
         self.returns_window = []
         self.transaction_count = 0
@@ -334,6 +358,13 @@ class SingleStockTradingEnv(gym.Env):
         self.cumulative_reward = 0.0  # Running total updated each step.
         self._force_termination = False  # Flag set by early stopping.
         self.final_metrics = None  # Final metrics available after episode ends.
+        # --- Trigger hysteresis / cooldown state ---
+        self.prev_loss = 0.0
+        self.prev_profit = 0.0
+        self.prev_drawdown = 0.0
+        self.last_sl_step = -10**9
+        self.last_tp_step = -10**9
+        self.last_dd_step = -10**9
         return self._next_observation(), {}
     
     def get_final_metrics(self):
@@ -383,7 +414,8 @@ class SingleStockTradingEnv(gym.Env):
         #print(f"DEBUG step env_rank={self.env_rank}: returning 5 items!")
         training_logger.debug(f"DEBUG step env_rank={self.env_rank}: returning 5 items!")
         training_logger.debug(f"[Env {self.env_rank}] step() called at current_step={self.current_step} with action={action}")
-        print(f"[Env {self.env_rank}] step() called at current_step={self.current_step} with action={action}")
+        if (self.current_step % 50 == 0) or self._force_termination:
+            print(f"[Env {self.env_rank}] step={self.current_step} action={action} net_worth={self.net_worth:.2f}")
 
         training_logger.debug(
             f"[Env {self.env_rank} step()] action={action} "
@@ -395,13 +427,25 @@ class SingleStockTradingEnv(gym.Env):
         current_obs_array = self._next_observation()
 
         try:
-            action_value = float(action[0])
-            # Apply filtering regardless of mode.
-            if action_value > 0 and action_value < self.inference_buy_threshold:
-                action_value = 0.0  # Ignore weak buy signals
-            elif action_value < 0 and abs(action_value) < self.inference_sell_threshold:
-                action_value = 0.0  # Ignore weak sell signals
-            assert self.action_space.contains(action), f"[Env {self.env_rank}] Invalid action: {action}"
+            raw_action = float(np.clip(float(action[0]), -1.0, 1.0))
+            smooth_alpha = float(self.reward_weights.get("action_smoothing_alpha", 0.9))
+            smoothed_raw = smooth_alpha * float(self.prev_policy_action) + (1.0 - smooth_alpha) * raw_action
+            smoothed_raw = float(np.clip(smoothed_raw, -1.0, 1.0))
+            # Dead-zone to suppress micro-jitter trading.
+            action_dead_zone = float(self.reward_weights.get("action_dead_zone", 0.05))
+            if abs(smoothed_raw) < action_dead_zone:
+                smoothed_raw = 0.0
+            action_value = smoothed_raw
+            # Apply dead-zone only during inference/testing diagnostics.
+            if self.mode != "train":
+                if abs(action_value) < self.hold_threshold:
+                    action_value = 0.0
+                if action_value > 0 and action_value < self.inference_buy_threshold:
+                    action_value = 0.0  # Ignore weak buy signals
+                elif action_value < 0 and abs(action_value) < self.inference_sell_threshold:
+                    action_value = 0.0  # Ignore weak sell signals
+            adjusted_action = np.array([action_value], dtype=np.float32)
+            assert self.action_space.contains(adjusted_action), f"[Env {self.env_rank}] Invalid action: {adjusted_action}"
         except Exception as e:
             training_logger.error(f"[Env {self.env_rank}] Action validation failed: {e}")
             return self._next_observation(), -1000.0, True, False, {}        
@@ -418,8 +462,11 @@ class SingleStockTradingEnv(gym.Env):
                 'Date': None,
                 'Close': None,
                 'Action': np.nan,
+                'trade_side': "HOLD",
                 'Buy_Signal_Price': np.nan,
                 'Sell_Signal_Price': np.nan,
+                'shares_traded': 0.0,
+                'delta_value': 0.0,
                 'Net Worth': self.net_worth,
                 'Balance': self.balance,
                 'Position': self.position,
@@ -434,11 +481,11 @@ class SingleStockTradingEnv(gym.Env):
         current_date = current_data['Date']
 
         shares_traded = 0
+        trade_side = "HOLD"
         trade_cost = 0.0
         invalid_act_penalty = 0.0        
 
         net_worth = float(self.balance + self.position * current_price)
-        net_worth_change = net_worth - self.prev_net_worth
 
         # 1) Initialize local flags:
         stop_loss_triggered = False
@@ -454,19 +501,21 @@ class SingleStockTradingEnv(gym.Env):
         current_loss = (self.initial_balance - net_worth) / self.initial_balance if net_worth < self.initial_balance else 0.0
 
         stop_loss_tiers = [
-            {"threshold": 0.02, "fraction_to_sell": 0.1, "penalty_factor": 1},  # Small sell-off at 0.25%
-            {"threshold": 0.03, "fraction_to_sell": 0.3, "penalty_factor": 1.5}, # 30% liquidation at 0.5%
-            {"threshold": 0.04, "fraction_to_sell": 0.6, "penalty_factor": 2},  # 60% liquidation at 0.75%
-            {"threshold": 0.05, "fraction_to_sell": 1.0, "penalty_factor": 2.5},  # Full liquidation at 1%
+            {"threshold": 0.05, "fraction_to_sell": 0.2, "penalty_factor": 1.0},
+            {"threshold": 0.08, "fraction_to_sell": 0.5, "penalty_factor": 1.5},
+            {"threshold": 0.10, "fraction_to_sell": 1.0, "penalty_factor": 2.0},
         ]
 
         # Sort tiers in descending order so the highest applicable tier is applied first.
         sorted_sl_tiers = sorted(stop_loss_tiers, key=lambda x: x["threshold"], reverse=True)
+        sl_ready = (self.current_step - self.last_sl_step) >= self.sl_cooldown_steps
 
         for tier in sorted_sl_tiers:
-            if current_loss > tier["threshold"] and self.position > 0:
+            crossed = (self.prev_loss <= tier["threshold"]) and (current_loss > tier["threshold"])
+            if sl_ready and crossed and self.position > 0:
                 # Mark that stop-loss logic was triggered in this step
                 stop_loss_triggered = True
+                self.last_sl_step = self.current_step
                 # Calculate incremental penalty
                 tier_penalty = -forced_stop_penalty_weight * current_loss * tier["penalty_factor"] 
                 #tier_penalty = -forced_stop_penalty_weight * tier["penalty_factor"] * current_loss
@@ -501,19 +550,22 @@ class SingleStockTradingEnv(gym.Env):
         current_profit = (net_worth - self.profit_reference) / self.profit_reference if net_worth > self.profit_reference else 0.0
 
         take_profit_tiers = [
-            {"threshold": 0.03, "fraction_to_sell": 0.25, "penalty_factor": 1},  # 0.1% gain: sell 25%
-            {"threshold": 0.05, "fraction_to_sell": 0.5, "penalty_factor": 2},   # 0.2% gain: sell 50%
-            {"threshold": 0.07,  "fraction_to_sell": 1.0, "penalty_factor": 3},   # 1% gain: full liquidation
+            {"threshold": 0.05, "fraction_to_sell": 0.25, "penalty_factor": 1.0},
+            {"threshold": 0.10, "fraction_to_sell": 0.5, "penalty_factor": 1.5},
+            {"threshold": 0.15, "fraction_to_sell": 1.0, "penalty_factor": 2.0},
         ]
 
 
         # Sort tiers in descending order so the highest applicable tier is applied first.
         sorted_tp_tiers = sorted(take_profit_tiers, key=lambda x: x["threshold"], reverse=True)
+        tp_ready = (self.current_step - self.last_tp_step) >= self.tp_cooldown_steps
 
         # We'll iterate from lower to higher threshold
         for tier in sorted_tp_tiers:
-            if current_profit > tier["threshold"] and self.position > 0:
+            crossed = (self.prev_profit <= tier["threshold"]) and (current_profit > tier["threshold"])
+            if tp_ready and crossed and self.position > 0:
                 take_profit_triggered = True
+                self.last_tp_step = self.current_step
                 # Apply incremental penalty
                 tier_penalty = -forced_tp_penalty_weight * current_profit * tier["penalty_factor"]
                 forced_tp_penalty += tier_penalty
@@ -540,27 +592,28 @@ class SingleStockTradingEnv(gym.Env):
                 # Cash-out excess profit: if net worth exceeds the profit reference by at least $100 or 1% increase,
                 # update the profit reference and cash out the excess.
                 excess = 0.0
-                if self.net_worth > self.profit_reference * 1.05:
-                    excess = self.net_worth - (self.profit_reference * 1.03)
-                    new_profit_reference = self.profit_reference
-                    cash_out = max(0, excess)
-                    
-                    main_logger.critical(
-                        f"[Trial {getattr(self, 'trial_id', 'N/A')}][Env {self.env_rank}][Ticker={self.ticker}][Step={self.current_step}] "
-                        f"TAKE-PROFIT cash-out triggered. old_profit_ref={self.profit_reference:.2f}, net_worth={self.net_worth:.2f}, "
-                        f"excess={excess:.2f}, new_profit_ref={new_profit_reference:.2f}, cash_out={cash_out:.2f}"
-                    )
+                if self.mode != "train":
+                    if self.net_worth > self.profit_reference * 1.05:
+                        new_profit_reference = self.profit_reference * 1.03
+                        excess = self.net_worth - new_profit_reference
+                        cash_out = max(0.0, excess)
 
-                    self.realized_gain += cash_out
-                    self.balance -= cash_out
-                    self.net_worth = float(self.balance + self.position * current_price)
-                    self.profit_reference = new_profit_reference
+                        main_logger.critical(
+                            f"[Trial {getattr(self, 'trial_id', 'N/A')}][Env {self.env_rank}][Ticker={self.ticker}][Step={self.current_step}] "
+                            f"TAKE-PROFIT cash-out triggered. old_profit_ref={self.profit_reference:.2f}, net_worth={self.net_worth:.2f}, "
+                            f"excess={excess:.2f}, new_profit_ref={new_profit_reference:.2f}, cash_out={cash_out:.2f}"
+                        )
 
-                    main_logger.critical(
-                        f"[Trial {getattr(self, 'trial_id', 'N/A')}][Env {self.env_rank}][Ticker={self.ticker}][Step={self.current_step}] "
-                        f"After TAKE-PROFIT cash-out: realized_gain={self.realized_gain:.2f}, balance={self.balance:.2f}, "
-                        f"net_worth={self.net_worth:.2f}, profit_reference={self.profit_reference:.2f}"
-                    )
+                        self.realized_gain += cash_out
+                        self.balance -= cash_out
+                        self.net_worth = float(self.balance + self.position * current_price)
+                        self.profit_reference = new_profit_reference
+
+                        main_logger.critical(
+                            f"[Trial {getattr(self, 'trial_id', 'N/A')}][Env {self.env_rank}][Ticker={self.ticker}][Step={self.current_step}] "
+                            f"After TAKE-PROFIT cash-out: realized_gain={self.realized_gain:.2f}, balance={self.balance:.2f}, "
+                            f"net_worth={self.net_worth:.2f}, profit_reference={self.profit_reference:.2f}"
+                        )
                 break  # Exit the loop after processing the first applicable tier
 
                 # If this is the highest tier (10%), we mark truncated = True
@@ -574,27 +627,7 @@ class SingleStockTradingEnv(gym.Env):
         profit_weight = self.reward_weights.get('profit_weight', 1.5)
         sharpe_bonus_weight = self.reward_weights.get('sharpe_bonus_weight', 0.05)
         holding_bonus_weight = self.reward_weights.get('holding_bonus_weight', 0.001)
-
-        profit_reward = (net_worth_change / self.initial_balance) * profit_weight
-        log_return = np.log(net_worth / self.prev_net_worth) if self.prev_net_worth > 0 else 0.0
-
-        # Append the log return into the returns window and maintain a fixed window length
-        self.returns_window.append(log_return)
-        if len(self.returns_window) > 30:
-            self.returns_window.pop(0)
-
-        if self.position == 0:
-            # Reset returns window if agent holds no position
-            self.returns_window = []
-
-        # Compute the Sharpe bonus using the log returns only when the agent holds a position.
-        if self.position > 0 and len(self.returns_window) >= 5:
-            mean_log_return = np.mean(self.returns_window)
-            std_log_return = np.std(self.returns_window) + 1e-9  # Avoid division by zero
-            sharpe = mean_log_return / std_log_return
-            sharpe_bonus = sharpe * self.reward_weights.get('sharpe_bonus_weight', 0.05)
-        else:
-            sharpe_bonus = 0.0
+        sharpe_bonus = 0.0
 
         self.peak = max(self.peak, net_worth)
         net_worth = float(self.balance + self.position * current_price)
@@ -611,14 +644,17 @@ class SingleStockTradingEnv(gym.Env):
             ]
             
             # Base penalty value can be adjusted; here we use a simple constant plus a scaled component.
-            base_penalty = -self.some_factor * current_drawdown
+            base_penalty = self.some_factor * current_drawdown
+            dd_ready = (self.current_step - self.last_dd_step) >= self.dd_cooldown_steps
             
             # Loop through all tiers and accumulate penalties if the current_drawdown exceeds each threshold.
             for tier in drawdown_tiers:
-                if current_drawdown > tier["threshold"] and self.position > 0:
+                crossed = (self.prev_drawdown <= tier["threshold"]) and (current_drawdown > tier["threshold"])
+                if dd_ready and crossed and self.position > 0:
                     # Accumulate penalty for this tier
                     drawdown_penalty -= base_penalty * tier["penalty_factor"]
                     drawdown_triggered = True
+                    self.last_dd_step = self.current_step
                     # If liquidation is specified for this tier and there is a position, perform it.
                     if tier.get("liquidate", False) and self.position > 0:                        
                         frac = tier.get("fraction_to_sell", 0.0)
@@ -647,45 +683,72 @@ class SingleStockTradingEnv(gym.Env):
         if any([stop_loss_triggered, take_profit_triggered, drawdown_triggered]) and terminated:
             action_value = 0
 
-        # --- Buy logic ---
-        if action_value > 0:
-            investment_amount = self.balance * action_value * self.max_position_size
-            shares_to_buy = math.floor(investment_amount / current_price)
-            if shares_to_buy == 0:
-                one_share_cost = current_price * (1 + self.transaction_cost)
-                if one_share_cost <= self.balance:
-                    shares_to_buy = 1
-            total_cost = shares_to_buy * current_price * (1 + self.transaction_cost)
-            if shares_to_buy > 0 and total_cost <= self.balance:
-                self.balance -= total_cost
-                self.position += shares_to_buy
-                self.transaction_count += 1
-                shares_traded = shares_to_buy
-                trade_cost = shares_traded * current_price * self.transaction_cost
-            else:
-                invalid_act_penalty = invalid_action_penalty
+        # ---- Target allocation trading (replaces buy/sell blocks) ----
+        net_worth = float(self.balance + self.position * current_price)
+        current_pos_value = float(self.position * current_price)
 
-        # --- Sell logic ---
-        elif action_value < 0:
-            proportion_to_sell = abs(action_value) * self.max_position_size
-            shares_to_sell = math.floor(self.position * proportion_to_sell)
-            if shares_to_sell == 0 and self.position > 0:
-                shares_to_sell = 1
-            if shares_to_sell > 0 and shares_to_sell <= self.position:
-                proceeds = shares_to_sell * current_price * (1 - self.transaction_cost)
-                self.position -= shares_to_sell
-                self.balance += proceeds
-                self.transaction_count += 1
-                shares_traded = shares_to_sell
-                trade_cost = shares_traded * current_price * self.transaction_cost
+        # Map raw policy output [-1, 1] to long-only allocation signal [0, 1].
+        alloc_signal = 1.0 / (1.0 + np.exp(-2.0 * action_value))
+        alloc = float(np.clip(alloc_signal, 0.0, 1.0)) * float(self.max_position_size)
+        action_value = alloc
+        target_pos_value = alloc * net_worth
+
+        min_trade_value_frac = float(self.reward_weights.get("min_trade_value_frac", 0.01))
+        min_trade_value = min_trade_value_frac * net_worth
+        sell_threshold_mult = float(self.reward_weights.get("sell_threshold_mult", 0.5))
+        min_sell_trade_value = min_trade_value * sell_threshold_mult
+        delta_value = target_pos_value - current_pos_value
+
+        if delta_value > 0:
+            if delta_value >= min_trade_value:
+                max_spend = min(delta_value, self.balance)
+                shares_to_buy = int(max_spend // current_price)
+                if shares_to_buy > 0:
+                    total_cost = shares_to_buy * current_price * (1 + self.transaction_cost)
+                    if total_cost <= self.balance:
+                        self.balance -= total_cost
+                        self.position += shares_to_buy
+                        self.transaction_count += 1
+                        shares_traded = shares_to_buy
+                        trade_side = "BUY"
+                        trade_cost = shares_traded * current_price * self.transaction_cost
+                    else:
+                        invalid_act_penalty = invalid_action_penalty
             else:
-                invalid_act_penalty = invalid_action_penalty
-        # --- Hold action ---
-        else:
-            pass
+                delta_value = 0.0
+        elif delta_value < 0:
+            if abs(delta_value) >= min_sell_trade_value:
+                desired_sell_value = min(-delta_value, current_pos_value)
+                shares_to_sell = int(desired_sell_value // current_price)
+                shares_to_sell = min(shares_to_sell, int(self.position))
+                if shares_to_sell > 0:
+                    proceeds = shares_to_sell * current_price * (1 - self.transaction_cost)
+                    self.position -= shares_to_sell
+                    self.balance += proceeds
+                    self.transaction_count += 1
+                    shares_traded = shares_to_sell
+                    trade_side = "SELL"
+                    trade_cost = shares_traded * current_price * self.transaction_cost
+            else:
+                delta_value = 0.0
 
         net_worth = float(self.balance + self.position * current_price)
         self.net_worth = net_worth
+
+        # IMPORTANT: compute reward-driving deltas after all step trades/liquidations.
+        net_worth_change = net_worth - self.prev_net_worth
+        profit_reward = (net_worth_change / max(self.initial_balance, 1e-9)) * profit_weight
+        log_return = np.log(net_worth / self.prev_net_worth) if self.prev_net_worth > 0 else 0.0
+        self.returns_window.append(log_return)
+        if len(self.returns_window) > 30:
+            self.returns_window.pop(0)
+        if self.position == 0:
+            self.returns_window = []
+        if self.position > 0 and len(self.returns_window) >= 5:
+            mean_log_return = np.mean(self.returns_window)
+            std_log_return = np.std(self.returns_window) + 1e-9
+            sharpe = mean_log_return / std_log_return
+            sharpe_bonus = sharpe * sharpe_bonus_weight
 
         hold_factor = max(0, 1 - abs(action_value) / 0.1)
         raw_vol = current_data['Volatility']
@@ -707,8 +770,12 @@ class SingleStockTradingEnv(gym.Env):
         else:
             holding_bonus = 0.0
 
-        transaction_penalty_weight = self.reward_weights.get('transaction_penalty_weight', 1.0)
-        transaction_penalty = -(trade_cost / self.initial_balance) * transaction_penalty_weight
+        transaction_penalty_weight = float(self.reward_weights.get('transaction_penalty_weight', 1.0))
+        transaction_penalty_scale = float(self.reward_weights.get('transaction_penalty_scale', 1.0))
+        transaction_penalty = -(trade_cost / self.initial_balance) * transaction_penalty_weight * transaction_penalty_scale
+        turnover_penalty_weight = self.reward_weights.get("turnover_penalty_weight", 0.001)
+        turnover = abs(action_value - self.prev_action)
+        turnover_penalty = turnover * turnover_penalty_weight
 
         reward = (
             profit_reward
@@ -717,25 +784,31 @@ class SingleStockTradingEnv(gym.Env):
             + forced_tp_penalty
             + drawdown_penalty
             + transaction_penalty
+            - turnover_penalty
             + holding_bonus
             + invalid_act_penalty
         )
 
-        raw_reward = reward
+        reward_scale = float(self.reward_weights.get("reward_scale", 1.0))
+        raw_reward = reward * reward_scale
         self.reward_history.append(raw_reward)
         
         normalized_reward = float(raw_reward)
         
         self.cumulative_reward += float(reward)
         
+        logged_trade_side = "BUY" if (shares_traded > 0 and delta_value > 0) else ("SELL" if (shares_traded > 0 and delta_value < 0) else "HOLD")
         self.history.append({
             'Date': current_date,
             'Close': current_price,
             'ticker': self.ticker,
             'env_rank': self.env_rank,
             'Action': action_value,
-            'Buy_Signal_Price': current_price if action_value > 0 else np.nan,
-            'Sell_Signal_Price': current_price if action_value < 0 else np.nan,
+            'trade_side': logged_trade_side,
+            'Buy_Signal_Price': current_price if logged_trade_side == "BUY" else np.nan,
+            'Sell_Signal_Price': current_price if logged_trade_side == "SELL" else np.nan,
+            'shares_traded': float(shares_traded),
+            'delta_value': float(delta_value),
             'Full Worth': self.net_worth + self.realized_gain, 
             'Net Worth': self.net_worth,
             'Balance': self.balance,
@@ -751,6 +824,8 @@ class SingleStockTradingEnv(gym.Env):
             'forced_tp_penalty': forced_tp_penalty,
             'drawdown_penalty': drawdown_penalty,
             'transaction_penalty': transaction_penalty,
+            'turnover_penalty': -turnover_penalty,
+            'target_position_value': target_pos_value,
             'is_terminated': terminated,
             # New flags added
             'stop_loss_triggered': stop_loss_triggered,
@@ -761,6 +836,7 @@ class SingleStockTradingEnv(gym.Env):
             'profit_weight': profit_weight,
             'sharpe_bonus_weight': sharpe_bonus_weight,
             'transaction_penalty_weight': transaction_penalty_weight,
+            'turnover_penalty_weight': turnover_penalty_weight,
             'holding_bonus_weight': holding_bonus_weight,            
             'inference_buy_threshold': self.inference_buy_threshold,
             'inference_sell_threshold': self.inference_sell_threshold,
@@ -822,6 +898,14 @@ class SingleStockTradingEnv(gym.Env):
                 "peak": self.peak,
                 "history": self.history.copy()  # copy the full list of step records
             }
+
+        # Persist trigger-state markers for edge detection on the next step.
+        self.prev_loss = current_loss
+        self.prev_profit = current_profit
+        self.prev_drawdown = current_drawdown
+        self.prev_action = action_value
+        self.prev_policy_action = smoothed_raw
+        self.prev_target_value = target_pos_value
 
         if not terminated:
             self.prev_net_worth = net_worth
@@ -1062,7 +1146,8 @@ def objective(
     max_position_size: float,
     max_drawdown: float,
     annual_trading_days: int,
-    transaction_cost: float
+    transaction_cost: float,
+    preloaded_data: Optional[dict] = None
 ):
     import math
     import numpy as np
@@ -1073,7 +1158,7 @@ def objective(
     from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
 
     # === Define PPO Hyperparameters ===
-    learning_rate = trial.suggest_loguniform('learning_rate', 1e-6, 1e-3)
+    learning_rate = trial.suggest_float('learning_rate', 1e-5, 5e-4, log=True)
     #n_steps = trial.suggest_categorical('n_steps', [128, 256, 512])
     n_steps = trial.suggest_categorical('n_steps', [256])
     batch_size = trial.suggest_categorical('batch_size', [32, 64])
@@ -1088,22 +1173,27 @@ def objective(
     # === Define Environment-Specific Tuning Parameters ===
     #drawdown_penalty_factor = trial.suggest_float('drawdown_penalty_factor', 0.0001, 1.0, log=True)
     #drawdown_penalty_factor = trial.suggest_float('drawdown_penalty_factor', 0.5, 1000.0, log=False)
-    drawdown_penalty_factor = trial.suggest_float('drawdown_penalty_factor', 0.5, 1000.0, step=100.0, log=False)
+    drawdown_penalty_factor = trial.suggest_float('drawdown_penalty_factor', 0.001, 2.0, log=True)
     tuned_stop_loss = trial.suggest_float('stop_loss', 0.80, 0.95, step=0.01)
     tuned_take_profit = trial.suggest_float('take_profit', 1.05, 1.20, step=0.01)
-    tuned_transaction_cost = trial.suggest_float('transaction_cost', 0.0005, 0.005, step=0.0005)
+    tuned_transaction_cost = trial.suggest_float('transaction_cost', 0.0001, 0.0005, step=0.0001)
     tuned_reward_scale = trial.suggest_float('reward_scale', 0.5, 2.0, step=0.1)
     tuned_max_position_size = trial.suggest_float('max_position_size', 0.1, 0.5, step=0.1)
     tuned_max_drawdown = trial.suggest_float('max_drawdown', 0.1, 0.3, step=0.01)
-    profit_weight = trial.suggest_float('profit_weight', 0.5, 1000.0)
-    sharpe_bonus_weight = trial.suggest_float('sharpe_bonus_weight', 0.01, 1000.0)
-    transaction_penalty_weight = trial.suggest_loguniform('transaction_penalty_weight', 1e-5, 1e-2)
-    holding_bonus_weight = trial.suggest_float('holding_bonus_weight', 0.5, 1000.0)
+    profit_weight = trial.suggest_float('profit_weight', 0.5, 30.0, log=True)
+    sharpe_bonus_weight = trial.suggest_float('sharpe_bonus_weight', 0.001, 0.5, log=True)
+    transaction_penalty_weight = trial.suggest_float('transaction_penalty_weight', 0.1, 20.0, log=True)
+    turnover_penalty_weight = trial.suggest_float("turnover_penalty_weight", 0.01, 2.0, log=True)
+    min_trade_value_frac = trial.suggest_float("min_trade_value_frac", 0.005, 0.03)
+    action_dead_zone = trial.suggest_float("action_dead_zone", 0.03, 0.10)
+    action_smoothing_alpha = trial.suggest_float("action_smoothing_alpha", 0.60, 0.85)
+    sell_threshold_mult = trial.suggest_float("sell_threshold_mult", 0.3, 0.7)
+    holding_bonus_weight = trial.suggest_float('holding_bonus_weight', 0.0, 0.2, log=False)
     transaction_penalty_scale = trial.suggest_float('transaction_penalty_scale', 0.5, 2.0)
     volatility_threshold = trial.suggest_float("volatility_threshold", 0.5, 2.0)
     momentum_threshold_min = trial.suggest_float("momentum_threshold_min", 30, 45)
     momentum_threshold_max = trial.suggest_float("momentum_threshold_max", 55, 70)
-    hold_threshold = trial.suggest_float("hold_threshold", 0.0, 0.1, step=0.01)
+    hold_threshold = 0.0
     
     tuned_inference_buy_threshold = trial.suggest_float("inference_buy_threshold", 0.1, 0.5)
     tuned_inference_sell_threshold = trial.suggest_float("inference_sell_threshold", 0.1, 0.5)
@@ -1115,15 +1205,19 @@ def objective(
     """ forced_stop_penalty_weight = trial.suggest_float("forced_stop_penalty_weight", 0.5, 1000.0, log=False)
     forced_tp_penalty_weight = trial.suggest_float("forced_tp_penalty_weight", 0.5, 1000.0, log=False) """
 
-    forced_stop_penalty_weight = trial.suggest_float("forced_stop_penalty_weight", 0.5, 1000.0, step=100.0, log=False)
-    forced_tp_penalty_weight = trial.suggest_float("forced_tp_penalty_weight", 0.5, 1000.0, step=100.0, log=False)
+    forced_stop_penalty_weight = trial.suggest_float("forced_stop_penalty_weight", 0.001, 2.0, log=True)
+    forced_tp_penalty_weight = trial.suggest_float("forced_tp_penalty_weight", 0.001, 2.0, log=True)
 
     # === Build Environment List and Store Ticker-Env Pairs ===
     env_factories = []
     env_pairs = []  # list of (ticker, env_instance)
-    for i, ticker in enumerate(optuna_tickers):
+    for i, ticker in enumerate(train_tickers):
         main_logger.info(f"[Trial {trial.number}] Creating training environment for ticker {ticker}")
-        df_full = get_data(ticker, "2018-01-01", "2025-02-05")
+        if preloaded_data is not None:
+            # When preloaded data is provided, never hit network inside Optuna trials.
+            df_full = preloaded_data.get(ticker, pd.DataFrame()).copy()
+        else:
+            df_full = get_data(ticker, "2018-01-01", "2025-02-05")
         if df_full.empty:
             main_logger.warning(f"[Trial {trial.number}] No data for ticker {ticker}. Skipping.")
             continue
@@ -1133,7 +1227,7 @@ def objective(
             main_logger.warning(f"[Trial {trial.number}] Training data empty for ticker {ticker}. Skipping.")
             continue
 
-        env_instance = SingleStockTradingEnv(
+        env_kwargs = dict(
             df=df_train,
             ticker=ticker,
             initial_balance=initial_balance,
@@ -1151,6 +1245,11 @@ def objective(
                 'profit_weight': profit_weight,
                 'sharpe_bonus_weight': sharpe_bonus_weight,
                 'transaction_penalty_weight': transaction_penalty_weight,
+                'turnover_penalty_weight': turnover_penalty_weight,
+                'min_trade_value_frac': min_trade_value_frac,
+                'sell_threshold_mult': sell_threshold_mult,
+                'action_dead_zone': action_dead_zone,
+                'action_smoothing_alpha': action_smoothing_alpha,
                 'holding_bonus_weight': holding_bonus_weight,
                 'transaction_penalty_scale': transaction_penalty_scale,
                 'volatility_threshold': volatility_threshold,
@@ -1160,28 +1259,28 @@ def objective(
                 'forced_tp_penalty_weight': forced_tp_penalty_weight
             },
             max_episode_steps=len(df_train),
-            mode="train",  # Training mode: filtering is NOT applied here.
+            mode="train",
             inference_buy_threshold=tuned_inference_buy_threshold,
-            inference_sell_threshold=tuned_inference_sell_threshold  
+            inference_sell_threshold=tuned_inference_sell_threshold
         )
+        env_instance = SingleStockTradingEnv(**env_kwargs)
         main_logger.info(f"[Trial {trial.number}] Environment for ticker {ticker} created (env_rank={i}).")
         env_pairs.append((ticker, env_instance))
-        # Wrap each environment instance in a lambda for SubprocVecEnv.
-        env_factories.append(lambda e=env_instance: e)
+        env_factories.append(make_env_factory(env_kwargs))
     
     if not env_factories:
         main_logger.critical(f"[Trial {trial.number}] No training environments were created. Exiting trial.")
         return -math.inf
 
     vec_env_train = SubprocVecEnv(env_factories)
-    vec_env_train = VecNormalize(vec_env_train, norm_obs=True, norm_reward=True, clip_obs=10000.0, clip_reward=250000.0)
+    vec_env_train = VecNormalize(vec_env_train, norm_obs=True, norm_reward=False, clip_obs=10.0, clip_reward=10.0)
     
     # === Build PPO Model with Dynamic Network Architecture ===
     # Sample the number of layers (4-8) and each layer's size ([64, 128, 256])
-    num_layers = trial.suggest_int("num_layers", 6, 9)
+    num_layers = trial.suggest_int("num_layers", 2, 4)
     net_arch = []
     for layer_i in range(num_layers):
-        layer_size = trial.suggest_categorical(f"layer_size_{layer_i}", [64, 128, 256])
+        layer_size = trial.suggest_categorical(f"layer_size_{layer_i}", [64, 128])
         net_arch.append(layer_size)
 
     policy_kwargs = dict(
@@ -1231,7 +1330,7 @@ def objective(
     callback_list = CallbackList([custom_callback, checkpoint_callback, early_stopping_callback])
     
     # === PPO Training ===
-    total_timesteps = 16000
+    total_timesteps = 15000
     start_time = time.time()
     main_logger.info(f"[Trial {trial.number}] Trial Hyperparameters: {trial.params}")
     main_logger.info(f"[Trial {trial.number}] Starting PPO training with {total_timesteps} timesteps.")
@@ -1246,10 +1345,10 @@ def objective(
     
     # === Rollout Evaluation ===
     vec_env_train.training = False    
-    vec_env_train.norm_reward = True
-    # For example, if training used the default ±10 clipping:
-    vec_env_train.clip_obs = 10000.0      # match training's observation clipping range
-    vec_env_train.clip_reward = 25000.0   # match training's reward clipping range
+    vec_env_train.norm_reward = False
+    # For example, if training used the default Â±10 clipping:
+    vec_env_train.clip_obs = 10.0      # match training's observation clipping range
+    vec_env_train.clip_reward = 10.0   # match training's reward clipping range
 
     num_episodes_to_run = 1  # or desired number
     all_episode_rewards = []
@@ -1270,7 +1369,7 @@ def objective(
         
         max_rollout_steps = 1500  # or a fixed number if you prefer, e.g., 500
         while not all(done) and episode_steps < max_rollout_steps:
-            action, _ = model.predict(obs, deterministic=True)
+            action, _ = model.predict(obs, deterministic=False)
             obs, rewards, done, infos = vec_env_train.step(action)
 
             # Log the done flags and infos for this step:
@@ -1321,6 +1420,16 @@ def objective(
 
     # Compute net worth change relative to the initial balance
     networth_change = (avg_full_worth - initial_balance) / initial_balance
+    cost_fracs = []
+    for metrics_dict in final_metrics_all:
+        history = metrics_dict.get("history", []) if metrics_dict else []
+        if not history:
+            continue
+        total_cost = sum(float(r.get("Trade_Cost", 0.0)) for r in history)
+        cost_fracs.append(total_cost / max(initial_balance, 1e-9))
+    avg_cost_frac = float(np.mean(cost_fracs)) if cost_fracs else 0.0
+    lambda_cost = 1.0
+    objective_value = float(networth_change - lambda_cost * avg_cost_frac)
 
     # --- Log Detailed Metrics for Each Ticker via a For Loop (using full net worth change) ---
     for idx, (ticker, env_instance) in enumerate(env_pairs):
@@ -1403,11 +1512,13 @@ def objective(
     import gc
     gc.collect()               # Force garbage collection
 
-    return networth_change
+    return objective_value
 
 
 if __name__ == "__main__":
-    main_logger.info("Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).")
+    import multiprocessing as mp
+    mp.freeze_support()
+    main_logger.info("Starting pipeline for multiâ€ticker training (ITC, APOLLOTYRE) and singleâ€ticker testing (GRINDWELL).")
 
     # ----------------------------------------------------------------
     # 1. Function to read CSV from 'data/' and parse indicators
@@ -1418,28 +1529,125 @@ if __name__ == "__main__":
     from pathlib import Path
     from ta import trend, momentum, volatility, volume
 
+    DATA_CACHE = {}
+    DATA_CACHE_LOCK = threading.Lock()
+    YF_RATE_LIMIT_COOLDOWN_UNTIL = 0.0
+
     def get_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         """
         Fetches data from yfinance for a given ticker and date range, then performs
         validations and technical indicator calculations. Returns a validated
         DataFrame or an empty DataFrame if any critical validation fails.
         """
-        main_logger.info(f"Fetching data from yfinance for ticker {ticker} between {start_date} and {end_date}")
-        
+        cache_key = (ticker, start_date, end_date)
+        with DATA_CACHE_LOCK:
+            cached_df = DATA_CACHE.get(cache_key)
+        if cached_df is not None:
+            main_logger.info(f"[get_data] Cache hit for {ticker} between {start_date} and {end_date}")
+            return cached_df.copy()
+
         RESULTS_DIR = Path("./results")
         RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+        raw_csv_file = RESULTS_DIR / f"data_fetched_{ticker}.csv"
+
+        # Prefer existing on-disk cache before any network call.
+        if raw_csv_file.exists():
+            try:
+                cached_disk_df = pd.read_csv(raw_csv_file)
+                cached_disk_df["Date"] = pd.to_datetime(cached_disk_df["Date"], errors="coerce")
+                cached_disk_df.dropna(subset=["Date"], inplace=True)
+                cached_disk_df.sort_values("Date", inplace=True)
+                cached_disk_df.reset_index(drop=True, inplace=True)
+                if len(cached_disk_df) >= 200:
+                    main_logger.info(f"[get_data] Using on-disk cache for {ticker}: {raw_csv_file}")
+                    with DATA_CACHE_LOCK:
+                        DATA_CACHE[cache_key] = cached_disk_df.copy()
+                    return cached_disk_df
+            except Exception as disk_e:
+                main_logger.warning(f"[get_data] Could not read on-disk cache for {ticker}: {disk_e}")
+
+        global YF_RATE_LIMIT_COOLDOWN_UNTIL
+        now_ts = time.time()
+        if now_ts < YF_RATE_LIMIT_COOLDOWN_UNTIL:
+            cooldown_left = int(YF_RATE_LIMIT_COOLDOWN_UNTIL - now_ts)
+            main_logger.warning(
+                f"[get_data] Skipping yfinance for {ticker}; rate-limit cooldown active ({cooldown_left}s left)."
+            )
+            with DATA_CACHE_LOCK:
+                DATA_CACHE[cache_key] = pd.DataFrame()
+            return pd.DataFrame()
+
+        main_logger.info(f"Fetching data from yfinance for ticker {ticker} between {start_date} and {end_date}")
 
         required_columns = ["Date", "Open", "High", "Low", "Close", "Adj Close", "Volume"]
-        
-        try:
-            # Fetch data from yfinance
-            df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=False, group_by="ticker", progress=False)
-        except Exception as e:
-            main_logger.error(f"Error fetching data from yfinance for ticker {ticker}: {e}")
-            return pd.DataFrame()
-        
+        df = pd.DataFrame()
+        max_retries = 1
+        for attempt in range(1, max_retries + 1):
+            try:
+                # Disable internal threading to reduce request bursts.
+                df = yf.download(
+                    ticker,
+                    start=start_date,
+                    end=end_date,
+                    auto_adjust=False,
+                    group_by="ticker",
+                    progress=False,
+                    threads=False
+                )
+                if not df.empty:
+                    break
+                main_logger.warning(
+                    f"[get_data] Empty response from yfinance for {ticker} on attempt {attempt}/{max_retries}."
+                )
+            except Exception as e:
+                err_msg = str(e)
+                is_rate_limited = ("YFRateLimitError" in err_msg) or ("Too Many Requests" in err_msg)
+                if attempt < max_retries and is_rate_limited:
+                    sleep_s = min(60, 5 * (2 ** (attempt - 1)))
+                    main_logger.warning(
+                        f"[get_data] Rate limited for {ticker} (attempt {attempt}/{max_retries}). "
+                        f"Sleeping {sleep_s}s before retry."
+                    )
+                    time.sleep(sleep_s)
+                    continue
+                if is_rate_limited:
+                    YF_RATE_LIMIT_COOLDOWN_UNTIL = time.time() + 15 * 60
+                    main_logger.warning(
+                        f"[get_data] Rate limit detected; enabling 900s cooldown for yfinance calls."
+                    )
+                main_logger.error(f"Error fetching data from yfinance for ticker {ticker}: {e}")
+                break
+
+            if attempt < max_retries:
+                # Small jitter between attempts to avoid synchronized hits.
+                time.sleep(1 + random.random())
+
         if df.empty:
-            main_logger.error(f"No data fetched from yfinance for ticker {ticker}")
+            # yfinance can return empty on throttling without raising; enter cooldown to avoid hammering.
+            YF_RATE_LIMIT_COOLDOWN_UNTIL = time.time() + 15 * 60
+            main_logger.warning(
+                f"[get_data] Empty yfinance response for {ticker}; enabling 900s cooldown."
+            )
+            if raw_csv_file.exists():
+                try:
+                    fallback_df = pd.read_csv(raw_csv_file)
+                    fallback_df["Date"] = pd.to_datetime(fallback_df["Date"], errors="coerce")
+                    fallback_df.dropna(subset=["Date"], inplace=True)
+                    fallback_df.sort_values("Date", inplace=True)
+                    fallback_df.reset_index(drop=True, inplace=True)
+                    if len(fallback_df) >= 200:
+                        main_logger.warning(
+                            f"[get_data] Using local fallback CSV for {ticker}: {raw_csv_file}"
+                        )
+                        with DATA_CACHE_LOCK:
+                            DATA_CACHE[cache_key] = fallback_df.copy()
+                        return fallback_df
+                except Exception as csv_e:
+                    main_logger.error(f"[get_data] Failed local fallback for {ticker}: {csv_e}")
+
+            main_logger.error(f"No usable data fetched from yfinance for ticker {ticker}")
+            with DATA_CACHE_LOCK:
+                DATA_CACHE[cache_key] = pd.DataFrame()
             return pd.DataFrame()
 
         # Reset index to ensure Date is a column
@@ -1537,10 +1745,19 @@ if __name__ == "__main__":
             fi_indicator = ForceIndexIndicator(close=close, volume=vol_series, window=2)
             df["Force_Index"] = fi_indicator.force_index()
 
-            # Optional: If you want “Intraday_Pct_Range” or “Range/Open”
+            # Optional: If you want â€œIntraday_Pct_Rangeâ€ or â€œRange/Openâ€
             df["Intraday_Pct_Range"] = (df["High"] - df["Low"]) / df["Open"].replace(0, np.nan)
         except Exception as e:
             main_logger.error(f"[get_data] Error calculating indicators for {ticker}: {e}")
+            return pd.DataFrame()
+
+        # Drop initial warm-up region where rolling indicators are unreliable.
+        warmup_rows = 60
+        if len(df) > warmup_rows:
+            df = df.iloc[warmup_rows:].copy()
+            df.reset_index(drop=True, inplace=True)
+        if len(df) < 200:
+            main_logger.error(f"[get_data] Not enough data points after warm-up ({len(df)}) for ticker {ticker}.")
             return pd.DataFrame()
 
         # Fill missing values
@@ -1548,7 +1765,6 @@ if __name__ == "__main__":
         df.fillna(0, inplace=True)
 
         # Save raw CSV
-        raw_csv_file = RESULTS_DIR / f"data_fetched_{ticker}.csv"
         try:
             df.to_csv(raw_csv_file, index=False)
             main_logger.info(f"[get_data] Wrote raw CSV for ticker {ticker}: {raw_csv_file}")
@@ -1557,58 +1773,60 @@ if __name__ == "__main__":
             return pd.DataFrame()
         
         main_logger.info(f"[get_data] Successfully fetched & validated data for {ticker}. Final shape: {df.shape}")
+        with DATA_CACHE_LOCK:
+            DATA_CACHE[cache_key] = df.copy()
         return df
 
 
     """ train_tickers = [
-    # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+    # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
     "APOLLOTYRE.NS", "KPIL.NS", "EXIDEIND.NS",
 
-    # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+    # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
     "GABRIEL.NS", "TATVA.NS"
     ]
 
     optuna_tickers = [
-        # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+        # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
         "ICICIBANK.NS", "JYOTHYLAB.NS", "APOLLOTYRE.NS",
 
-        # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+        # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
         "GODREJIND.NS", "MAHSEAMLES.NS"
     ] """
 
     train_tickers = [
-    # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+    # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
     "APOLLOTYRE.NS", "KPIL.NS",
 
-    # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+    # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
     "GABRIEL.NS"
     ]
 
     optuna_tickers = [
-        # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+        # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
         "ICICIBANK.NS", "JYOTHYLAB.NS",
 
-        # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+        # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
         "TATVA.NS"
     ]
 
     """ train_tickers = [
-    # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+    # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
     "GRINDWELL.NS", "APOLLOTYRE.NS", "EXIDEIND.NS", "KPIL.NS", "ICICIBANK.NS",
 
-    # 🔹 **Large-Cap Stocks** (NIFTY 50)
+    # ðŸ”¹ **Large-Cap Stocks** (NIFTY 50)
     "HDFCBANK.NS", "INFY.NS", "TCS.NS", "RELIANCE.NS",
 
-    # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+    # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
     "JYOTHYLAB.NS", "GABRIEL.NS", "MAHSEAMLES.NS", "GODREJIND.NS", "TATVA.NS"
     ]
 
 
     optuna_tickers = [
-    # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+    # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
     "ICICIBANK.NS", "APOLLOTYRE.NS", "JYOTHYLAB.NS", "KPIL.NS",
 
-    # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+    # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
     "CROMPTON.NS", "GABRIEL.NS", "MAHSEAMLES.NS", "GODREJIND.NS", "TATVA.NS"
     ] """
 
@@ -1662,20 +1880,43 @@ if __name__ == "__main__":
         load_if_exists=False
     )
 
-    n_trials = 50
+    n_trials = 8
     main_logger.info(f"Starting Optuna study for {n_trials} trials with multiple training envs.")
+
+    # Preload once for Optuna tickers so objective() runs fully offline.
+    preloaded_market_data = {}
+    preload_tickers = list(optuna_tickers)
+    for ticker in preload_tickers:
+        df_full = get_data(ticker, "2018-01-01", "2025-02-05")
+        if not df_full.empty:
+            preloaded_market_data[ticker] = df_full.copy()
+
+    available_optuna_tickers = [t for t in optuna_tickers if t in preloaded_market_data]
+    if not available_optuna_tickers:
+        main_logger.critical(
+            f"No Optuna tickers have usable preloaded data. Requested={optuna_tickers}. "
+            "Likely yfinance throttling with no local cache present."
+        )
+        exit()
+    if len(available_optuna_tickers) < len(optuna_tickers):
+        missing = [t for t in optuna_tickers if t not in available_optuna_tickers]
+        main_logger.warning(
+            f"Proceeding with subset of Optuna tickers due to missing data: {available_optuna_tickers}. "
+            f"Missing={missing}"
+        )
 
     study.optimize(
         lambda trial: objective(
             trial,
-            train_tickers=optuna_tickers,
+            train_tickers=available_optuna_tickers,
             initial_balance=100000,
             stop_loss=0.90,
             take_profit=1.10,
             max_position_size=0.5,
             max_drawdown=0.20,
             annual_trading_days=252,
-            transaction_cost=0.001
+            transaction_cost=0.001,
+            preloaded_data=preloaded_market_data
         ),
         n_trials=n_trials,
         n_jobs=1
@@ -1701,8 +1942,9 @@ if __name__ == "__main__":
         main_logger.critical("No successful trials found.")
         exit()
     # Assume these tuned values come from your Optuna study:
-    optuna_tuned_inference_buy_threshold = best_params["inference_buy_threshold"]
-    optuna_tuned_inference_sell_threshold = best_params["inference_sell_threshold"]
+    # Diagnostic override for test-time action filtering to verify the policy can trade.
+    optuna_tuned_inference_buy_threshold = 0.1
+    optuna_tuned_inference_sell_threshold = 0.1
 
     # ----------------------------------------------------------------
     # 5. Final training pass with best hyperparams
@@ -1711,13 +1953,14 @@ if __name__ == "__main__":
 
     final_envs = []
     for i, ticker in enumerate(train_tickers):
-        df_full = get_data(ticker, "2018-01-01", "2025-02-05")
+        df_full = preloaded_market_data.get(ticker, pd.DataFrame()).copy()
         if df_full.empty:
+            main_logger.warning(f"No cached data for final training ticker {ticker}; skipping final env.")
             continue
         split_idx = int(len(df_full) * 0.8)
         df_train = df_full.iloc[:split_idx].reset_index(drop=True)
 
-        env_instance = SingleStockTradingEnv(
+        env_kwargs = dict(
             df=df_train,
             ticker=ticker,
             initial_balance=INITIAL_BALANCE,
@@ -1729,68 +1972,79 @@ if __name__ == "__main__":
             transaction_cost=best_params.get('transaction_cost', TRANSACTION_COST),
             env_rank=1000 + i,
             some_factor=best_params.get('drawdown_penalty_factor', 0.01),
-            hold_threshold=best_params.get('hold_threshold', 0.1),
+            hold_threshold=0.1,
             reward_weights={
                 'reward_scale': best_params.get('reward_scale', 1.0),
                 'profit_weight': best_params.get('profit_weight', 1.5),
                 'sharpe_bonus_weight': best_params.get('sharpe_bonus_weight', 0.05),
                 'transaction_penalty_weight': best_params.get('transaction_penalty_weight', 1e-3),
+                'turnover_penalty_weight': best_params.get('turnover_penalty_weight', 1e-3),
+                'min_trade_value_frac': best_params.get('min_trade_value_frac', 0.01),
+                'sell_threshold_mult': best_params.get('sell_threshold_mult', 0.5),
+                'action_dead_zone': best_params.get('action_dead_zone', 0.05),
+                'action_smoothing_alpha': best_params.get('action_smoothing_alpha', 0.9),
                 'holding_bonus_weight': best_params.get('holding_bonus_weight', 0.001),
-                'transaction_penalty_scale': best_params.get('transaction_penalty_weight', 1.0),
+                'transaction_penalty_scale': best_params.get('transaction_penalty_scale', 1.0),
                 'volatility_threshold': best_params.get('volatility_threshold', 1.0),
                 'momentum_threshold_min': best_params.get('momentum_threshold_min', 30),
                 'momentum_threshold_max': best_params.get('momentum_threshold_max', 70),
-                # New hyperparameters for penalty weights:
                 'forced_stop_penalty_weight': best_params.get('forced_stop_penalty_weight', 1.0),
                 'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0)
             },
             max_episode_steps=len(df_train),
-            mode="train",  # Training mode
+            mode="train",
             inference_buy_threshold=optuna_tuned_inference_buy_threshold,
             inference_sell_threshold=optuna_tuned_inference_sell_threshold
         )
-        final_envs.append(lambda e=env_instance: e)
+        final_envs.append(make_env_factory(env_kwargs))    main_logger.info(f"Final training env count: {len(final_envs)} for train_tickers={train_tickers}")
+    if final_envs:
+        if len(final_envs) == 1:
+            vec_env_final = DummyVecEnv(final_envs)
+        else:
+            vec_env_final = SubprocVecEnv(final_envs)
+        vec_env_final = VecNormalize(vec_env_final, norm_obs=True, norm_reward=False, clip_obs=10.0, clip_reward=10.0)
 
-    vec_env_final = SubprocVecEnv(final_envs)
-    vec_env_final = VecNormalize(vec_env_final, norm_obs=True, norm_reward=True, clip_obs=10000.0, clip_reward=250000.0)    
+        net_arch_str = best_params.get('net_arch', '128_128')
+        net_arch_list = [int(x) for x in net_arch_str.split('_')]
+        policy_kwargs = dict(
+            activation_fn=torch.nn.ReLU,
+            net_arch=net_arch_list
+        )
 
-    net_arch_str = best_params.get('net_arch', '128_128')
-    net_arch_list = [int(x) for x in net_arch_str.split('_')]
-    policy_kwargs = dict(
-        activation_fn=torch.nn.ReLU,
-        net_arch=net_arch_list
-    )
+        model_final = PPO(
+            "MlpPolicy",
+            vec_env_final,
+            verbose=1,
+            seed=RANDOM_SEED,
+            policy_kwargs=policy_kwargs,
+            learning_rate=best_params.get('learning_rate', 1e-4),
+            n_steps=best_params.get('n_steps', 256),
+            batch_size=best_params.get('batch_size', 64),
+            gamma=best_params.get('gamma', 0.99),
+            gae_lambda=best_params.get('gae_lambda', 0.95),
+            clip_range=best_params.get('clip_range', 0.2),
+            ent_coef=best_params.get('ent_coef', 0.01),
+            vf_coef=best_params.get('vf_coef', 0.5),
+            max_grad_norm=best_params.get('max_grad_norm', 0.5),
+            tensorboard_log=str(TB_LOG_DIR / "final_model")
+        )
 
-    model_final = PPO(
-        "MlpPolicy",
-        vec_env_final,
-        verbose=1,
-        seed=RANDOM_SEED,
-        policy_kwargs=policy_kwargs,
-        learning_rate=best_params.get('learning_rate', 1e-4),
-        n_steps=best_params.get('n_steps', 256),
-        batch_size=best_params.get('batch_size', 64),
-        gamma=best_params.get('gamma', 0.99),
-        gae_lambda=best_params.get('gae_lambda', 0.95),
-        clip_range=best_params.get('clip_range', 0.2),
-        ent_coef=best_params.get('ent_coef', 0.01),
-        vf_coef=best_params.get('vf_coef', 0.5),
-        max_grad_norm=best_params.get('max_grad_norm', 0.5),
-        tensorboard_log=str(TB_LOG_DIR / "final_model")
-    )
+        total_timesteps = int(best_params.get("final_timesteps", 300000))
+        if total_timesteps > 0:
+            main_logger.info(f"Learning final model for {total_timesteps} timesteps with multiple tickers.")
+            model_final.learn(total_timesteps=total_timesteps)
+        else:
+            main_logger.info("Skipping final training (total_timesteps=0).")
 
-    total_timesteps = 1000000
-    main_logger.info(f"Learning final model for {total_timesteps} timesteps with multiple tickers.")
-    model_final.learn(total_timesteps=total_timesteps)
+        # Save the model and VecNormalize object to the results directory
+        model_save_path = RESULTS_DIR / "ppo_final_model.zip"
+        vecenv_save_path = RESULTS_DIR / "vec_normalize.pkl"
+        model_final.save(str(model_save_path))
+        vec_env_final.save(str(vecenv_save_path))
 
-    # Save the model and VecNormalize object to the results directory
-    model_save_path = RESULTS_DIR / "ppo_final_model.zip"
-    vecenv_save_path = RESULTS_DIR / "vec_normalize.pkl"
-    model_final.save(str(model_save_path))
-    vec_env_final.save(str(vecenv_save_path))
-
-    main_logger.info(f"Final multi‐ticker model saved to {model_save_path} and VecNormalize saved to {vecenv_save_path}.")
-
+        main_logger.info(f"Final multi-ticker model saved to {model_save_path} and VecNormalize saved to {vecenv_save_path}.")
+    else:
+        main_logger.critical("No final training envs created (all df_full empty?). Skipping final training block.")
 
     # ----------------------------------------------------------------
     # 6. Test on multiple tickers with saved normalization and save test history to CSV
@@ -1798,13 +2052,13 @@ if __name__ == "__main__":
 
     test_tickers = ["KOTAKBANK.NS", "ITC.NS", "ASIANPAINT.NS", "AXISBANK.NS", "LT.NS", "NTPC.NS", "SBIN.NS"]  # Or whichever tickers
     """ test_tickers = [
-    # 🔹 **Large-Cap Stocks** (NIFTY 50)
+    # ðŸ”¹ **Large-Cap Stocks** (NIFTY 50)
     "ULTRACEMCO.NS", "MARUTI.NS", "HCLTECH.NS", "COALINDIA.NS",
 
-    # 🔹 **Mid-Cap Stocks** (NIFTY Midcap 150)
+    # ðŸ”¹ **Mid-Cap Stocks** (NIFTY Midcap 150)
     "ZEEL.NS", "CANBK.NS", "CUB.NS", "MPHASIS.NS",
 
-    # 🔹 **Small-Cap Stocks** (NIFTY Smallcap 250)
+    # ðŸ”¹ **Small-Cap Stocks** (NIFTY Smallcap 250)
     "KALYANKJIL.NS", "MAHSCOOTER.NS", "KNRCON.NS", "INOXWIND.NS"
     ] """
 
@@ -1824,7 +2078,7 @@ if __name__ == "__main__":
         main_logger.info(f"{test_ticker} test portion rows = {len(test_df)}")
 
         # 2) Create and wrap environment
-        env_test = SingleStockTradingEnv(
+        test_env_kwargs = dict(
             df=test_df,
             ticker=test_ticker,
             initial_balance=INITIAL_BALANCE,
@@ -1836,18 +2090,22 @@ if __name__ == "__main__":
             transaction_cost=best_params.get('transaction_cost', TRANSACTION_COST),
             env_rank=9999,
             some_factor=best_params.get('drawdown_penalty_factor', 0.01),
-            hold_threshold=best_params.get('hold_threshold', 0.1),
+            hold_threshold=0.0,
             reward_weights={
                 'reward_scale': best_params.get('reward_scale', 1.0),
                 'profit_weight': best_params.get('profit_weight', 1.5),
                 'sharpe_bonus_weight': best_params.get('sharpe_bonus_weight', 0.05),
                 'transaction_penalty_weight': best_params.get('transaction_penalty_weight', 1e-3),
+                'turnover_penalty_weight': best_params.get('turnover_penalty_weight', 1e-3),
+                'min_trade_value_frac': best_params.get('min_trade_value_frac', 0.01),
+                'sell_threshold_mult': best_params.get('sell_threshold_mult', 0.5),
+                'action_dead_zone': best_params.get('action_dead_zone', 0.05),
+                'action_smoothing_alpha': best_params.get('action_smoothing_alpha', 0.9),
                 'holding_bonus_weight': best_params.get('holding_bonus_weight', 0.001),
-                'transaction_penalty_scale': best_params.get('transaction_penalty_weight', 1.0),
+                'transaction_penalty_scale': best_params.get('transaction_penalty_scale', 1.0),
                 'volatility_threshold': best_params.get('volatility_threshold', 1.0),
                 'momentum_threshold_min': best_params.get('momentum_threshold_min', 30),
                 'momentum_threshold_max': best_params.get('momentum_threshold_max', 70),
-                # New hyperparameters for penalty weights:
                 'forced_stop_penalty_weight': best_params.get('forced_stop_penalty_weight', 1.0),
                 'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0)
             },
@@ -1859,27 +2117,28 @@ if __name__ == "__main__":
 
         from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 
-        # Create the vectorized test environment using env_test
-        test_vec = SubprocVecEnv([lambda: env_test])
+        test_vec = SubprocVecEnv([make_env_factory(test_env_kwargs)])
 
         # Load the VecNormalize object from RESULTS_DIR
         vecnorm_path = RESULTS_DIR / "vec_normalize.pkl"
         if not vecnorm_path.exists():
             main_logger.error(f"VecNormalize file not found at {vecnorm_path}")
+            continue
         else:
             main_logger.info(f"Loading VecNormalize from {vecnorm_path}")
         test_vec = VecNormalize.load(str(vecnorm_path), test_vec)
         test_vec.training = False
-        test_vec.norm_reward = True
-        # For example, if training used the default ±10 clipping:
-        test_vec.clip_obs = 10000.0      # match training's observation clipping range
-        test_vec.clip_reward = 25000.0   # match training's reward clipping range
+        test_vec.norm_reward = False
+        # For example, if training used the default Â±10 clipping:
+        test_vec.clip_obs = 10.0      # match training's observation clipping range
+        test_vec.clip_reward = 10.0   # match training's reward clipping range
 
 
         # Load the final model from RESULTS_DIR
         model_path = RESULTS_DIR / "ppo_final_model.zip"
         if not model_path.exists():
             main_logger.error(f"Model file not found at {model_path}")
+            continue
         else:
             main_logger.info(f"Loading model from {model_path}")
         loaded_model = PPO.load(str(model_path), env=test_vec)
@@ -1895,13 +2154,13 @@ if __name__ == "__main__":
         rl_test_history = []
 
         while not all(done) and steps_taken < max_test_steps:
-            action, _ = loaded_model.predict(obs, deterministic=True)
+            action, _ = loaded_model.predict(obs, deterministic=False)
             obs, rewards, done, infos = test_vec.step(action)
             steps_taken += 1
             if steps_taken % 100 == 0:
                 training_logger.info(f"[Test Ticker={test_ticker}] Step {steps_taken}: Action={action}, Rewards={rewards}")
 
-        # 5) Retrieve the RL agent’s final metrics & history
+        # 5) Retrieve the RL agentâ€™s final metrics & history
         final_metrics_list = test_vec.env_method("get_final_metrics")
         if final_metrics_list and len(final_metrics_list) > 0:
             final_metrics = final_metrics_list[0]
@@ -1919,7 +2178,7 @@ if __name__ == "__main__":
             main_logger.warning(f"No final metrics retrieved from the test environment for {test_ticker}.")
             rl_test_history = []
 
-        # 6) Directly convert the environment’s step-by-step history to DataFrame
+        # 6) Directly convert the environmentâ€™s step-by-step history to DataFrame
         #    (No flatten needed, because we already store indicators & fields top-level.)
         test_history_file = RESULTS_DIR / f"test_env_history_{test_ticker}.csv"
         if rl_test_history:
@@ -1929,3 +2188,6 @@ if __name__ == "__main__":
         else:
             pd.DataFrame().to_csv(test_history_file, index=False)
             main_logger.warning(f"Test history was empty for {test_ticker}. Saved empty CSV at {test_history_file}")
+
+
+
