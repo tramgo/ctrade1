@@ -220,6 +220,12 @@ class SingleStockTradingEnv(gym.Env):
         else:
             self.reward_weights = {'reward_scale': 1.0}
 
+        # Inference mode should be less restrictive so small but valid policy signals can execute.
+        if self.mode != "train":
+            base_min_trade = float(self.reward_weights.get("min_trade_value_frac", 0.01))
+            infer_min_trade_mult = float(self.reward_weights.get("inference_min_trade_frac_mult", 0.25))
+            self.reward_weights["min_trade_value_frac"] = base_min_trade * infer_min_trade_mult
+
         # Cooldowns (in steps) between forced trigger events.
         self.sl_cooldown_steps = int(self.reward_weights.get("sl_cooldown_steps", 10))
         self.tp_cooldown_steps = int(self.reward_weights.get("tp_cooldown_steps", 10))
@@ -346,6 +352,7 @@ class SingleStockTradingEnv(gym.Env):
         self.current_step = 0
         self.history = []
         self.prev_net_worth = self.net_worth
+        self.last_trade_step = -10000
         self.last_action = 0.0
         self.prev_action = 0.0
         self.prev_policy_action = 0.0
@@ -358,6 +365,7 @@ class SingleStockTradingEnv(gym.Env):
         self.cumulative_reward = 0.0  # Running total updated each step.
         self._force_termination = False  # Flag set by early stopping.
         self.final_metrics = None  # Final metrics available after episode ends.
+        self.last_trade_step = -10000  # far in the past
         # --- Trigger hysteresis / cooldown state ---
         self.prev_loss = 0.0
         self.prev_profit = 0.0
@@ -428,9 +436,14 @@ class SingleStockTradingEnv(gym.Env):
 
         try:
             raw_action = float(np.clip(float(action[0]), -1.0, 1.0))
-            smooth_alpha = float(self.reward_weights.get("action_smoothing_alpha", 0.9))
-            smoothed_raw = smooth_alpha * float(self.prev_policy_action) + (1.0 - smooth_alpha) * raw_action
-            smoothed_raw = float(np.clip(smoothed_raw, -1.0, 1.0))
+            if self.mode != "train":
+                inference_action_scale = float(self.reward_weights.get("inference_action_scale", 2.5))
+                raw_action = float(np.clip(raw_action * inference_action_scale, -1.0, 1.0))
+                smoothed_raw = raw_action
+            else:
+                smooth_alpha = float(self.reward_weights.get("action_smoothing_alpha", 0.9))
+                smoothed_raw = smooth_alpha * float(self.prev_policy_action) + (1.0 - smooth_alpha) * raw_action
+                smoothed_raw = float(np.clip(smoothed_raw, -1.0, 1.0))
             # Dead-zone to suppress micro-jitter trading.
             action_dead_zone = float(self.reward_weights.get("action_dead_zone", 0.05))
             if abs(smoothed_raw) < action_dead_zone:
@@ -698,6 +711,14 @@ class SingleStockTradingEnv(gym.Env):
         sell_threshold_mult = float(self.reward_weights.get("sell_threshold_mult", 0.5))
         min_sell_trade_value = min_trade_value * sell_threshold_mult
         delta_value = target_pos_value - current_pos_value
+        min_hold_steps = int(self.reward_weights.get("min_hold_steps", 3))
+
+        if (self.current_step - self.last_trade_step) < min_hold_steps:
+            # Hold-window lockout to prevent micro-rebalancing every bar.
+            delta_value = 0.0
+            shares_traded = 0.0
+            trade_cost = 0.0
+            trade_side = "HOLD"
 
         if delta_value > 0:
             if delta_value >= min_trade_value:
@@ -732,12 +753,19 @@ class SingleStockTradingEnv(gym.Env):
             else:
                 delta_value = 0.0
 
+        if shares_traded > 0:
+            self.last_trade_step = self.current_step
+
         net_worth = float(self.balance + self.position * current_price)
         self.net_worth = net_worth
 
         # IMPORTANT: compute reward-driving deltas after all step trades/liquidations.
         net_worth_change = net_worth - self.prev_net_worth
-        profit_reward = (net_worth_change / max(self.initial_balance, 1e-9)) * profit_weight
+        step_ret = net_worth_change / max(self.prev_net_worth, 1e-9)
+        # Clip step return so single candles do not dominate PPO advantages.
+        profit_clip = float(self.reward_weights.get("profit_clip", 0.01))
+        step_ret = float(np.clip(step_ret, -profit_clip, profit_clip))
+        profit_reward = step_ret * profit_weight
         log_return = np.log(net_worth / self.prev_net_worth) if self.prev_net_worth > 0 else 0.0
         self.returns_window.append(log_return)
         if len(self.returns_window) > 30:
@@ -772,10 +800,11 @@ class SingleStockTradingEnv(gym.Env):
 
         transaction_penalty_weight = float(self.reward_weights.get('transaction_penalty_weight', 1.0))
         transaction_penalty_scale = float(self.reward_weights.get('transaction_penalty_scale', 1.0))
-        transaction_penalty = -(trade_cost / self.initial_balance) * transaction_penalty_weight * transaction_penalty_scale
+        transaction_penalty = -(trade_cost / max(self.prev_net_worth, 1e-9)) * transaction_penalty_weight * transaction_penalty_scale
         turnover_penalty_weight = self.reward_weights.get("turnover_penalty_weight", 0.001)
-        turnover = abs(action_value - self.prev_action)
-        turnover_penalty = turnover * turnover_penalty_weight
+        dollar_turnover = abs(target_pos_value - float(self.prev_target_value))
+        turnover_frac = dollar_turnover / max(self.prev_net_worth, 1e-9)
+        turnover_penalty = turnover_frac * float(turnover_penalty_weight)
 
         reward = (
             profit_reward
@@ -1188,6 +1217,8 @@ def objective(
     action_dead_zone = trial.suggest_float("action_dead_zone", 0.03, 0.10)
     action_smoothing_alpha = trial.suggest_float("action_smoothing_alpha", 0.60, 0.85)
     sell_threshold_mult = trial.suggest_float("sell_threshold_mult", 0.3, 0.7)
+    min_hold_steps = trial.suggest_int("min_hold_steps", 1, 5)
+    profit_clip = trial.suggest_float("profit_clip", 0.005, 0.02)
     holding_bonus_weight = trial.suggest_float('holding_bonus_weight', 0.0, 0.2, log=False)
     transaction_penalty_scale = trial.suggest_float('transaction_penalty_scale', 0.5, 2.0)
     volatility_threshold = trial.suggest_float("volatility_threshold", 0.5, 2.0)
@@ -1248,9 +1279,11 @@ def objective(
                 'turnover_penalty_weight': turnover_penalty_weight,
                 'min_trade_value_frac': min_trade_value_frac,
                 'sell_threshold_mult': sell_threshold_mult,
+                'min_hold_steps': min_hold_steps,
                 'action_dead_zone': action_dead_zone,
                 'action_smoothing_alpha': action_smoothing_alpha,
                 'holding_bonus_weight': holding_bonus_weight,
+                'profit_clip': profit_clip,
                 'transaction_penalty_scale': transaction_penalty_scale,
                 'volatility_threshold': volatility_threshold,
                 'momentum_threshold_min': momentum_threshold_min,
@@ -1955,7 +1988,13 @@ if __name__ == "__main__":
     for i, ticker in enumerate(train_tickers):
         df_full = preloaded_market_data.get(ticker, pd.DataFrame()).copy()
         if df_full.empty:
-            main_logger.warning(f"No cached data for final training ticker {ticker}; skipping final env.")
+            main_logger.info(
+                f"No preloaded Optuna data for final training ticker {ticker}; "
+                "trying get_data() (cache-first)."
+            )
+            df_full = get_data(ticker, "2018-01-01", "2025-02-05")
+        if df_full.empty:
+            main_logger.warning(f"No usable data for final training ticker {ticker}; skipping final env.")
             continue
         split_idx = int(len(df_full) * 0.8)
         df_train = df_full.iloc[:split_idx].reset_index(drop=True)
@@ -1981,8 +2020,10 @@ if __name__ == "__main__":
                 'turnover_penalty_weight': best_params.get('turnover_penalty_weight', 1e-3),
                 'min_trade_value_frac': best_params.get('min_trade_value_frac', 0.01),
                 'sell_threshold_mult': best_params.get('sell_threshold_mult', 0.5),
+                'min_hold_steps': int(best_params.get('min_hold_steps', 3)),
                 'action_dead_zone': best_params.get('action_dead_zone', 0.05),
                 'action_smoothing_alpha': best_params.get('action_smoothing_alpha', 0.9),
+                'profit_clip': best_params.get('profit_clip', 0.01),
                 'holding_bonus_weight': best_params.get('holding_bonus_weight', 0.001),
                 'transaction_penalty_scale': best_params.get('transaction_penalty_scale', 1.0),
                 'volatility_threshold': best_params.get('volatility_threshold', 1.0),
@@ -2029,7 +2070,7 @@ if __name__ == "__main__":
             tensorboard_log=str(TB_LOG_DIR / "final_model")
         )
 
-        total_timesteps = int(best_params.get("final_timesteps", 300000))
+        total_timesteps = int(best_params.get("final_timesteps", 100000))
         if total_timesteps > 0:
             main_logger.info(f"Learning final model for {total_timesteps} timesteps with multiple tickers.")
             model_final.learn(total_timesteps=total_timesteps)
@@ -2067,7 +2108,7 @@ if __name__ == "__main__":
     for test_ticker in test_tickers:
         main_logger.info(f"Preparing test data for ticker {test_ticker}.")
 
-        # 1) Get the DataFrame for this ticker.
+        # 1) Get the DataFrame for this ticker (get_data is cache-first).
         df_test_full = get_data(test_ticker, "2018-01-01", "2025-02-05")
         if df_test_full.empty:
             main_logger.error(f"No data for test ticker {test_ticker}. Skipping inference.")
@@ -2099,8 +2140,10 @@ if __name__ == "__main__":
                 'turnover_penalty_weight': best_params.get('turnover_penalty_weight', 1e-3),
                 'min_trade_value_frac': best_params.get('min_trade_value_frac', 0.01),
                 'sell_threshold_mult': best_params.get('sell_threshold_mult', 0.5),
+                'min_hold_steps': int(best_params.get('min_hold_steps', 3)),
                 'action_dead_zone': best_params.get('action_dead_zone', 0.05),
                 'action_smoothing_alpha': best_params.get('action_smoothing_alpha', 0.9),
+                'profit_clip': best_params.get('profit_clip', 0.01),
                 'holding_bonus_weight': best_params.get('holding_bonus_weight', 0.001),
                 'transaction_penalty_scale': best_params.get('transaction_penalty_scale', 1.0),
                 'volatility_threshold': best_params.get('volatility_threshold', 1.0),
