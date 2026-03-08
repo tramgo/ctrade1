@@ -227,6 +227,9 @@ FEATURES_TO_SCALE = [
     "StockMinusMkt_1", "StockMinusMkt_3",
     "SectorMinusMkt_3",
     "VWAP_Dist", "SessionOpenDist_ATR",
+    "OpeningRangeBreakout", "TimeSinceNewHigh", "TimeSinceNewLow",
+    "IntradayVolPercentile", "RelativeVolumeTime",
+    "BodyToRange", "UpperWickRatio", "LowerWickRatio",
     "Breakout_3bar", "SignPersistence_5",
     "RetSkew_5", "CloseLocation_3",
     "MktVolRank",
@@ -455,6 +458,29 @@ def build_rl_features(
     high = pd.to_numeric(df["High"], errors="coerce")
     low = pd.to_numeric(df["Low"], errors="coerce")
     vol = pd.to_numeric(df["Volume"], errors="coerce")
+    if "Date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Date"]):
+        session_key = pd.Series(df["Date"].dt.date, index=df.index)
+        mins = df["Date"].dt.hour * 60 + df["Date"].dt.minute
+    else:
+        session_key = pd.Series(np.arange(len(df)), index=df.index)
+        mins = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
+
+    def _bars_since_extreme(series: pd.Series, fn: str) -> pd.Series:
+        out = pd.Series(index=series.index, dtype=float)
+        for _, idx in series.groupby(session_key).groups.items():
+            s = series.loc[idx]
+            extreme = s.cummax() if fn == "max" else s.cummin()
+            hit = s.eq(extreme)
+            counter = []
+            bars_since = 0
+            for is_hit in hit.tolist():
+                if is_hit:
+                    bars_since = 0
+                else:
+                    bars_since += 1
+                counter.append(bars_since)
+            out.loc[idx] = counter
+        return out.fillna(0.0)
 
     df["LagRet_1"] = np.log((close / close.shift(1)).clip(lower=eps)).fillna(0)
     df["LagRet_5"] = np.log((close / close.shift(5)).clip(lower=eps)).fillna(0)
@@ -489,19 +515,56 @@ def build_rl_features(
     df["VolRegime"] = vol_pct.fillna(0.5)
     df["Vol_z30"] = ((vol - vol.rolling(win_30m).mean()) / (vol.rolling(win_30m).std() + eps)).fillna(0)
     df["VWAP_Dist"] = ((close - volume.VolumeWeightedAveragePrice(high, low, close, vol, window=win_20).volume_weighted_average_price()) / (atr20 + eps)).fillna(0.0)
-    session_open = open_.groupby(df["Date"].dt.date if "Date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Date"]) else pd.Series(np.arange(len(df)), index=df.index)).transform("first")
+    session_open = open_.groupby(session_key).transform("first")
     df["SessionOpenDist_ATR"] = ((close - session_open) / (atr20 + eps)).fillna(0.0)
+    opening_range_bars = max(2, 30 // max(bar_len, 1))
+    opening_range_high = high.groupby(session_key).transform(lambda s: s.expanding().max()).groupby(session_key).shift(1)
+    opening_range_low = low.groupby(session_key).transform(lambda s: s.expanding().min()).groupby(session_key).shift(1)
+    opening_range_high = opening_range_high.groupby(session_key).transform(
+        lambda s: s.fillna(method="ffill").fillna(method="bfill")
+    )
+    opening_range_low = opening_range_low.groupby(session_key).transform(
+        lambda s: s.fillna(method="ffill").fillna(method="bfill")
+    )
+    bars_from_open = mins.groupby(session_key).cumcount()
+    opening_range_high = pd.Series(
+        np.where(
+            bars_from_open >= opening_range_bars,
+            high.groupby(session_key).transform(lambda s: s.iloc[:opening_range_bars].max()),
+            np.nan,
+        ),
+        index=df.index,
+    ).ffill()
+    opening_range_low = pd.Series(
+        np.where(
+            bars_from_open >= opening_range_bars,
+            low.groupby(session_key).transform(lambda s: s.iloc[:opening_range_bars].min()),
+            np.nan,
+        ),
+        index=df.index,
+    ).ffill()
+    df["OpeningRangeBreakout"] = (
+        (close > opening_range_high).astype(float) - (close < opening_range_low).astype(float)
+    ).fillna(0.0)
+    df["TimeSinceNewHigh"] = (_bars_since_extreme(high, "max") / max(win_2h, 1)).clip(0.0, 5.0)
+    df["TimeSinceNewLow"] = (_bars_since_extreme(low, "min") / max(win_2h, 1)).clip(0.0, 5.0)
+    df["IntradayVolPercentile"] = vol.groupby(session_key).transform(lambda s: s.expanding().rank(pct=True)).fillna(0.5)
+    minute_slot = mins.astype(int)
+    rel_vol_base = vol.groupby(minute_slot).transform(lambda s: s.shift(1).expanding().mean())
+    df["RelativeVolumeTime"] = ((vol / (rel_vol_base + eps)) - 1.0).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-5.0, 5.0)
+    candle_range = (high - low).clip(lower=eps)
+    candle_body = close - open_
+    upper_wick = high - np.maximum(open_, close)
+    lower_wick = np.minimum(open_, close) - low
+    df["BodyToRange"] = (candle_body / candle_range).fillna(0.0).clip(-1.0, 1.0)
+    df["UpperWickRatio"] = (upper_wick / candle_range).fillna(0.0).clip(0.0, 1.0)
+    df["LowerWickRatio"] = (lower_wick / candle_range).fillna(0.0).clip(0.0, 1.0)
     df["Breakout_3bar"] = ((close > high.shift(1).rolling(3).max()).astype(float) - (close < low.shift(1).rolling(3).min()).astype(float)).fillna(0.0)
     df["SignPersistence_5"] = np.sign(df["LagRet_1"]).rolling(5).mean().fillna(0.0)
     df["RetSkew_5"] = df["LagRet_1"].rolling(5).skew().fillna(0.0)
     high3 = high.rolling(3).max()
     low3 = low.rolling(3).min()
     df["CloseLocation_3"] = ((close - low3) / (high3 - low3 + eps)).fillna(0.5)
-
-    if "Date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Date"]):
-        mins = df["Date"].dt.hour * 60 + df["Date"].dt.minute
-    else:
-        mins = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
     df["MinuteNorm"] = mins / 390.0
     df["MinutesOpen"] = mins
     df["LunchDummy"] = ((mins > 150) & (mins < 210)).astype(int)
@@ -704,6 +767,7 @@ class SingleStockTradingEnv(gym.Env):
         self.peak = self.net_worth
         self.returns_window = []
         self.avg_entry_price = 0.0
+        self.position_style = "flat"
         self.transaction_count = 0
         self.consecutive_drawdown_steps = 0
         self.last_dp_charge_flag = 0
@@ -786,6 +850,7 @@ class SingleStockTradingEnv(gym.Env):
         self.peak = self.net_worth
         self.returns_window = []
         self.avg_entry_price = 0.0
+        self.position_style = "flat"
         self.transaction_count = 0
         self.consecutive_drawdown_steps = 0
         self.reward_history.clear()
@@ -930,14 +995,44 @@ class SingleStockTradingEnv(gym.Env):
         raw = trend_score + rel_score + 0.5 * persistence + 0.5 * breakout + 0.25 * regime_trend
         return float(np.clip(1.0 / (1.0 + math.exp(-4.0 * raw)), 0.0, 1.0))
 
-    def _regime_allows_direction(self, row: pd.Series, direction: int) -> bool:
+    def _reversion_strength(self, row: pd.Series, direction: int) -> float:
+        rsi = float(row.get("RSI14", 50.0))
+        vwap_dist = float(row.get("VWAP_Dist", 0.0))
+        session_stretch = float(row.get("SessionOpenDist_ATR", 0.0))
+        close_loc = float(row.get("CloseLocation_3", 0.5))
+        persistence = float(row.get("SignPersistence_5", 0.0))
+        breakout = float(row.get("Breakout_3bar", 0.0))
+        trend_30 = float(row.get("Trend_30", 0.0))
+        if direction > 0:
+            raw = (
+                max(0.0, (35.0 - rsi) / 20.0)
+                + max(0.0, -vwap_dist)
+                + 0.5 * max(0.0, -session_stretch)
+                + max(0.0, 0.35 - close_loc)
+                + 0.5 * max(0.0, -persistence)
+                + 0.25 * max(0.0, -trend_30)
+                + 0.25 * max(0.0, -breakout)
+            )
+        else:
+            raw = (
+                max(0.0, (rsi - 65.0) / 20.0)
+                + max(0.0, vwap_dist)
+                + 0.5 * max(0.0, session_stretch)
+                + max(0.0, close_loc - 0.65)
+                + 0.5 * max(0.0, persistence)
+                + 0.25 * max(0.0, trend_30)
+                + 0.25 * max(0.0, breakout)
+            )
+        return float(np.clip(1.0 / (1.0 + math.exp(-3.0 * raw)), 0.0, 1.0))
+
+    def _trend_entry_allowed(self, row: pd.Series, direction: int) -> bool:
         strong_trend = float(row.get("ADX_strong", 0.0)) > 0.5
         bull = float(row.get("RegimeBull", 0.0)) > 0.5
         bear = float(row.get("RegimeBear", 0.0)) > 0.5
         confidence = self._signal_strength(row, direction)
-        min_confidence = float(self.reward_weights.get("regime_gate_min_confidence", 0.70))
+        min_confidence = float(self.reward_weights.get("regime_gate_min_confidence", 0.60))
         if self.mode == "test":
-            min_confidence = min(min_confidence, 0.65)
+            min_confidence = min(min_confidence, 0.55)
         rel_1 = float(row.get("StockMinusMkt_1", 0.0))
         rel_3 = float(row.get("StockMinusMkt_3", 0.0))
         breakout = float(row.get("Breakout_3bar", 0.0))
@@ -947,8 +1042,6 @@ class SingleStockTradingEnv(gym.Env):
         if self.mode == "test":
             min_confirmations = max(2, min_confirmations)
         if direction > 0:
-            if strong_trend and bull:
-                return True
             confirmations = sum([
                 rel_3 > 0.0015,
                 rel_1 > 0.0005,
@@ -956,11 +1049,10 @@ class SingleStockTradingEnv(gym.Env):
                 trend_30 > 0.0,
                 persistence > 0.10,
                 bull,
+                strong_trend,
             ])
             return confidence >= min_confidence and confirmations >= min_confirmations
         if direction < 0:
-            if strong_trend and bear:
-                return True
             confirmations = sum([
                 rel_3 < -0.0015,
                 rel_1 < -0.0005,
@@ -968,9 +1060,70 @@ class SingleStockTradingEnv(gym.Env):
                 trend_30 < 0.0,
                 persistence < -0.10,
                 bear,
+                strong_trend,
             ])
             return confidence >= min_confidence and confirmations >= min_confirmations
         return True
+
+    def _reversion_entry_allowed(self, row: pd.Series, direction: int) -> bool:
+        rev_confidence = self._reversion_strength(row, direction)
+        min_confidence = float(self.reward_weights.get("reversion_gate_min_confidence", 0.55))
+        min_confirmations = int(self.reward_weights.get("reversion_gate_min_confirmations", 2))
+        if self.mode == "test":
+            min_confidence = min(min_confidence, 0.52)
+        strong_trend = float(row.get("ADX_strong", 0.0)) > 0.5
+        bull = float(row.get("RegimeBull", 0.0)) > 0.5
+        bear = float(row.get("RegimeBear", 0.0)) > 0.5
+        rsi = float(row.get("RSI14", 50.0))
+        vwap_dist = float(row.get("VWAP_Dist", 0.0))
+        session_stretch = float(row.get("SessionOpenDist_ATR", 0.0))
+        close_loc = float(row.get("CloseLocation_3", 0.5))
+        persistence = float(row.get("SignPersistence_5", 0.0))
+        breakout = float(row.get("Breakout_3bar", 0.0))
+        if direction > 0:
+            confirmations = sum([
+                rsi < 35.0,
+                vwap_dist < -0.20,
+                session_stretch < -0.30,
+                close_loc < 0.35,
+                persistence < 0.05,
+                breakout <= 0.0,
+                not strong_trend or bear,
+            ])
+        else:
+            confirmations = sum([
+                rsi > 65.0,
+                vwap_dist > 0.20,
+                session_stretch > 0.30,
+                close_loc > 0.65,
+                persistence > -0.05,
+                breakout >= 0.0,
+                not strong_trend or bull,
+            ])
+        return rev_confidence >= min_confidence and confirmations >= min_confirmations
+
+    def _route_entry_style(self, row: pd.Series, direction: int) -> str:
+        trend_ok = self._trend_entry_allowed(row, direction)
+        reversion_ok = self._reversion_entry_allowed(row, direction)
+        trend_strength = self._signal_strength(row, direction)
+        reversion_strength = self._reversion_strength(row, direction)
+        style_margin = float(self.reward_weights.get("style_router_margin", 0.15))
+        single_style_min_strength = float(self.reward_weights.get("style_router_min_strength", 0.55))
+        if self.mode == "test":
+            style_margin = min(style_margin, 0.12)
+            single_style_min_strength = min(single_style_min_strength, 0.50)
+        if trend_ok and trend_strength > reversion_strength + style_margin:
+            return "trend"
+        if reversion_ok and reversion_strength > trend_strength + style_margin:
+            return "reversion"
+        if trend_ok and not reversion_ok and trend_strength >= single_style_min_strength:
+            return "trend"
+        if reversion_ok and not trend_ok and reversion_strength >= single_style_min_strength:
+            return "reversion"
+        return "hold"
+
+    def _regime_allows_direction(self, row: pd.Series, direction: int) -> bool:
+        return self._route_entry_style(row, direction) != "hold"
 
     def _update_avg_entry_after_trade(self, previous_position: int, traded_shares: int, execution_price: float, trade_side: str) -> None:
         if traded_shares <= 0:
@@ -1045,6 +1198,7 @@ class SingleStockTradingEnv(gym.Env):
         drawdown_triggered = False
         stop_exit_side = "flat"
         tp_exit_side = "flat"
+        active_style = self.position_style if self.position != 0 else "flat"
         buy_signal_price = np.nan
         sell_signal_price = np.nan
         shares_traded = 0
@@ -1055,7 +1209,7 @@ class SingleStockTradingEnv(gym.Env):
             action_name = "warmup_hold"
             action_value = 0.0
 
-        def execute_trade(side: str, shares: int) -> Tuple[int, float]:
+        def execute_trade(side: str, shares: int, entry_style: Optional[str] = None) -> Tuple[int, float]:
             nonlocal total_trade_cost, shares_traded, buy_signal_price, sell_signal_price
             if shares <= 0:
                 return 0, 0.0
@@ -1087,6 +1241,10 @@ class SingleStockTradingEnv(gym.Env):
             breakdowns_list.append(breakdown)
             self.transaction_count += 1
             shares_traded += shares
+            if self.position == 0:
+                self.position_style = "flat"
+            elif entry_style and (previous_position == 0 or np.sign(previous_position) != np.sign(self.position)):
+                self.position_style = entry_style
             self._recompute_net_worth(current_price)
             return shares, exec_price
 
@@ -1096,11 +1254,13 @@ class SingleStockTradingEnv(gym.Env):
                 execute_trade("sell", qty)
                 if self.position == 0:
                     self.avg_entry_price = 0.0
+                    self.position_style = "flat"
             elif self.position < 0:
                 qty = min(abs(self.position), max(1, math.floor(abs(self.position) * fraction)))
                 execute_trade("buy", qty)
                 if self.position == 0:
                     self.avg_entry_price = 0.0
+                    self.position_style = "flat"
 
         self._recompute_net_worth(current_price)
         position_return = self._position_return(current_price)
@@ -1108,26 +1268,48 @@ class SingleStockTradingEnv(gym.Env):
         forced_stop_penalty_weight = float(self.reward_weights.get("forced_stop_penalty_weight", 0.001))
         forced_tp_penalty_weight = float(self.reward_weights.get("forced_tp_penalty_weight", 0.001))
         if self.position != 0 and self.avg_entry_price > 0:
-            long_stop_loss_tiers = [
-                {"threshold": 0.015, "fraction": 0.25, "penalty_factor": 1.0},
-                {"threshold": 0.03, "fraction": 0.50, "penalty_factor": 1.5},
-                {"threshold": 0.05, "fraction": 1.00, "penalty_factor": 2.0},
-            ]
-            short_stop_loss_tiers = [
-                {"threshold": 0.015, "fraction": 0.25, "penalty_factor": 1.0},
-                {"threshold": 0.03, "fraction": 0.50, "penalty_factor": 1.5},
-                {"threshold": 0.05, "fraction": 1.00, "penalty_factor": 2.0},
-            ]
-            long_take_profit_tiers = [
-                {"threshold": 0.03, "fraction": 0.25, "penalty_factor": 0.5},
-                {"threshold": 0.06, "fraction": 0.50, "penalty_factor": 1.0},
-                {"threshold": 0.09, "fraction": 1.00, "penalty_factor": 1.5},
-            ]
-            short_take_profit_tiers = [
-                {"threshold": 0.03, "fraction": 0.25, "penalty_factor": 0.5},
-                {"threshold": 0.06, "fraction": 0.50, "penalty_factor": 1.0},
-                {"threshold": 0.09, "fraction": 1.00, "penalty_factor": 1.5},
-            ]
+            if active_style == "reversion":
+                long_stop_loss_tiers = [
+                    {"threshold": 0.012, "fraction": 0.35, "penalty_factor": 1.0},
+                    {"threshold": 0.024, "fraction": 0.70, "penalty_factor": 1.5},
+                    {"threshold": 0.035, "fraction": 1.00, "penalty_factor": 2.0},
+                ]
+                short_stop_loss_tiers = [
+                    {"threshold": 0.012, "fraction": 0.35, "penalty_factor": 1.0},
+                    {"threshold": 0.024, "fraction": 0.70, "penalty_factor": 1.5},
+                    {"threshold": 0.035, "fraction": 1.00, "penalty_factor": 2.0},
+                ]
+                long_take_profit_tiers = [
+                    {"threshold": 0.018, "fraction": 0.50, "penalty_factor": 0.5},
+                    {"threshold": 0.035, "fraction": 0.85, "penalty_factor": 1.0},
+                    {"threshold": 0.050, "fraction": 1.00, "penalty_factor": 1.5},
+                ]
+                short_take_profit_tiers = [
+                    {"threshold": 0.018, "fraction": 0.50, "penalty_factor": 0.5},
+                    {"threshold": 0.035, "fraction": 0.85, "penalty_factor": 1.0},
+                    {"threshold": 0.050, "fraction": 1.00, "penalty_factor": 1.5},
+                ]
+            else:
+                long_stop_loss_tiers = [
+                    {"threshold": 0.015, "fraction": 0.25, "penalty_factor": 1.0},
+                    {"threshold": 0.03, "fraction": 0.50, "penalty_factor": 1.5},
+                    {"threshold": 0.05, "fraction": 1.00, "penalty_factor": 2.0},
+                ]
+                short_stop_loss_tiers = [
+                    {"threshold": 0.015, "fraction": 0.25, "penalty_factor": 1.0},
+                    {"threshold": 0.03, "fraction": 0.50, "penalty_factor": 1.5},
+                    {"threshold": 0.05, "fraction": 1.00, "penalty_factor": 2.0},
+                ]
+                long_take_profit_tiers = [
+                    {"threshold": 0.03, "fraction": 0.25, "penalty_factor": 0.5},
+                    {"threshold": 0.06, "fraction": 0.50, "penalty_factor": 1.0},
+                    {"threshold": 0.09, "fraction": 1.00, "penalty_factor": 1.5},
+                ]
+                short_take_profit_tiers = [
+                    {"threshold": 0.03, "fraction": 0.25, "penalty_factor": 0.5},
+                    {"threshold": 0.06, "fraction": 0.50, "penalty_factor": 1.0},
+                    {"threshold": 0.09, "fraction": 1.00, "penalty_factor": 1.5},
+                ]
 
             stop_loss_tiers = long_stop_loss_tiers if self.position > 0 else short_stop_loss_tiers
             take_profit_tiers = long_take_profit_tiers if self.position > 0 else short_take_profit_tiers
@@ -1164,29 +1346,61 @@ class SingleStockTradingEnv(gym.Env):
         reduce_fraction = float(self.reward_weights.get("reduce_fraction", 0.5))
         action_penalty_weight = float(self.reward_weights.get("action_penalty_weight", 0.001))
         reduce_penalty_multiplier = float(self.reward_weights.get("reduce_penalty_multiplier", 1.5))
+        rebalance_threshold = float(self.reward_weights.get("rebalance_threshold", 0.20))
+        reduce_hold_threshold = float(self.reward_weights.get("reduce_hold_threshold", 0.02))
+        entry_min_exposure = float(self.reward_weights.get("entry_min_exposure", 0.02))
+        min_market_vol_rank = float(self.reward_weights.get("min_market_vol_rank", 0.30))
         equity = max(self.net_worth, eps)
+        current_exposure = self._current_exposure(current_price)
+        style_trend_strength = 0.0
+        style_reversion_strength = 0.0
+        target_exposure = current_exposure
+        current_mkt_vol_rank = float(current_data.get("MktVolRank", 0.5))
 
         if action_id in (1, 2):
             direction = 1 if action_id == 1 else -1
-            if not self._regime_allows_direction(current_data, direction):
+            style_trend_strength = self._signal_strength(current_data, direction)
+            style_reversion_strength = self._reversion_strength(current_data, direction)
+            entry_style = self._route_entry_style(current_data, direction)
+            if current_mkt_vol_rank < min_market_vol_rank:
                 action_id = 0
-                action_name = "regime_hold"
+                action_name = "vol_hold"
+                action_value = 0.0
+            elif entry_style == "hold":
+                action_id = 0
+                action_name = "style_hold"
                 action_value = 0.0
             else:
-                confidence = self._signal_strength(current_data, direction)
+                active_style = entry_style
+                confidence = style_trend_strength if entry_style == "trend" else style_reversion_strength
                 dynamic_fraction = min_trade_fraction + (trade_fraction - min_trade_fraction) * confidence
-                target_notional = dynamic_fraction * self.max_position_size * equity
-                shares = max(1, math.floor(target_notional / (current_price * (buy_mult if direction > 0 else sell_mult))))
-                if direction > 0:
-                    filled, _ = execute_trade("buy", shares)
-                    if filled == 0:
-                        invalid_act_penalty -= 0.001
+                target_exposure = float(np.clip(direction * dynamic_fraction * self.max_position_size, -self.max_position_size, self.max_position_size))
+                exposure_gap = abs(target_exposure - current_exposure)
+                min_gap = rebalance_threshold if abs(current_exposure) > 1e-9 else entry_min_exposure
+                if exposure_gap < min_gap:
+                    action_id = 0
+                    action_name = f"{entry_style}_inertia_hold"
+                    action_value = 0.0
                 else:
-                    filled, _ = execute_trade("sell", shares)
-                    if filled == 0:
-                        invalid_act_penalty -= 0.001
+                    target_notional_change = abs(target_exposure - current_exposure) * equity
+                    shares = max(1, math.floor(target_notional_change / (current_price * (buy_mult if direction > 0 else sell_mult))))
+                    if direction > 0:
+                        filled, _ = execute_trade("buy", shares, entry_style=entry_style)
+                        if filled == 0:
+                            invalid_act_penalty -= 0.001
+                    else:
+                        filled, _ = execute_trade("sell", shares, entry_style=entry_style)
+                        if filled == 0:
+                            invalid_act_penalty -= 0.001
+                    if filled > 0:
+                        action_name = f"{entry_style}_{action_name}"
         elif action_id == 3:
-            reduce_position(reduce_fraction)
+            if abs(current_exposure) < reduce_hold_threshold:
+                action_id = 0
+                action_name = "reduce_inertia_hold"
+                action_value = 0.0
+            else:
+                reduce_position(reduce_fraction)
 
         action_penalty = 0.0
         if action_id in (1, 2):
@@ -1216,6 +1430,14 @@ class SingleStockTradingEnv(gym.Env):
         ret_3 = (next_close_3 - current_price) / max(current_price, eps)
         pnl_1 = exposure * ret_1
         pnl_3 = exposure * ret_3
+        next_row_3 = self.df.iloc[next_idx_3]
+        next_vwap_dist = float(next_row_3.get("VWAP_Dist", current_data.get("VWAP_Dist", 0.0)))
+        next_session_stretch = float(next_row_3.get("SessionOpenDist_ATR", current_data.get("SessionOpenDist_ATR", 0.0)))
+        curr_vwap_dist = float(current_data.get("VWAP_Dist", 0.0))
+        curr_session_stretch = float(current_data.get("SessionOpenDist_ATR", 0.0))
+        vwap_reversion_gain = max(0.0, abs(curr_vwap_dist) - abs(next_vwap_dist))
+        stretch_reversion_gain = max(0.0, abs(curr_session_stretch) - abs(next_session_stretch))
+        reversion_component = 0.5 * vwap_reversion_gain + 0.5 * stretch_reversion_gain
 
         dir_threshold = float(self.reward_weights.get("direction_threshold", 0.0015))
         flat_threshold = float(self.reward_weights.get("flat_threshold", 0.0010))
@@ -1242,7 +1464,11 @@ class SingleStockTradingEnv(gym.Env):
         transaction_penalty = (total_trade_cost / safe_prev) * transaction_penalty_weight
         volatility_penalty_weight = float(self.reward_weights.get("volatility_penalty_weight", 0.10))
         directional_weight = float(self.reward_weights.get("directional_weight", 0.01))
-        reward_core = 0.4 * pnl_1 + 0.6 * pnl_3 + directional_weight * directional_component
+        reversion_weight = float(self.reward_weights.get("reversion_weight", 0.04))
+        if active_style == "reversion":
+            reward_core = 0.25 * pnl_1 + 0.45 * pnl_3 + directional_weight * directional_component + reversion_weight * reversion_component
+        else:
+            reward_core = 0.4 * pnl_1 + 0.6 * pnl_3 + directional_weight * directional_component
         risk_adjusted_reward = reward_core - transaction_penalty - volatility_penalty_weight * rolling_volatility - action_penalty
         reward = risk_adjusted_reward + forced_stop_penalty + forced_tp_penalty + drawdown_penalty + invalid_act_penalty
         if current_step < self.warmup_steps:
@@ -1270,6 +1496,11 @@ class SingleStockTradingEnv(gym.Env):
             "Position": self.position,
             "AvgEntryPrice": self.avg_entry_price,
             "Exposure": exposure,
+            "StrategyStyle": active_style,
+            "TrendStrength": style_trend_strength,
+            "ReversionStrength": style_reversion_strength,
+            "TargetExposure": target_exposure,
+            "ExposureGap": abs(target_exposure - current_exposure),
             "Reward": float(reward),
             "profit_reward": reward_core,
             "sharpe_bonus": 0.0,
@@ -1290,6 +1521,7 @@ class SingleStockTradingEnv(gym.Env):
             "pnl_1_component": pnl_1,
             "pnl_3_component": pnl_3,
             "directional_component": directional_component,
+            "reversion_component": reversion_component,
             "is_terminated": False,
             "stop_loss_triggered": stop_loss_triggered,
             "take_profit_triggered": take_profit_triggered,
