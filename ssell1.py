@@ -29,6 +29,7 @@ import time
 import plotly.io as pio
 import traceback
 import pytz
+import shutil
 
 from ta.momentum import StochasticOscillator
 from ta.volume import ChaikinMoneyFlowIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator
@@ -60,8 +61,21 @@ MAX_RETRIES = 5
 RETRY_DELAY_SECONDS = 10
 MAX_RETRY_DELAY = 120  # seconds; changeable
 
-TICKINT = "5minute"
-DTDAYS = 30
+TICKINT = "60minute"
+TRAIN_HISTORY_DAYS = 1095
+TEST_HISTORY_DAYS = 365
+DTDAYS = TRAIN_HISTORY_DAYS
+
+NSE_LIQUID_UNIVERSE = [
+    "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
+    "TCS", "INFY", "WIPRO", "HCLTECH", "TECHM",
+    "ITC", "HINDUNILVR", "NESTLEIND", "BRITANNIA",
+    "MARUTI", "TATAMOTORS", "M&M", "BAJAJ-AUTO",
+    "RELIANCE", "ONGC", "BPCL",
+    "LT", "ADANIPORTS", "ULTRACEMCO",
+    "SUNPHARMA", "DRREDDY", "CIPLA",
+    "BHARTIARTL"
+]
 
 def kite_call_with_retry(func, *args, **kwargs):
     """
@@ -188,27 +202,27 @@ check_versions()
 # We define the feature list but do not scale it in this revised code
 # ===== core intraday feature grid (20 items) =====
 FEATURES_TO_SCALE = [
-    # ---- price action (6) ----
-    "LagRet_1", "LagRet_5", "LagRet_30",
+    # ---- momentum / returns (6) ----
+    "LagRet_1", "LagRet_5", "LagRet_20",
     "OHLC_pct", "High_Low_pct", "Rel_Close_HL",
 
-    # ---- trend (2) ----
+    # ---- trend / structure (3) ----
     "Trend_30", "Trend_2h", "Trend_slope",
 
-    # ---- momentum (2) ----
-    "RSI14", "Stoch14",
+    # ---- momentum oscillator (2) ----
+    "RSI14", "MACD_z",
 
     # ---- volatility (2) ----
-    "ATR30_log", "RealVol30_log",
+    "ATR20_log", "RealVol20_log",
 
-    # ---- flow / liquidity (2) ----
-    "Vol_log", "Vol_z30",
+    # ---- liquidity / volume regime (2) ----
+    "Vol_log", "VolRegime",
 
-    # ---- micro-structure / session (3) ----
+    # ---- session structure (3) ----
     "MinuteNorm", "MinutesOpen", "LunchDummy",
 
-    # ---- regime flag (2 one-hots) ----
-    "ADX_strong", "ADX_weak"
+    # ---- market regime one-hots (2) ----
+    "RegimeBull", "RegimeBear"
 ]
 
 
@@ -310,6 +324,89 @@ import pytz
 from ta import trend, momentum, volatility, volume
 
 # ----------------------------------------------------------------------
+#  feature builder for RL state
+# ----------------------------------------------------------------------
+def build_rl_features(df: pd.DataFrame, interval: str = "1minute") -> pd.DataFrame:
+    # Features here are built with past-looking rolling windows only (no centered windows),
+    # so each row depends on current/past bars and does not peek into future bars.
+    df = df.copy()
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        if hasattr(df["Date"], "dt"):
+            try:
+                df["Date"] = df["Date"].dt.tz_localize(None)
+            except Exception:
+                pass
+
+    if not all(col in df.columns for col in ["Open", "High", "Low", "Close", "Volume"]):
+        return df
+
+    bar_len = int(interval.rstrip("minute").rstrip("m")) if interval.endswith("minute") else 1
+    win_30m = max(2, 30 // max(bar_len, 1))
+    win_2h = max(2, 120 // max(bar_len, 1))
+    win_14m = max(2, 14 // max(bar_len, 1))
+    win_20 = 20
+    eps = 1e-9
+
+    close = pd.to_numeric(df["Close"], errors="coerce")
+    open_ = pd.to_numeric(df["Open"], errors="coerce")
+    high = pd.to_numeric(df["High"], errors="coerce")
+    low = pd.to_numeric(df["Low"], errors="coerce")
+    vol = pd.to_numeric(df["Volume"], errors="coerce")
+
+    df["LagRet_1"] = np.log((close / close.shift(1)).clip(lower=eps)).fillna(0)
+    df["LagRet_5"] = np.log((close / close.shift(5)).clip(lower=eps)).fillna(0)
+    df["LagRet_20"] = np.log((close / close.shift(win_20)).clip(lower=eps)).fillna(0)
+    df["LagRet_30"] = np.log((close / close.shift(win_30m)).clip(lower=eps)).fillna(0)
+
+    df["OHLC_pct"] = (close - open_) / (open_ + eps)
+    df["High_Low_pct"] = (high - low) / (close + eps)
+    df["Rel_Close_HL"] = (close - low) / (high - low + eps)
+
+    sma30 = close.rolling(win_30m).mean()
+    sma2h = close.rolling(win_2h).mean()
+    df["Trend_30"] = (close - sma30) / (sma30 + eps)
+    df["Trend_2h"] = (close - sma2h) / (sma2h + eps)
+    df["Trend_slope"] = ((close - close.shift(3)) / (3 * max(bar_len, 1))).fillna(0)
+
+    df["RSI14"] = momentum.RSIIndicator(close, window=win_14m).rsi()
+    macd_val = trend.MACD(close).macd()
+    macd_mu = macd_val.rolling(win_30m).mean()
+    macd_sigma = macd_val.rolling(win_30m).std()
+    df["MACD_z"] = ((macd_val - macd_mu) / (macd_sigma + eps)).clip(-10, 10)
+    df["RSI"] = df["RSI14"]
+
+    atr20 = volatility.AverageTrueRange(high, low, close, window=win_20).average_true_range()
+    df["Volatility"] = atr20
+    df["ATR20_log"] = np.log((atr20 / close).clip(lower=eps))
+    realized20 = df["LagRet_1"].rolling(win_20).std()
+    df["RealVol20_log"] = np.log(realized20.clip(lower=eps))
+
+    df["Vol_log"] = np.log1p(vol.clip(lower=0))
+    vol_pct = vol.rolling(win_20).rank(pct=True)
+    df["VolRegime"] = vol_pct.fillna(0.5)
+    df["Vol_z30"] = ((vol - vol.rolling(win_30m).mean()) / (vol.rolling(win_30m).std() + eps)).fillna(0)
+
+    if "Date" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Date"]):
+        mins = df["Date"].dt.hour * 60 + df["Date"].dt.minute
+    else:
+        mins = pd.Series(np.zeros(len(df)), index=df.index, dtype=float)
+    df["MinuteNorm"] = mins / 390.0
+    df["MinutesOpen"] = mins
+    df["LunchDummy"] = ((mins > 150) & (mins < 210)).astype(int)
+
+    df["RegimeBull"] = (df["Trend_2h"] > 0).astype(float)
+    df["RegimeBear"] = (df["Trend_2h"] < 0).astype(float)
+    df["ADX_strong"] = (trend.ADXIndicator(high, low, close, window=win_30m).adx() >= 25).astype(float)
+    df["ADX_weak"] = 1.0 - df["ADX_strong"]
+
+    numeric_cols = [c for c in df.columns if c != "Date"]
+    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    df.fillna(method="ffill", inplace=True)
+    df.fillna(0, inplace=True)
+    return df
+
+# ----------------------------------------------------------------------
 #  get_data_kite – robust version
 # ----------------------------------------------------------------------
 def get_data_kite(
@@ -333,6 +430,7 @@ def get_data_kite(
         df = pd.read_csv(csv_path)
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'])
+        df = build_rl_features(df, interval=interval)
         return df
     
     # ---------- 1) pull raw bars ------------------------------------------------
@@ -366,62 +464,8 @@ def get_data_kite(
             .sort_values("Date")
             .reset_index(drop=True))
 
-    # ---------- 2) bar-length-aware windows ------------------------------------
-    bar_len  = int(interval.rstrip("minute").rstrip("m")) if interval.endswith("minute") else 1
-    win_30m  = max(1, 30  // bar_len)
-    win_2h   = max(1, 120 // bar_len)
-    win_14m  = max(1, 14  // bar_len)
-
-    close, open_, high, low, vol = (
-        df[c] for c in ("Close","Open","High","Low","Volume")
-    )
-    eps = 1e-9                     # numerical safety
-
-    # ---------- 3) engineered features -----------------------------------------
-    df["LagRet_1"]  = np.log(close / close.shift(1)).fillna(0)
-    df["LagRet_5"]  = np.log(close / close.shift(5)).fillna(0)
-    df["LagRet_30"] = np.log(close / close.shift(win_30m)).fillna(0)
-
-    df["OHLC_pct"]      = (close - open_) / (open_ + eps)
-    df["High_Low_pct"]  = (high - low)   / (close + eps)
-    df["Rel_Close_HL"]  = (close - low)  / (high - low + eps)
-
-    sma30 = close.rolling(win_30m).mean()
-    sma2h = close.rolling(win_2h ).mean()
-    df["Trend_30"] = (close - sma30) / (sma30 + eps)
-    df["Trend_2h"] = (close - sma2h) / (sma2h + eps)
-    # 3-bar linear-regression slope (normalised)
-    trend_slope = (close - close.shift(3)) / (3 * bar_len)
-    df["Trend_slope"] = trend_slope.fillna(0)
-
-    df["RSI"]    = momentum.RSIIndicator(close, window=win_14m).rsi()
-    df["Stoch14"]= momentum.StochasticOscillator(high, low, close, window=win_14m).stoch()
-
-    atr30 = volatility.AverageTrueRange(high, low, close, window=win_30m).average_true_range()
-    df["Volatility"]      = atr30                              # <-- ensure exists
-    df["ATR30_log"]       = np.log((atr30 / close).clip(lower=eps))
-
-    realsig30 = df["LagRet_1"].rolling(win_30m).std()
-    df["RealVol30_log"] = np.log(realsig30.clip(lower=eps))
-
-    df["Vol_log"]  = np.log1p(vol)
-    vol_mean30     = vol.rolling(win_30m).mean()
-    df["Vol_z30"]  = (vol - vol_mean30) / (vol_mean30.rolling(win_30m).std() + eps)
-
-    mins = df["Date"].dt.hour * 60 + df["Date"].dt.minute
-    df["MinuteNorm"]  = mins / 390.0
-    df["MinutesOpen"] = mins
-    df["LunchDummy"]  = ((mins>150)&(mins<210)).astype(int)
-
-    adx30 = trend.ADXIndicator(high, low, close, window=win_30m).adx()
-    df["ADX_strong"] = (adx30 >= 25).astype(float)
-    df["ADX_weak"]   = 1.0 - df["ADX_strong"]
-
-    # ---------- 4) final clean-up ---------------------------------------------
-    numeric_cols = df.columns.drop("Date")
-    df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
-    df.fillna(method="ffill", inplace=True)
-    df.fillna(0, inplace=True)
+    # ---------- 2) engineered features -----------------------------------------
+    df = build_rl_features(df, interval=interval)
 
     # Save the fetched and processed data to CSV for future caching.
     try:
@@ -460,7 +504,11 @@ class SingleStockTradingEnv(gym.Env):
         super(SingleStockTradingEnv, self).__init__()
         self.env_rank = env_rank
         self.ticker = ticker
-        self.df = df.copy().reset_index(drop=True)
+        self.df = df.copy()
+        if "Date" in self.df.columns:
+            self.df = self.df.sort_values("Date").reset_index(drop=True)
+        else:
+            self.df = self.df.reset_index(drop=True)
 
         self.initial_balance = initial_balance
         self.stop_loss = stop_loss
@@ -504,7 +552,7 @@ class SingleStockTradingEnv(gym.Env):
         import collections
         self.reward_history = collections.deque(maxlen=500)
 
-        self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
+        self.action_space = spaces.Discrete(4)
         self.num_features = len(FEATURES_TO_SCALE)
         self.market_phase = ['Bull', 'Bear', 'Sideways']
 
@@ -714,7 +762,7 @@ class SingleStockTradingEnv(gym.Env):
 
         return total_cost, breakdown
 
-    def step(self, action: np.ndarray):
+    def step(self, action):
         # Declare slippage constant and corresponding multipliers.
         SLIPPAGE_RATE = 0.001
         BUY_MULTIPLIER = 1 + SLIPPAGE_RATE   # Replaces 1.01 (i.e., 1.001 now)
@@ -746,18 +794,18 @@ class SingleStockTradingEnv(gym.Env):
         current_obs_array = self._next_observation()
         
         try:
-            action_value = float(action[0])
-            # Apply filtering regardless of mode.
-            """ if action_value > 0 and action_value < self.inference_buy_threshold:
-                action_value = 0.0  # Ignore weak buy signals
-            elif action_value < 0 and abs(action_value) < self.inference_sell_threshold:
-                action_value = 0.0  # Ignore weak sell signals """
-            assert self.action_space.contains(action), f"[Env {self.env_rank}] Invalid action: {action}"
+            action_id = int(np.asarray(action).item()) if isinstance(action, (np.ndarray, list, tuple)) else int(action)
+            assert self.action_space.contains(action_id), f"[Env {self.env_rank}] Invalid action: {action_id}"
         except Exception as e:
             training_logger.error(f"[Env {self.env_rank}] Action validation failed: {e}")
             return self._next_observation(), -1000.0, True, False, {}
 
-        invalid_action_penalty = 0
+        action_labels = {0: "hold", 1: "long", 2: "short", 3: "reduce"}
+        action_name = action_labels.get(action_id, "hold")
+        # Compatibility field for existing logs.
+        action_value = 0.0 if action_id in (0, 3) else (1.0 if action_id == 1 else -1.0)
+
+        invalid_action_penalty = -0.001
 
         # If we've exhausted the dataset, force termination.
         if self.current_step >= len(self.df):
@@ -989,65 +1037,78 @@ class SingleStockTradingEnv(gym.Env):
 
         eps = 1e-9
         live_equity = max(self.balance + self.position * current_price, eps)
-        #shares_scale_equity = live_equity / (current_price + eps)
+        trade_fraction = float(self.reward_weights.get("trade_fraction", 0.25))
+        reduce_fraction = float(self.reward_weights.get("reduce_fraction", 0.5))
+        shares_to_buy = 0
+        shares_to_sell = 0
 
-        # --- Buy logic ---
-        if action_value > 0:
-            target_notional = action_value * self.max_position_size * live_equity
-            shares_to_buy   = math.floor(target_notional / (current_price * BUY_MULTIPLIER))
-            if shares_to_buy == 0:
-                shares_to_buy = 1
-                      
+        if action_id == 1:
+            target_notional = trade_fraction * self.max_position_size * live_equity
+            shares_to_buy = max(1, math.floor(target_notional / (current_price * BUY_MULTIPLIER)))
             order_value = shares_to_buy * current_price * BUY_MULTIPLIER
             cost, breakdown = self.calculate_transaction_cost(order_value, "buy", shares_to_buy)
             transaction_cost = cost
             total_trade_cost += transaction_cost
             total_cost = order_value + transaction_cost
-            if shares_to_buy > 0 and total_cost <= self.balance:
+            if total_cost <= self.balance:
                 buy_signal_price = current_price
                 self.balance -= total_cost
                 self.position += shares_to_buy
                 self.transaction_count += 1
                 shares_traded = shares_to_buy
                 breakdowns_list.append(breakdown)
-                executed_price = current_price * BUY_MULTIPLIER
-                # For buys, assume execution at price * BUY_MULTIPLIER
-                slippage_cost = shares_to_buy * (executed_price - current_price)
-                self.cumulative_slippage_cost += slippage_cost
+                self.cumulative_slippage_cost += shares_to_buy * (current_price * BUY_MULTIPLIER - current_price)
             else:
                 invalid_act_penalty = invalid_action_penalty
-
-        # --- Sell logic ---
-        # --- Sell / SHORT logic ---------------------------------
-        elif action_value < 0:
-            # decide how many shares to ADD TO a (possibly zero) short
-            target_notional = abs(action_value) * self.max_position_size * live_equity
-            shares_to_sell  = math.floor(target_notional / (current_price * SELL_MULTIPLIER))
-            if shares_to_sell == 0:
-                shares_to_sell = 1
-
-            if shares_to_sell > 0:                           # ← no longer limited by self.position
-                sell_signal_price = current_price
-                order_value  = shares_to_sell * current_price * SELL_MULTIPLIER
+        elif action_id == 2:
+            target_notional = trade_fraction * self.max_position_size * live_equity
+            shares_to_sell = max(1, math.floor(target_notional / (current_price * SELL_MULTIPLIER)))
+            order_value = shares_to_sell * current_price * SELL_MULTIPLIER
+            cost, breakdown = self.calculate_transaction_cost(order_value, "sell", shares_to_sell)
+            transaction_cost = cost
+            total_trade_cost += transaction_cost
+            proceeds = order_value - transaction_cost
+            self.position -= shares_to_sell
+            self.balance += proceeds
+            self.transaction_count += 1
+            shares_traded = shares_to_sell
+            sell_signal_price = current_price
+            breakdowns_list.append(breakdown)
+            self.cumulative_slippage_cost += shares_to_sell * (current_price - current_price * SELL_MULTIPLIER)
+        elif action_id == 3:
+            if self.position > 0:
+                shares_to_sell = max(1, math.floor(abs(self.position) * reduce_fraction))
+                shares_to_sell = min(shares_to_sell, int(abs(self.position)))
+                order_value = shares_to_sell * current_price * SELL_MULTIPLIER
                 cost, breakdown = self.calculate_transaction_cost(order_value, "sell", shares_to_sell)
-
-                transaction_cost   = cost
-                total_trade_cost  += transaction_cost
-                proceeds           = order_value - transaction_cost
-
-                self.position     -= shares_to_sell          # ➜ may go **negative** (short)
-                self.balance      += proceeds
+                transaction_cost = cost
+                total_trade_cost += transaction_cost
+                proceeds = order_value - transaction_cost
+                self.balance += proceeds
+                self.position -= shares_to_sell
                 self.transaction_count += 1
-                shares_traded      = shares_to_sell
+                shares_traded = shares_to_sell
+                sell_signal_price = current_price
                 breakdowns_list.append(breakdown)
-
-                executed_price = current_price * SELL_MULTIPLIER
-                self.cumulative_slippage_cost += shares_to_sell * (current_price - executed_price)
-            else:
-                invalid_act_penalty = invalid_action_penalty
-        else:
-            pass
-
+                self.cumulative_slippage_cost += shares_to_sell * (current_price - current_price * SELL_MULTIPLIER)
+            elif self.position < 0:
+                shares_to_buy = max(1, math.floor(abs(self.position) * reduce_fraction))
+                shares_to_buy = min(shares_to_buy, int(abs(self.position)))
+                order_value = shares_to_buy * current_price * BUY_MULTIPLIER
+                cost, breakdown = self.calculate_transaction_cost(order_value, "buy", shares_to_buy)
+                total_cost = order_value + cost
+                if total_cost <= self.balance:
+                    transaction_cost = cost
+                    total_trade_cost += transaction_cost
+                    self.balance -= total_cost
+                    self.position += shares_to_buy
+                    self.transaction_count += 1
+                    shares_traded = shares_to_buy
+                    buy_signal_price = current_price
+                    breakdowns_list.append(breakdown)
+                    self.cumulative_slippage_cost += shares_to_buy * (current_price * BUY_MULTIPLIER - current_price)
+                else:
+                    invalid_act_penalty = invalid_action_penalty
         if self.cumulative_slippage_cost > 1000:
             print(f"[Env {self.env_rank}]: Ticker{self.ticker}: High slippage at step {self.current_step}: {self.cumulative_slippage_cost:.2f}, shares={shares_to_buy}, price={current_price}")
             training_logger.debug(f"[Env {self.env_rank}]: Ticker{self.ticker}: High slippage at step {self.current_step}: {self.cumulative_slippage_cost:.2f}, shares={shares_to_buy}, price={current_price}")
@@ -1067,7 +1128,7 @@ class SingleStockTradingEnv(gym.Env):
                 if affordable_shares == 0:
                     terminated = True
                     # optional: add big penalty so the agent hates this outcome
-                    reward -= 1.0
+                    invalid_act_penalty -= 1.0
                 else:
                     # cover affordable_shares
                     cover_order_value = affordable_shares * current_price * BUY_MULTIPLIER
@@ -1087,56 +1148,27 @@ class SingleStockTradingEnv(gym.Env):
         net_worth = float(self.balance + self.position * current_price + self.realized_gain)
         self.net_worth = net_worth
 
-        profit_weight = self.reward_weights.get('profit_weight', 1.5)
-        sharpe_bonus_weight = self.reward_weights.get('sharpe_bonus_weight', 0.05)
-        holding_bonus_weight = self.reward_weights.get('holding_bonus_weight', 0.001)
-
         net_worth_change = net_worth - self.prev_net_worth
-        profit_reward = (net_worth_change / self.initial_balance) * profit_weight 
-
         safe_prev = max(self.prev_net_worth, eps)
-        safe_curr = max(self.net_worth, eps)
-        log_return = np.log(safe_curr / safe_prev)
-        #log_return = np.log(net_worth / self.prev_net_worth) if self.prev_net_worth > 0 else 0.0
+        step_return = net_worth_change / safe_prev
 
-        self.returns_window.append(log_return)
-        if len(self.returns_window) > 30:
+        self.returns_window.append(step_return)
+        if len(self.returns_window) > 50:
             self.returns_window.pop(0)
-
-        if self.position == 0:
-            self.returns_window = []
-
-        if self.position != 0 and len(self.returns_window) >= 5:
-            mean_log_return = np.mean(self.returns_window)
-            std_log_return = np.std(self.returns_window) + 1e-9
-            sharpe = mean_log_return / std_log_return
-            sharpe_bonus = sharpe * self.reward_weights.get('sharpe_bonus_weight', 0.05) 
-        else:
-            sharpe_bonus = 0.0
-
-        hold_factor = max(0, 1 - abs(action_value) / 0.1)
-        raw_vol = current_data['Volatility']
-        vol_thresh = self.reward_weights.get('volatility_threshold', 1.0)
-        volatility_factor = 1.0 - np.clip(raw_vol / vol_thresh, 0.0, 1.0)
-
-        mom_thresh_min = self.reward_weights.get('momentum_threshold_min', 30)
-        mom_thresh_max = self.reward_weights.get('momentum_threshold_max', 70)
-        if mom_thresh_max > mom_thresh_min:
-            raw_rsi = current_data['RSI']
-            rsi_factor = (raw_rsi - mom_thresh_min) / (mom_thresh_max - mom_thresh_min)
-            rsi_factor = np.clip(rsi_factor, 0.0, 1.0)
-        else:
-            rsi_factor = 0.0
-
-        favorable_hold_factor = hold_factor * volatility_factor * rsi_factor
-        if self.position > 0:
-            holding_bonus = favorable_hold_factor * holding_bonus_weight
-        else:
-            holding_bonus = 0.0        
+        rolling_volatility = float(np.std(self.returns_window)) if len(self.returns_window) >= 2 else 0.0
 
         self.transaction_cost = total_trade_cost
-        transaction_penalty_weight = self.reward_weights.get('transaction_penalty_weight', 1.0)
-        transaction_penalty = -(total_trade_cost / self.initial_balance) * transaction_penalty_weight
+        transaction_penalty_weight = float(self.reward_weights.get("transaction_penalty_weight", 1.0))
+        transaction_penalty = (total_trade_cost / safe_prev) * transaction_penalty_weight
+        volatility_penalty_weight = float(self.reward_weights.get("volatility_penalty_weight", 0.10))
+
+        # Backward-compatible metric keys retained for logs.
+        profit_reward = step_return
+        sharpe_bonus = 0.0
+        holding_bonus = 0.0
+        profit_weight = 1.0
+        sharpe_bonus_weight = 0.0
+        holding_bonus_weight = 0.0
 
         # After all transactions in step(), update heavy transaction cost info:
         heavy_flag = 0
@@ -1149,38 +1181,14 @@ class SingleStockTradingEnv(gym.Env):
         self.last_dp_charge_flag = heavy_flag
         self.last_dp_charge_amount = heavy_amount
 
-        # --- inside step(), just before you assign reward -------------
-        """ trade_pnl =0
-        trade_bonus=0
-        # OPTIONAL: small bonus for *any* filled trade during warm‑up
-        explore_bonus = 0.001 if (self.current_step < self.warmup_steps and shares_traded > 0) else 0.0
-        # ---- trade‑level profit bonus ---------------------------------
-        trade_pnl   = net_worth - self.prev_net_worth           # ₹ gain/loss this step
-        trade_bonus = 0.002 * trade_pnl / self.initial_balance  # 0.2 % of IB scale """
-
-
-        if self.current_step < self.warmup_steps:
-            # light mode: NO draw‑down or stop‑loss costs yet
-            reward = (
-                profit_reward 
-                + sharpe_bonus
-                + holding_bonus
-                + invalid_act_penalty
-                #+ explore_bonus
-            )
-        else:
-            # full‑cost mode (unchanged list, plus optional transaction_penalty)
-            reward = (
-                profit_reward 
-                + sharpe_bonus
-                + forced_stop_penalty
-                + forced_tp_penalty
-                + drawdown_penalty
-                # + transaction_penalty          # uncomment if you want it
-                + holding_bonus
-                + invalid_act_penalty
-            )
-
+        risk_adjusted_reward = step_return - volatility_penalty_weight * rolling_volatility - transaction_penalty
+        reward = (
+            risk_adjusted_reward
+            + forced_stop_penalty
+            + forced_tp_penalty
+            + drawdown_penalty
+            + invalid_act_penalty
+        )
         raw_reward = reward
         self.reward_history.append(raw_reward)
         
@@ -1192,7 +1200,9 @@ class SingleStockTradingEnv(gym.Env):
             'Close': current_price,
             'ticker': self.ticker,
             'env_rank': self.env_rank,
-            'Action': action_value,
+            'Action': action_id,
+            'ActionName': action_name,
+            'ActionLegacy': action_value,
             'Buy_Signal_Price': buy_signal_price,
             'Sell_Signal_Price': sell_signal_price,
             'Full Worth': self.net_worth,
@@ -1211,7 +1221,9 @@ class SingleStockTradingEnv(gym.Env):
             'forced_stop_penalty': forced_stop_penalty,
             'forced_tp_penalty': forced_tp_penalty,
             'drawdown_penalty': drawdown_penalty,
-            'transaction_penalty': transaction_penalty,
+            'transaction_penalty': -transaction_penalty,
+            'rolling_volatility': rolling_volatility,
+            'risk_adjusted_reward': risk_adjusted_reward,
             'is_terminated': terminated,
             'stop_loss_triggered': stop_loss_triggered,
             'take_profit_triggered': take_profit_triggered,
@@ -1236,29 +1248,7 @@ class SingleStockTradingEnv(gym.Env):
         # ------------------------------------------------------------------
         # ❶  TECHNICAL COLUMNS THAT ACTUALLY EXIST IN get_data_kite()
         # ------------------------------------------------------------------
-        TECH_FEATURES = [
-            # --- price action
-            "LagRet_1", "LagRet_5", "LagRet_30",
-            "OHLC_pct", "High_Low_pct", "Rel_Close_HL",
-
-            # --- trend
-            "Trend_30", "Trend_2h", "Trend_slope",
-
-            # --- momentum
-            "RSI14", "Stoch14",
-
-            # --- volatility
-            "ATR30_log", "RealVol30_log",
-
-            # --- liquidity / flow
-            "Vol_log", "Vol_z30",
-
-            # --- micro-structure
-            "MinuteNorm", "MinutesOpen", "LunchDummy",
-
-            # --- regime flags
-            "ADX_strong", "ADX_weak"
-        ]
+        TECH_FEATURES = FEATURES_TO_SCALE
 
         # ------------------------------------------------------------------
         # ❷  SAVE THEM INTO self.history  – robust to any future tweaks
@@ -1550,6 +1540,331 @@ def compute_expected_return_per_trade(trade_returns):
     expectancy = win_rate * avg_win - loss_rate * avg_loss
     return expectancy
 
+def split_chronological(df: pd.DataFrame, train_ratio: float = 0.70, val_ratio: float = 0.15):
+    if "Date" in df.columns:
+        df = df.sort_values("Date").reset_index(drop=True)
+    else:
+        df = df.reset_index(drop=True)
+    total = len(df)
+    if total < 20:
+        return df.copy(), pd.DataFrame(), pd.DataFrame()
+    train_end = int(total * train_ratio)
+    val_end = train_end + int(total * val_ratio)
+    train_df = df.iloc[:train_end].copy()
+    val_df = df.iloc[train_end:val_end].copy()
+    test_df = df.iloc[val_end:].copy()
+    return train_df, val_df, test_df
+
+def interval_to_bars_per_day(interval: str) -> int:
+    iv = str(interval).lower().strip()
+    if "minute" in iv:
+        minutes = int(iv.replace("minute", "").strip() or "1")
+    elif iv.endswith("m"):
+        minutes = int(iv[:-1] or "1")
+    else:
+        minutes = 5
+    # NSE cash session is ~375 minutes (09:15-15:30 IST).
+    return max(1, int(round(375 / max(1, minutes))))
+
+def make_walk_forward_slices(
+    df: pd.DataFrame,
+    interval: str,
+    train_days: int = 180,
+    val_days: int = 20,
+    test_days: int = 10,
+    step_days: int = 20
+):
+    bars_per_day = interval_to_bars_per_day(interval)
+    train_bars = train_days * bars_per_day
+    val_bars = val_days * bars_per_day
+    test_bars = test_days * bars_per_day
+    step_bars = step_days * bars_per_day
+
+    windows = []
+    start = 0
+    total = len(df)
+    while True:
+        train_end = start + train_bars
+        val_end = train_end + val_bars
+        test_end = val_end + test_bars
+        if test_end > total:
+            break
+        windows.append((start, train_end, val_end, test_end))
+        start += step_bars
+    return windows
+
+def _compute_cycle_metrics(history: list, initial_balance: float) -> dict:
+    if not history:
+        return {
+            "net_return": -1.0,
+            "max_drawdown": 1.0,
+            "sharpe": -10.0,
+            "turnover": 1.0,
+            "trade_count": 0,
+            "score": -999.0
+        }
+    dfh = pd.DataFrame(history)
+    net_worth = pd.to_numeric(dfh.get("Net Worth", pd.Series(dtype=float)), errors="coerce").fillna(method="ffill").fillna(initial_balance)
+    positions = pd.to_numeric(dfh.get("Position", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    rewards = pd.to_numeric(dfh.get("Reward", pd.Series(dtype=float)), errors="coerce").fillna(0.0).values
+    if len(net_worth) < 2:
+        return {
+            "net_return": (float(net_worth.iloc[-1]) - initial_balance) / max(initial_balance, 1e-9),
+            "max_drawdown": 1.0,
+            "sharpe": -10.0,
+            "turnover": 1.0,
+            "trade_count": int(np.sum(np.abs(np.diff(positions.values)) > 0)),
+            "score": -999.0
+        }
+    net_return = (float(net_worth.iloc[-1]) - initial_balance) / max(initial_balance, 1e-9)
+    max_drawdown = abs(float(calculate_max_drawdown(net_worth)))
+    sharpe = float(compute_sharpe_ratio(rewards))
+    turnover = float(np.sum(np.abs(np.diff(positions.values))) / (np.sum(np.abs(positions.values)) + 1e-9))
+    trade_count = int(np.sum(np.abs(np.diff(positions.values)) > 0))
+    score = (
+        0.5 * net_return
+        + 0.3 * sharpe
+        - 0.4 * max_drawdown
+        - 0.2 * turnover
+    )
+    if trade_count < 3:
+        score -= 0.5
+    return {
+        "net_return": net_return,
+        "max_drawdown": max_drawdown,
+        "sharpe": sharpe,
+        "turnover": turnover,
+        "trade_count": trade_count,
+        "score": score
+    }
+
+def _evaluate_slice_with_frozen_norm(
+    model_path: Path,
+    vecnorm_path: Path,
+    df_slice: pd.DataFrame,
+    ticker: str,
+    initial_balance: float,
+    env_kwargs: dict,
+    eval_tag: str
+) -> dict:
+    if df_slice.empty:
+        return {"history": [], "metrics": _compute_cycle_metrics([], initial_balance)}
+
+    env_eval = SingleStockTradingEnv(
+        df=df_slice.reset_index(drop=True),
+        ticker=ticker,
+        initial_balance=initial_balance,
+        max_episode_steps=len(df_slice),
+        mode="test",
+        **env_kwargs
+    )
+    eval_vec = SubprocVecEnv([lambda: env_eval])
+    eval_vec = VecNormalize.load(str(vecnorm_path), eval_vec)
+    eval_vec.training = False
+    eval_vec.norm_reward = False
+
+    model = PPO.load(str(model_path), env=eval_vec)
+    obs = eval_vec.reset()
+    done = [False] * eval_vec.num_envs
+    steps = 0
+    while not all(done) and steps < len(df_slice):
+        action, _ = model.predict(obs, deterministic=True)
+        obs, rewards, done, infos = eval_vec.step(action)
+        steps += 1
+
+    final_metrics_list = eval_vec.env_method("get_final_metrics")
+    eval_vec.close()
+    history = final_metrics_list[0].get("history", []) if final_metrics_list else []
+    metrics = _compute_cycle_metrics(history, initial_balance)
+    main_logger.info(f"[WF:{ticker}:{eval_tag}] score={metrics['score']:.4f}, return={metrics['net_return']:.4f}, dd={metrics['max_drawdown']:.4f}, sharpe={metrics['sharpe']:.4f}, turnover={metrics['turnover']:.4f}, trades={metrics['trade_count']}")
+    return {"history": history, "metrics": metrics}
+
+def walk_forward_runner(
+    ticker_list: list,
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str = "5minute",
+    history_days: int = 365,
+    train_days: int = 180,
+    val_days: int = 20,
+    test_days: int = 10,
+    step_days: int = 20,
+    train_timesteps: int = 50000
+):
+    wf_dir = RESULTS_DIR / "walk_forward"
+    wf_dir.mkdir(parents=True, exist_ok=True)
+    all_rows = []
+
+    common_env_kwargs = {
+        "stop_loss": best_params.get('stop_loss', stop_loss),
+        "take_profit": best_params.get('take_profit', take_profit),
+        "max_position_size": best_params.get('max_position_size', max_position_size),
+        "max_drawdown": best_params.get('max_drawdown', max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get('drawdown_penalty_factor', 0.01),
+        "hold_threshold": best_params.get('hold_threshold', 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": best_params.get("trade_fraction", 0.25),
+            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08)
+    }
+
+    for ticker in ticker_list:
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.warning(f"[WF:{ticker}] token missing, skipping.")
+            continue
+
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            main_logger.warning(f"[WF:{ticker}] no data, skipping.")
+            continue
+
+        windows = make_walk_forward_slices(
+            df_full,
+            interval=interval,
+            train_days=train_days,
+            val_days=val_days,
+            test_days=test_days,
+            step_days=step_days
+        )
+        if not windows:
+            main_logger.warning(f"[WF:{ticker}] not enough rows ({len(df_full)}) for walk-forward windows.")
+            continue
+
+        ticker_best_score = -np.inf
+        ticker_best_model = None
+        ticker_best_norm = None
+
+        for cycle_idx, (s, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            train_df = df_full.iloc[s:tr_end].reset_index(drop=True)
+            val_df = df_full.iloc[tr_end:va_end].reset_index(drop=True)
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if train_df.empty or val_df.empty or test_df.empty:
+                continue
+
+            env_train = SingleStockTradingEnv(
+                df=train_df,
+                ticker=ticker,
+                initial_balance=initial_balance,
+                max_episode_steps=len(train_df),
+                mode="train",
+                env_rank=cycle_idx,
+                **common_env_kwargs
+            )
+            vec_train = SubprocVecEnv([lambda e=env_train: e])
+            vec_train = VecNormalize(vec_train, norm_obs=True, norm_reward=True, clip_obs=10000.0, clip_reward=250000.0)
+
+            net_arch = [128, 128]
+            policy_kwargs = dict(activation_fn=torch.nn.ReLU, net_arch=net_arch)
+            model = PPO(
+                "MlpPolicy",
+                vec_train,
+                verbose=0,
+                seed=RANDOM_SEED,
+                policy_kwargs=policy_kwargs,
+                learning_rate=best_params.get('learning_rate', 1e-4),
+                n_steps=best_params.get('n_steps', 256),
+                batch_size=best_params.get('batch_size', 64),
+                gamma=best_params.get('gamma', 0.99),
+                gae_lambda=best_params.get('gae_lambda', 0.95),
+                clip_range=best_params.get('clip_range', 0.2),
+                ent_coef=best_params.get('ent_coef', 0.01),
+                vf_coef=best_params.get('vf_coef', 0.5),
+                max_grad_norm=best_params.get('max_grad_norm', 0.5),
+                tensorboard_log=str(TB_LOG_DIR / "walk_forward"),
+                device='cpu'
+            )
+            model.learn(total_timesteps=train_timesteps)
+
+            cycle_dir = wf_dir / ticker / f"cycle_{cycle_idx:03d}"
+            cycle_dir.mkdir(parents=True, exist_ok=True)
+            model_path = cycle_dir / "model.zip"
+            vecnorm_path = cycle_dir / "vecnorm.pkl"
+            model.save(str(model_path))
+            vec_train.save(str(vecnorm_path))
+            vec_train.close()
+
+            val_eval = _evaluate_slice_with_frozen_norm(
+                model_path=model_path,
+                vecnorm_path=vecnorm_path,
+                df_slice=val_df,
+                ticker=ticker,
+                initial_balance=initial_balance,
+                env_kwargs=common_env_kwargs,
+                eval_tag=f"cycle_{cycle_idx:03d}_val"
+            )
+            test_eval = _evaluate_slice_with_frozen_norm(
+                model_path=model_path,
+                vecnorm_path=vecnorm_path,
+                df_slice=test_df,
+                ticker=ticker,
+                initial_balance=initial_balance,
+                env_kwargs=common_env_kwargs,
+                eval_tag=f"cycle_{cycle_idx:03d}_test"
+            )
+
+            val_metrics = val_eval["metrics"]
+            test_metrics = test_eval["metrics"]
+            row = {
+                "ticker": ticker,
+                "cycle": cycle_idx,
+                "train_rows": len(train_df),
+                "val_rows": len(val_df),
+                "test_rows": len(test_df),
+                "val_score": val_metrics["score"],
+                "val_return": val_metrics["net_return"],
+                "val_drawdown": val_metrics["max_drawdown"],
+                "val_sharpe": val_metrics["sharpe"],
+                "val_turnover": val_metrics["turnover"],
+                "val_trades": val_metrics["trade_count"],
+                "test_score": test_metrics["score"],
+                "test_return": test_metrics["net_return"],
+                "test_drawdown": test_metrics["max_drawdown"],
+                "test_sharpe": test_metrics["sharpe"],
+                "test_turnover": test_metrics["turnover"],
+                "test_trades": test_metrics["trade_count"],
+                "model_path": str(model_path),
+                "vecnorm_path": str(vecnorm_path)
+            }
+            all_rows.append(row)
+
+            if val_metrics["score"] > ticker_best_score:
+                ticker_best_score = val_metrics["score"]
+                ticker_best_model = model_path
+                ticker_best_norm = vecnorm_path
+
+        if ticker_best_model is not None and ticker_best_norm is not None:
+            approved_dir = wf_dir / ticker / "approved"
+            approved_dir.mkdir(parents=True, exist_ok=True)
+            approved_model = approved_dir / "model.zip"
+            approved_norm = approved_dir / "vecnorm.pkl"
+            shutil.copy2(ticker_best_model, approved_model)
+            shutil.copy2(ticker_best_norm, approved_norm)
+            main_logger.info(f"[WF:{ticker}] approved model updated. score={ticker_best_score:.4f}, model={approved_model}")
+
+    if all_rows:
+        wf_df = pd.DataFrame(all_rows)
+        wf_csv = wf_dir / "walk_forward_summary.csv"
+        wf_df.to_csv(wf_csv, index=False)
+        main_logger.info(f"[WF] summary saved: {wf_csv}")
+    else:
+        main_logger.warning("[WF] no cycles produced results.")
+
+    return all_rows
+
 
 def objective(
     trial,
@@ -1610,7 +1925,7 @@ def objective(
     # === Build Environment List and Store Ticker-Env Pairs ===
     env_factories = []
     env_pairs = []  # list of (ticker, env_instance)
-    for i, ticker in enumerate(optuna_tickers):
+    for i, ticker in enumerate(train_tickers):
         main_logger.info(f"[Trial {trial.number}] Creating training environment for ticker {ticker}")
         # After: Fetching data with Kite
         token = get_instrument_token(ticker, instrument_df)
@@ -1622,11 +1937,11 @@ def objective(
         if df_full.empty:
             main_logger.warning(f"[Trial {trial.number}] No data for ticker {ticker}. Skipping.")
             continue
-        split_idx = int(len(df_full) * 0.8)
-        df_train = df_full.iloc[:split_idx].copy()
+        df_train, df_val, df_test = split_chronological(df_full, train_ratio=0.70, val_ratio=0.15)
         if df_train.empty:
             main_logger.warning(f"[Trial {trial.number}] Training data empty for ticker {ticker}. Skipping.")
             continue
+        main_logger.info(f"[Trial {trial.number}] {ticker} split sizes train/val/test: {len(df_train)}/{len(df_val)}/{len(df_test)}")
 
         env_instance = SingleStockTradingEnv(
             df=df_train,
@@ -1739,7 +2054,7 @@ def objective(
     
     # === Rollout Evaluation ===
     vec_env_train.training = False
-    vec_env_train.norm_reward = True
+    vec_env_train.norm_reward = False
     # For example, if training used the default ±10 clipping:
     vec_env_train.clip_obs = 10000.0      # match training's observation clipping range
     vec_env_train.clip_reward = 25000.0   # match training's reward clipping range
@@ -2055,16 +2370,8 @@ if __name__ == "__main__":
         main_logger.info(f"[get_data] Successfully fetched & validated data for {ticker}. Final shape: {df.shape}")
         return df   
 
-    train_tickers = [
-        "GRINDWELL", "APOLLOTYRE", "EXIDEIND", "KPIL", "ICICIBANK",
-        "HDFCBANK", "INFY", "TCS", "RELIANCE",
-        "JYOTHYLAB", "GABRIEL", "MAHSEAMLES", "GODREJIND", "TATVA"
-    ]
-
-    optuna_tickers = [
-        "ICICIBANK", "APOLLOTYRE", "JYOTHYLAB", "KPIL",
-        "CROMPTON", "GABRIEL", "MAHSEAMLES", "GODREJIND", "TATVA"
-    ]
+    train_tickers = NSE_LIQUID_UNIVERSE.copy()
+    optuna_tickers = NSE_LIQUID_UNIVERSE[:16]
 
     # ----------------------------------------------------------------
     # 3. Prepare single ticker (GRINDWELL) for final testing
@@ -2146,6 +2453,33 @@ if __name__ == "__main__":
     optuna_tuned_inference_sell_threshold = best_params["inference_sell_threshold"]
 
     # ----------------------------------------------------------------
+    # 4b. Walk-forward mode (recommended for non-stationary markets)
+    # ----------------------------------------------------------------
+    ENABLE_WALK_FORWARD = True
+    if ENABLE_WALK_FORWARD:
+        main_logger.info("Starting walk-forward training/validation/testing pipeline.")
+        wf_tickers = NSE_LIQUID_UNIVERSE.copy()
+        walk_forward_runner(
+            ticker_list=wf_tickers,
+            instrument_df=instrument_df,
+            best_params=best_params,
+            initial_balance=INITIAL_BALANCE,
+            stop_loss=STOP_LOSS,
+            take_profit=TAKE_PROFIT,
+            max_position_size=MAX_POSITION_SIZE,
+            max_drawdown=MAX_DRAWDOWN,
+            annual_trading_days=ANNUAL_TRADING_DAYS,
+            interval=TICKINT,
+            history_days=max(TRAIN_HISTORY_DAYS, 1095),
+            train_days=730,
+            val_days=90,
+            test_days=30,
+            step_days=30,
+            train_timesteps=50000
+        )
+        raise SystemExit(0)
+
+    # ----------------------------------------------------------------
     # 5. Final training pass with best hyperparams
     # ----------------------------------------------------------------
     main_logger.info("Final training pass with best hyperparams from Optuna.")
@@ -2157,12 +2491,13 @@ if __name__ == "__main__":
         if token is None:
             main_logger.error(f"Token not found for ticker {ticker}. Skipping.")
             continue  # Skip this ticker if the token isn't found
-        df_full = get_data_kite(kite, instrument_token=token, days=DTDAYS, interval=TICKINT)
+        df_full = get_data_kite(kite, instrument_token=token, days=TRAIN_HISTORY_DAYS, interval=TICKINT)
 
         if df_full.empty:
             continue
-        split_idx = int(len(df_full) * 0.8)
-        df_train = df_full.iloc[:split_idx].reset_index(drop=True)
+        df_train, df_val, df_test = split_chronological(df_full, train_ratio=0.70, val_ratio=0.15)
+        df_train = df_train.reset_index(drop=True)
+        main_logger.info(f"[Final Train] {ticker} split sizes train/val/test: {len(df_train)}/{len(df_val)}/{len(df_test)}")
 
         env_instance = SingleStockTradingEnv(
             df=df_train,
@@ -2254,14 +2589,14 @@ if __name__ == "__main__":
         if token is None:
             main_logger.error(f"Token not found for test ticker {test_ticker}. Skipping inference.")
             continue
-        df_test_full = get_data_kite(kite, instrument_token=token, days=60, interval=TICKINT)
+        df_test_full = get_data_kite(kite, instrument_token=token, days=TEST_HISTORY_DAYS, interval=TICKINT)
         if df_test_full.empty:
             main_logger.error(f"No data for test ticker {test_ticker}. Skipping inference.")
             continue
 
-        split_idx_test = int(len(df_test_full) * 0.8)
-        test_df = df_test_full.iloc[split_idx_test:].reset_index(drop=True)
-        main_logger.info(f"{test_ticker} test portion rows = {len(test_df)}")
+        train_df_tmp, val_df_tmp, test_df = split_chronological(df_test_full, train_ratio=0.70, val_ratio=0.15)
+        test_df = test_df.reset_index(drop=True)
+        main_logger.info(f"{test_ticker} split sizes train/val/test: {len(train_df_tmp)}/{len(val_df_tmp)}/{len(test_df)}")
 
         # 2) Create and wrap environment
         env_test = SingleStockTradingEnv(
@@ -2308,7 +2643,7 @@ if __name__ == "__main__":
             main_logger.info(f"Loading VecNormalize from {vecnorm_path}")
         test_vec = VecNormalize.load(str(vecnorm_path), test_vec)
         test_vec.training = False
-        test_vec.norm_reward = True
+        test_vec.norm_reward = False
         # For example, if training used the default ±10 clipping:
         test_vec.clip_obs = 10000.0      # match training's observation clipping range
         test_vec.clip_reward = 25000.0   # match training's reward clipping range
