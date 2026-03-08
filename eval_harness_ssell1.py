@@ -26,6 +26,8 @@ from ssell1 import (
 BASE_DIR = Path(".").resolve()
 RESULTS_DIR = BASE_DIR / "results" / "eval_harness"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+TB_DIR = BASE_DIR / "tensorboard_logs" / "eval_harness"
+TB_DIR.mkdir(parents=True, exist_ok=True)
 
 random.seed(RANDOM_SEED)
 np.random.seed(RANDOM_SEED)
@@ -41,6 +43,7 @@ class HarnessConfig:
     val_bars: int = 120
     test_bars: int = 80
     step_bars: int = 80
+    max_windows: Optional[int] = 2
 
     initial_balance: float = 100000.0
     annual_trading_days: int = 252
@@ -51,8 +54,9 @@ class HarnessConfig:
     slippage_rate: float = 0.001
 
     # PPO train
-    total_timesteps: int = 30000
+    total_timesteps: int = 10000
     deterministic_eval: bool = True
+    sb3_verbose: int = 1
 
     # Env params
     stop_loss: float = 0.90
@@ -69,8 +73,8 @@ class HarnessConfig:
     tickers: Optional[List[str]] = None
 
     # Diagnostics
-    run_shuffled_test: bool = True
-    run_cost_off_test: bool = True
+    run_shuffled_test: bool = False
+    run_cost_off_test: bool = False
 
 
 @dataclass
@@ -303,6 +307,7 @@ def train_rl_model_on_window(
     ticker: str,
     config: HarnessConfig,
     save_dir: Path,
+    tb_log_name: str,
 ) -> Tuple[Path, Path]:
     env_fn = make_env_from_df(train_df, ticker=ticker, config=config, env_rank=0, mode="train")
     vec_env = DummyVecEnv([env_fn])
@@ -311,8 +316,9 @@ def train_rl_model_on_window(
     model = PPO(
         policy="MlpPolicy",
         env=vec_env,
-        verbose=0,
+        verbose=config.sb3_verbose,
         seed=RANDOM_SEED,
+        tensorboard_log=str(TB_DIR),
         n_steps=256,
         batch_size=64,
         learning_rate=3e-4,
@@ -321,7 +327,10 @@ def train_rl_model_on_window(
         clip_range=0.2,
         ent_coef=0.001,
     )
-    model.learn(total_timesteps=config.total_timesteps)
+    model.learn(
+        total_timesteps=config.total_timesteps,
+        tb_log_name=tb_log_name,
+    )
 
     save_dir.mkdir(parents=True, exist_ok=True)
     model_path = save_dir / "ppo_model.zip"
@@ -330,6 +339,23 @@ def train_rl_model_on_window(
     vec_env.save(str(vecnorm_path))
     vec_env.close()
     return model_path, vecnorm_path
+
+
+def extract_vecenv_history(vec_env: DummyVecEnv) -> List[dict]:
+    final_metrics_list = vec_env.env_method("get_final_metrics")
+    final_metrics = final_metrics_list[0] if final_metrics_list else {}
+    history = final_metrics.get("history", []) if final_metrics else []
+    if history:
+        return history
+
+    current_metrics_list = vec_env.env_method("get_current_metrics")
+    current_metrics = current_metrics_list[0] if current_metrics_list else {}
+    history = current_metrics.get("history", []) if current_metrics else []
+    if history:
+        return history
+
+    histories = vec_env.get_attr("history")
+    return histories[0] if histories else []
 
 
 def run_rl_backtest(
@@ -353,7 +379,7 @@ def run_rl_backtest(
         obs, reward, done, info = test_env.step(action)
         if isinstance(done, np.ndarray):
             done = bool(done[0])
-    history = test_env.get_attr("history")[0]
+    history = extract_vecenv_history(test_env)
     test_env.close()
     return pd.DataFrame(history)
 
@@ -428,6 +454,7 @@ def run_single_window_suite(
         ticker=ticker,
         config=config,
         save_dir=out_dir / "rl_model",
+        tb_log_name=f"{ticker}_w{window_id:03d}_{data_variant}_{friction_variant}",
     )
 
     rl_history = run_rl_backtest(model_path, vecnorm_path, test_df, ticker, config)
@@ -495,6 +522,8 @@ def run_experiment_suite(config: HarnessConfig) -> pd.DataFrame:
             test_bars=config.test_bars,
             step_bars=config.step_bars,
         )
+        if config.max_windows is not None:
+            windows = windows[: config.max_windows]
         print(f"{ticker}: generated {len(windows)} windows")
 
         for window_id, w in enumerate(windows, start=1):
@@ -564,18 +593,29 @@ if __name__ == "__main__":
         val_bars=120,
         test_bars=80,
         step_bars=80,
-        total_timesteps=30000,
+        total_timesteps=10000,
         tickers=["ITC", "SBIN", "RELIANCE", "TCS", "INFY"],
+        max_windows=2,
         reward_weights={
             "transaction_penalty_weight": 1.0,
             "forced_stop_penalty_weight": 0.001,
             "forced_tp_penalty_weight": 0.001,
             "volatility_penalty_weight": 0.10,
-            "trade_fraction": 0.25,
+            "trade_fraction": 0.15,
+            "min_trade_fraction": 0.05,
             "reduce_fraction": 0.50,
+            "directional_weight": 0.01,
+            "regime_gate_min_confidence": 0.70,
+            "regime_gate_min_confirmations": 2,
+            "action_penalty_weight": 0.001,
+            "reduce_penalty_multiplier": 1.5,
+            "flat_threshold": 0.0010,
+            "weak_move_threshold": 0.0025,
+            "flat_reward_bonus": 0.20,
+            "wrong_flat_penalty": 0.25,
         },
-        run_cost_off_test=True,
-        run_shuffled_test=True,
+        run_cost_off_test=False,
+        run_shuffled_test=False,
     )
 
     summary = run_experiment_suite(config)
