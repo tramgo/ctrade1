@@ -17,7 +17,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback, BaseCallback,
 
 import torch
 import warnings
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable, Dict, List
 import random
 import datetime
 import math
@@ -499,7 +499,9 @@ class SingleStockTradingEnv(gym.Env):
         max_episode_steps: Optional[int] = None,
         mode: str = "train",           # New parameter: "train" or "test"
         inference_buy_threshold: float = 0.5,   # New: threshold for buy signals (tuned between 0.5 and 1.0)
-        inference_sell_threshold: float = 0.5   # New: threshold for sell signals (tuned between 0.5 and 1.0)
+        inference_sell_threshold: float = 0.5,  # New: threshold for sell signals (tuned between 0.5 and 1.0)
+        slippage_rate: float = 0.001,
+        disable_costs: bool = False
     ):
         super(SingleStockTradingEnv, self).__init__()
         self.env_rank = env_rank
@@ -537,6 +539,8 @@ class SingleStockTradingEnv(gym.Env):
         self.mode = mode  
         self.inference_buy_threshold = inference_buy_threshold
         self.inference_sell_threshold = inference_sell_threshold
+        self.slippage_rate = float(max(0.0, slippage_rate))
+        self.disable_costs = bool(disable_costs)
         self.profit_reference = initial_balance
         self.realized_gain = 0.0  # to store cashed-out gains
         self.dp_charge_applied = False
@@ -733,6 +737,19 @@ class SingleStockTradingEnv(gym.Env):
         
         - DP Charges: Not applicable
         """
+        if self.disable_costs:
+            breakdown = {
+                'Brokerage_Fee': 0.0,
+                'STT': 0.0,
+                'Transaction_Charge': 0.0,
+                'SEBI_Fee': 0.0,
+                'GST': 0.0,
+                'Stamp_Duty': 0.0,
+                'shares_bought': quantity if side.lower() == 'buy' else 0,
+                'shares_sold': quantity if side.lower() == 'sell' else 0
+            }
+            return 0.0, breakdown
+
         brokerage_fee = min(20, 0.0003 * order_value)
         stt = 0.00025 * order_value if side.lower() == 'sell' else 0.0
         transaction_charge = 0.0000297 * order_value
@@ -764,7 +781,7 @@ class SingleStockTradingEnv(gym.Env):
 
     def step(self, action):
         # Declare slippage constant and corresponding multipliers.
-        SLIPPAGE_RATE = 0.001
+        SLIPPAGE_RATE = self.slippage_rate
         BUY_MULTIPLIER = 1 + SLIPPAGE_RATE   # Replaces 1.01 (i.e., 1.001 now)
         SELL_MULTIPLIER = 1 - SLIPPAGE_RATE  # Replaces 0.99 (i.e., 0.999 now)
         eps = 1e-9
@@ -1865,6 +1882,281 @@ def walk_forward_runner(
 
     return all_rows
 
+def shuffle_close_series(df: pd.DataFrame, seed: int = 42, interval: str = "60minute") -> pd.DataFrame:
+    df2 = df.copy().sort_values("Date").reset_index(drop=True)
+    if df2.empty:
+        return df2
+    rng = np.random.default_rng(seed)
+    close = pd.to_numeric(df2["Close"], errors="coerce").fillna(method="ffill").fillna(method="bfill").values
+    rets = pd.Series(close).pct_change().fillna(0.0).values
+    shuffled = np.concatenate(([0.0], rng.permutation(rets[1:])))
+    new_close = [close[0]]
+    for r in shuffled[1:]:
+        new_close.append(max(1e-9, new_close[-1] * (1.0 + float(r))))
+    df2["Close"] = np.asarray(new_close[:len(df2)], dtype=float)
+    # Keep OHLC coherent around new close.
+    df2["Open"] = df2["Close"].shift(1).fillna(df2["Close"])
+    spread = (0.0015 * df2["Close"]).clip(lower=1e-6)
+    df2["High"] = np.maximum(df2["Open"], df2["Close"]) + spread
+    df2["Low"] = np.minimum(df2["Open"], df2["Close"]) - spread
+    if "Adj Close" in df2.columns:
+        df2["Adj Close"] = df2["Close"]
+    return build_rl_features(df2, interval=interval)
+
+def compute_history_metrics(history_df: pd.DataFrame, initial_balance: float, bars_per_day: int) -> Dict[str, float]:
+    if history_df.empty or "Net Worth" not in history_df.columns:
+        return {
+            "total_return": -1.0, "annualized_return": -1.0, "max_drawdown": 1.0, "sharpe": -10.0,
+            "sortino": -10.0, "turnover": 1.0, "trade_count": 0, "hold_ratio": 1.0, "avg_holding_bars": 0.0
+        }
+    nw = pd.to_numeric(history_df["Net Worth"], errors="coerce").fillna(method="ffill").fillna(initial_balance)
+    rets = nw.pct_change().fillna(0.0).values
+    total_return = float(nw.iloc[-1] / max(nw.iloc[0], 1e-9) - 1.0)
+    periods_per_year = max(1, 252 * bars_per_day)
+    annualized = float(calculate_annualized_return(nw, periods_per_year=periods_per_year))
+    max_dd = abs(float(calculate_max_drawdown(nw)))
+    sharpe = float(compute_sharpe_ratio(rets))
+    sortino = float(compute_sortino_ratio(rets))
+
+    if "Position" in history_df.columns:
+        pos = pd.to_numeric(history_df["Position"], errors="coerce").fillna(0.0).values
+        turnover = float(np.sum(np.abs(np.diff(pos))) / (np.sum(np.abs(pos)) + 1e-9))
+        trade_count = int(np.sum(np.abs(np.diff(pos)) > 0))
+        nonzero = (np.abs(pos) > 0).astype(int)
+        blocks = np.where(np.diff(np.concatenate(([0], nonzero, [0]))) != 0)[0]
+        run_lengths = blocks[1::2] - blocks[::2] if len(blocks) >= 2 else np.array([0])
+        avg_holding_bars = float(np.mean(run_lengths)) if len(run_lengths) else 0.0
+    else:
+        turnover, trade_count, avg_holding_bars = 0.0, 0, 0.0
+
+    if "Action" in history_df.columns:
+        acts = pd.to_numeric(history_df["Action"], errors="coerce").fillna(0).astype(int).values
+        hold_ratio = float(np.mean(acts == 0))
+    else:
+        hold_ratio = 1.0
+
+    return {
+        "total_return": total_return,
+        "annualized_return": annualized,
+        "max_drawdown": max_dd,
+        "sharpe": sharpe,
+        "sortino": sortino,
+        "turnover": turnover,
+        "trade_count": trade_count,
+        "hold_ratio": hold_ratio,
+        "avg_holding_bars": avg_holding_bars
+    }
+
+def compute_directional_edge(history_df: pd.DataFrame) -> Dict[str, float]:
+    if history_df.empty or "Close" not in history_df.columns or "Action" not in history_df.columns:
+        return {"pos_next1": 0.0, "neg_next1": 0.0, "pos_next3": 0.0, "neg_next3": 0.0, "edge_gap_1": 0.0, "edge_gap_3": 0.0}
+    h = history_df.copy()
+    h["Close"] = pd.to_numeric(h["Close"], errors="coerce")
+    h["Action"] = pd.to_numeric(h["Action"], errors="coerce").fillna(0).astype(int)
+    h["ret1"] = h["Close"].shift(-1) / h["Close"] - 1.0
+    h["ret3"] = h["Close"].shift(-3) / h["Close"] - 1.0
+    pos = h[h["Action"] == 1]
+    neg = h[h["Action"] == 2]
+    pos1 = float(pos["ret1"].mean()) if not pos.empty else 0.0
+    neg1 = float(neg["ret1"].mean()) if not neg.empty else 0.0
+    pos3 = float(pos["ret3"].mean()) if not pos.empty else 0.0
+    neg3 = float(neg["ret3"].mean()) if not neg.empty else 0.0
+    return {"pos_next1": pos1, "neg_next1": neg1, "pos_next3": pos3, "neg_next3": neg3, "edge_gap_1": pos1 - neg1, "edge_gap_3": pos3 - neg3}
+
+def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator) -> int:
+    if policy_name == "FLAT":
+        return 0
+    if policy_name == "RANDOM":
+        return int(rng.choice([0, 1, 2, 3], p=[0.30, 0.25, 0.25, 0.20]))
+    if policy_name == "SMA":
+        trend_v = float(row.get("Trend_30", 0.0))
+        if trend_v > 0:
+            return 1
+        if trend_v < 0:
+            return 2
+        return 0
+    if policy_name == "RSI":
+        rsi = float(row.get("RSI14", row.get("RSI", 50.0)))
+        if rsi < 30:
+            return 1
+        if rsi > 70:
+            return 2
+        return 0
+    return 0
+
+def run_baseline_backtest(
+    df_slice: pd.DataFrame,
+    ticker: str,
+    initial_balance: float,
+    env_kwargs: dict,
+    policy_name: str,
+    seed: int = 42
+) -> Dict[str, object]:
+    env = SingleStockTradingEnv(
+        df=df_slice.reset_index(drop=True),
+        ticker=ticker,
+        initial_balance=initial_balance,
+        max_episode_steps=len(df_slice),
+        mode="test",
+        env_rank=0,
+        **env_kwargs
+    )
+    obs, _ = env.reset()
+    terminated = False
+    truncated = False
+    rng = np.random.default_rng(seed)
+    while not (terminated or truncated):
+        row = env.df.iloc[env.current_step]
+        action = _baseline_action(policy_name, row, rng)
+        obs, reward, terminated, truncated, info = env.step(action)
+    hist = pd.DataFrame(env.history)
+    metrics = compute_history_metrics(hist, initial_balance, interval_to_bars_per_day(TICKINT))
+    dirm = compute_directional_edge(hist)
+    return {"history": hist, "metrics": metrics, "directional": dirm}
+
+def train_rl_on_window(
+    train_df: pd.DataFrame,
+    ticker: str,
+    best_params: dict,
+    initial_balance: float,
+    env_kwargs: dict,
+    out_dir: Path,
+    timesteps: int = 30000
+) -> Tuple[Path, Path]:
+    env_train = SingleStockTradingEnv(
+        df=train_df.reset_index(drop=True),
+        ticker=ticker,
+        initial_balance=initial_balance,
+        max_episode_steps=len(train_df),
+        mode="train",
+        env_rank=1,
+        **env_kwargs
+    )
+    vec_train = SubprocVecEnv([lambda e=env_train: e])
+    vec_train = VecNormalize(vec_train, norm_obs=True, norm_reward=True, clip_obs=10000.0, clip_reward=250000.0)
+
+    model = PPO(
+        "MlpPolicy",
+        vec_train,
+        verbose=0,
+        seed=RANDOM_SEED,
+        policy_kwargs=dict(activation_fn=torch.nn.ReLU, net_arch=[128, 128]),
+        learning_rate=best_params.get("learning_rate", 1e-4),
+        n_steps=best_params.get("n_steps", 256),
+        batch_size=best_params.get("batch_size", 64),
+        gamma=best_params.get("gamma", 0.99),
+        gae_lambda=best_params.get("gae_lambda", 0.95),
+        clip_range=best_params.get("clip_range", 0.2),
+        ent_coef=best_params.get("ent_coef", 0.01),
+        vf_coef=best_params.get("vf_coef", 0.5),
+        max_grad_norm=best_params.get("max_grad_norm", 0.5),
+        tensorboard_log=str(TB_LOG_DIR / "diag_suite"),
+        device="cpu"
+    )
+    model.learn(total_timesteps=timesteps)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    model_path = out_dir / "model.zip"
+    vecnorm_path = out_dir / "vecnorm.pkl"
+    model.save(str(model_path))
+    vec_train.save(str(vecnorm_path))
+    vec_train.close()
+    return model_path, vecnorm_path
+
+def run_experiment_suite(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str = "60minute",
+    history_days: int = 1095,
+    train_days: int = 180,
+    val_days: int = 20,
+    test_days: int = 10,
+    step_days: int = 20,
+    max_windows_per_ticker: int = 2,
+    rl_timesteps: int = 30000
+) -> pd.DataFrame:
+    exp_dir = RESULTS_DIR / "experiments"
+    exp_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for ticker in ticker_list:
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            continue
+        windows = make_walk_forward_slices(df_full, interval, train_days, val_days, test_days, step_days)
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
+        for widx, (s, tr, va, te) in enumerate(windows, start=1):
+            for data_mode in ["real", "shuffled"]:
+                df_source = df_full if data_mode == "real" else shuffle_close_series(df_full, seed=RANDOM_SEED + widx, interval=interval)
+                train_df = df_source.iloc[s:tr].reset_index(drop=True)
+                test_df = df_source.iloc[va:te].reset_index(drop=True)
+                if train_df.empty or test_df.empty:
+                    continue
+                for friction in ["realistic", "frictionless"]:
+                    env_kwargs = {
+                        "stop_loss": best_params.get("stop_loss", stop_loss),
+                        "take_profit": best_params.get("take_profit", take_profit),
+                        "max_position_size": best_params.get("max_position_size", max_position_size),
+                        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+                        "annual_trading_days": annual_trading_days,
+                        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+                        "hold_threshold": best_params.get("hold_threshold", 0.1),
+                        "reward_weights": {
+                            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+                            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+                            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+                            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+                            "trade_fraction": best_params.get("trade_fraction", 0.25),
+                            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+                        },
+                        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+                        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+                        "slippage_rate": 0.001 if friction == "realistic" else 0.0,
+                        "disable_costs": friction != "realistic",
+                    }
+                    cycle_dir = exp_dir / f"{ticker}_w{widx:03d}_{data_mode}_{friction}"
+                    model_path, vecnorm_path = train_rl_on_window(
+                        train_df=train_df,
+                        ticker=ticker,
+                        best_params=best_params,
+                        initial_balance=initial_balance,
+                        env_kwargs=env_kwargs,
+                        out_dir=cycle_dir,
+                        timesteps=rl_timesteps
+                    )
+                    rl_eval = _evaluate_slice_with_frozen_norm(
+                        model_path=model_path,
+                        vecnorm_path=vecnorm_path,
+                        df_slice=test_df,
+                        ticker=ticker,
+                        initial_balance=initial_balance,
+                        env_kwargs=env_kwargs,
+                        eval_tag=f"suite_w{widx:03d}_{data_mode}_{friction}"
+                    )
+                    rl_hist = pd.DataFrame(rl_eval["history"])
+                    rl_metrics = compute_history_metrics(rl_hist, initial_balance, interval_to_bars_per_day(interval))
+                    rl_dir = compute_directional_edge(rl_hist)
+                    rows.append({"ticker": ticker, "window": widx, "model": "RL", "data_mode": data_mode, "friction": friction, **rl_metrics, **rl_dir})
+
+                    for bname in ["FLAT", "RANDOM", "SMA", "RSI"]:
+                        bres = run_baseline_backtest(test_df, ticker, initial_balance, env_kwargs, bname, seed=RANDOM_SEED + widx)
+                        rows.append({"ticker": ticker, "window": widx, "model": bname, "data_mode": data_mode, "friction": friction, **bres["metrics"], **bres["directional"]})
+
+    summary_df = pd.DataFrame(rows)
+    out_csv = exp_dir / "experiment_comparison.csv"
+    summary_df.to_csv(out_csv, index=False)
+    main_logger.info(f"[EXPERIMENT SUITE] saved comparison table: {out_csv}")
+    return summary_df
+
 
 def objective(
     trial,
@@ -2455,6 +2747,31 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------
     # 4b. Walk-forward mode (recommended for non-stationary markets)
     # ----------------------------------------------------------------
+    ENABLE_EXPERIMENT_SUITE = False
+    if ENABLE_EXPERIMENT_SUITE:
+        main_logger.info("Starting diagnostic experiment suite (RL vs baselines, real/shuffled, cost-on/off).")
+        diag_tickers = NSE_LIQUID_UNIVERSE[:5]
+        run_experiment_suite(
+            ticker_list=diag_tickers,
+            instrument_df=instrument_df,
+            best_params=best_params,
+            initial_balance=INITIAL_BALANCE,
+            stop_loss=STOP_LOSS,
+            take_profit=TAKE_PROFIT,
+            max_position_size=MAX_POSITION_SIZE,
+            max_drawdown=MAX_DRAWDOWN,
+            annual_trading_days=ANNUAL_TRADING_DAYS,
+            interval=TICKINT,
+            history_days=max(TRAIN_HISTORY_DAYS, 1095),
+            train_days=180,
+            val_days=20,
+            test_days=10,
+            step_days=20,
+            max_windows_per_ticker=2,
+            rl_timesteps=30000
+        )
+        raise SystemExit(0)
+
     ENABLE_WALK_FORWARD = True
     if ENABLE_WALK_FORWARD:
         main_logger.info("Starting walk-forward training/validation/testing pipeline.")
