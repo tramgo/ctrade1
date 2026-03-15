@@ -1,4 +1,5 @@
 import os
+import copy
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
@@ -29,6 +30,7 @@ import plotly.io as pio
 import traceback
 import pytz
 import shutil
+import argparse
 
 from ta.momentum import StochasticOscillator
 from ta.volume import ChaikinMoneyFlowIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator
@@ -51,7 +53,7 @@ def load_local_env(env_path: Path) -> None:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
+        if key:
             os.environ[key] = value
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -108,6 +110,10 @@ SECTOR_PROXY_MAP = {
 }
 
 MARKET_PROXY_SYMBOL = "NIFTYBEES"
+SIGNAL_EXPORT_LATEST = BASE_DIR / "results" / "signal_research" / "outputs" / "latest" / "promoted_predictions_oos.csv"
+SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
+_SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
+_DATA_KITE_CACHE: Dict[tuple, object] = {}
 
 def kite_call_with_retry(func, *args, **kwargs):
     """
@@ -137,6 +143,87 @@ def kite_call_with_retry(func, *args, **kwargs):
                 msg = f"Failed to call {func.__name__} after {MAX_RETRIES} retries: {e}"
                 training_logger.error(msg)
                 raise RuntimeError(msg)
+
+
+def load_signal_overlay_predictions(experiment_id: str = SIGNAL_OVERLAY_EXPERIMENT_ID) -> pd.DataFrame:
+    cache_key = f"signal_overlay::{experiment_id}"
+    cached = _SIGNAL_OVERLAY_CACHE.get(cache_key)
+    if cached is not None:
+        return cached.copy()
+
+    if not SIGNAL_EXPORT_LATEST.exists():
+        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+        _SIGNAL_OVERLAY_CACHE[cache_key] = empty
+        return empty.copy()
+
+    try:
+        pred_df = pd.read_csv(SIGNAL_EXPORT_LATEST)
+    except Exception as exc:
+        main_logger.warning(f"[SIGNAL OVERLAY] failed to read {SIGNAL_EXPORT_LATEST}: {exc}")
+        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+        _SIGNAL_OVERLAY_CACHE[cache_key] = empty
+        return empty.copy()
+
+    if pred_df.empty or "ExperimentID" not in pred_df.columns:
+        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+        _SIGNAL_OVERLAY_CACHE[cache_key] = empty
+        return empty.copy()
+
+    pred_df = pred_df.loc[pred_df["ExperimentID"] == experiment_id].copy()
+    if pred_df.empty:
+        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+        _SIGNAL_OVERLAY_CACHE[cache_key] = empty
+        return empty.copy()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    pred_df["Prediction"] = pd.to_numeric(pred_df["Prediction"], errors="coerce")
+    pred_df = pred_df.dropna(subset=["Ticker", "Date", "Prediction"])
+    pred_df = pred_df.sort_values(["Ticker", "Date"]).drop_duplicates(["Ticker", "Date"], keep="last")
+    pred_df = pred_df.rename(columns={"Prediction": "Signal_E102_Pred"})
+    pred_df["Signal_E102_Edge"] = (pred_df["Signal_E102_Pred"] - 0.5).clip(-0.5, 0.5)
+    pred_df["Signal_E102_HighConf"] = (pred_df["Signal_E102_Pred"] >= 0.60).astype(float)
+    keep_cols = ["Ticker", "Date", "Signal_E102_Pred", "Signal_E102_Edge", "Signal_E102_HighConf"]
+    pred_df = pred_df[keep_cols].reset_index(drop=True)
+    _SIGNAL_OVERLAY_CACHE[cache_key] = pred_df
+    main_logger.info(f"[SIGNAL OVERLAY] loaded {len(pred_df)} rows for {experiment_id} from {SIGNAL_EXPORT_LATEST}")
+    return pred_df.copy()
+
+
+def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd.DataFrame:
+    out = df.copy()
+
+    if not ticker or "Date" not in out.columns:
+        out["Signal_E102_Pred"] = 0.5
+        out["Signal_E102_Edge"] = 0.0
+        out["Signal_E102_HighConf"] = 0.0
+        return out
+
+    pred_df = load_signal_overlay_predictions()
+    if pred_df.empty:
+        out["Signal_E102_Pred"] = 0.5
+        out["Signal_E102_Edge"] = 0.0
+        out["Signal_E102_HighConf"] = 0.0
+        return out
+
+    ticker_preds = pred_df.loc[pred_df["Ticker"] == ticker].copy()
+    if ticker_preds.empty:
+        out["Signal_E102_Pred"] = 0.5
+        out["Signal_E102_Edge"] = 0.0
+        out["Signal_E102_HighConf"] = 0.0
+        return out
+
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    ticker_preds["Date"] = pd.to_datetime(ticker_preds["Date"], errors="coerce")
+    out = out.sort_values("Date").reset_index(drop=True)
+    ticker_preds = ticker_preds.sort_values("Date").reset_index(drop=True)
+    out = out.merge(ticker_preds, on="Date", how="left")
+    for col, default in [
+        ("Signal_E102_Pred", 0.5),
+        ("Signal_E102_Edge", 0.0),
+        ("Signal_E102_HighConf", 0.0),
+    ]:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+    return out
 
 # --- Place these at the top of your script (after BASE_DIR is defined) ---
 TOKEN_CACHE_FILE = BASE_DIR / "access_token_cache.txt"
@@ -249,7 +336,8 @@ FEATURES_TO_SCALE = [
     "RetSkew_5", "CloseLocation_3",
     "MktVolRank",
     "VolRegime", "MinuteNorm",
-    "RegimeBull", "RegimeBear"
+    "RegimeBull", "RegimeBear",
+    "Signal_E102_Pred", "Signal_E102_Edge", "Signal_E102_HighConf"
 ]
 
 
@@ -283,10 +371,23 @@ def get_access_token():
         "https://kite.zerodha.com/api/login",
         data={"user_id": USERNAME, "password": PASSWORD},
     )
-    request_id = login_resp.json()["data"]["request_id"]
+    try:
+        login_payload = login_resp.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Login endpoint returned non-JSON response. status={login_resp.status_code}"
+        ) from exc
+
+    login_data = login_payload.get("data") if isinstance(login_payload, dict) else None
+    request_id = login_data.get("request_id") if isinstance(login_data, dict) else None
+    if not request_id:
+        raise RuntimeError(
+            "Login failed before request_id was issued. "
+            f"status={login_resp.status_code}, payload={login_payload}"
+        )
 
     # 2. TOTP 2FA
-    session.post(
+    twofa_resp = session.post(
         "https://kite.zerodha.com/api/twofa",
         data={
             "user_id": USERNAME,
@@ -294,6 +395,16 @@ def get_access_token():
             "twofa_value": pyotp.TOTP(TOTP_KEY).now(),
         },
     )
+    try:
+        twofa_payload = twofa_resp.json()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Two-factor endpoint returned non-JSON response. status={twofa_resp.status_code}"
+        ) from exc
+    if twofa_resp.status_code >= 400:
+        raise RuntimeError(
+            f"Two-factor step failed. status={twofa_resp.status_code}, payload={twofa_payload}"
+        )
 
     # 3. Follow redirects until we find ?request_token=...
     next_url = f"https://kite.trade/connect/login?api_key={API_KEY}"
@@ -350,6 +461,15 @@ def get_ticker_from_token(instrument_token: int, instrument_df: pd.DataFrame) ->
 
 
 def load_context_frames_for_token(instrument_token: int, days: int, interval: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    cache_key = ("context", instrument_token, days, interval)
+    cached = _DATA_KITE_CACHE.get(cache_key)
+    if cached is not None:
+        benchmark_df, sector_df = cached
+        return (
+            benchmark_df.copy() if benchmark_df is not None else None,
+            sector_df.copy() if sector_df is not None else None,
+        )
+
     ticker = get_ticker_from_token(instrument_token, instrument_df)
     if ticker is None:
         return None, None
@@ -384,6 +504,10 @@ def load_context_frames_for_token(instrument_token: int, days: int, interval: st
             except Exception as e:
                 main_logger.warning(f"Failed to load sector context for {ticker}: {e}")
 
+    _DATA_KITE_CACHE[cache_key] = (
+        benchmark_df.copy() if benchmark_df is not None else None,
+        sector_df.copy() if sector_df is not None else None,
+    )
     return benchmark_df, sector_df
 
 import pandas as pd
@@ -447,6 +571,7 @@ def build_rl_features(
     interval: str = "1minute",
     benchmark_df: Optional[pd.DataFrame] = None,
     sector_df: Optional[pd.DataFrame] = None,
+    ticker: Optional[str] = None,
 ) -> pd.DataFrame:
     # Features here are built with past-looking rolling windows only (no centered windows),
     # so each row depends on current/past bars and does not peek into future bars.
@@ -591,6 +716,7 @@ def build_rl_features(
     df["ADX_weak"] = 1.0 - df["ADX_strong"]
 
     df = _contextualize_with_market(df, benchmark_df=benchmark_df, sector_df=sector_df)
+    df = merge_signal_overlay_features(df, ticker=ticker)
 
     numeric_cols = [c for c in df.columns if c != "Date"]
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors="coerce")
@@ -613,6 +739,11 @@ def get_data_kite(
     Download intraday OHLCV via Kite and build a compact, **always-complete**
     technical-feature dataframe ready for RL.
     """
+    cache_key = ("data_kite", instrument_token, days, interval, include_relative_context)
+    cached_df = _DATA_KITE_CACHE.get(cache_key)
+    if isinstance(cached_df, pd.DataFrame):
+        return cached_df.copy()
+
     # Determine ticker string from instrument token.
     tickerval = get_ticker_from_token(instrument_token, instrument_df)
     csv_path = RESULTS_DIR / f"data_fetched_{tickerval}.csv"
@@ -627,7 +758,14 @@ def get_data_kite(
         sector_df = None
         if include_relative_context:
             benchmark_df, sector_df = load_context_frames_for_token(instrument_token, days=days, interval=interval)
-        df = build_rl_features(df, interval=interval, benchmark_df=benchmark_df, sector_df=sector_df)
+        df = build_rl_features(
+            df,
+            interval=interval,
+            benchmark_df=benchmark_df,
+            sector_df=sector_df,
+            ticker=tickerval,
+        )
+        _DATA_KITE_CACHE[cache_key] = df.copy()
         return df
     
     # ---------- 1) pull raw bars ------------------------------------------------
@@ -666,7 +804,13 @@ def get_data_kite(
     sector_df = None
     if include_relative_context:
         benchmark_df, sector_df = load_context_frames_for_token(instrument_token, days=days, interval=interval)
-    df = build_rl_features(df, interval=interval, benchmark_df=benchmark_df, sector_df=sector_df)
+    df = build_rl_features(
+        df,
+        interval=interval,
+        benchmark_df=benchmark_df,
+        sector_df=sector_df,
+        ticker=tickerval,
+    )
 
     # Save the fetched and processed data to CSV for future caching.
     try:
@@ -675,6 +819,7 @@ def get_data_kite(
     except Exception as e:
         print(f"[get_data_kite] Failed to write CSV: {e}")
 
+    _DATA_KITE_CACHE[cache_key] = df.copy()
     return df
 
 class SingleStockTradingEnv(gym.Env):
@@ -1366,52 +1511,65 @@ class SingleStockTradingEnv(gym.Env):
         reduce_hold_threshold = float(self.reward_weights.get("reduce_hold_threshold", 0.02))
         entry_min_exposure = float(self.reward_weights.get("entry_min_exposure", 0.02))
         min_market_vol_rank = float(self.reward_weights.get("min_market_vol_rank", 0.30))
+        signal_gate_enabled = bool(self.reward_weights.get("signal_gate_enabled", False))
+        signal_gate_entry_threshold = float(self.reward_weights.get("signal_gate_entry_threshold", 0.68))
+        signal_gate_reduce_threshold = float(self.reward_weights.get("signal_gate_reduce_threshold", 0.60))
         equity = max(self.net_worth, eps)
         current_exposure = self._current_exposure(current_price)
         style_trend_strength = 0.0
         style_reversion_strength = 0.0
         target_exposure = current_exposure
         current_mkt_vol_rank = float(current_data.get("MktVolRank", 0.5))
+        current_signal_pred = float(current_data.get("Signal_E102_Pred", 0.5))
 
         if action_id in (1, 2):
-            direction = 1 if action_id == 1 else -1
-            style_trend_strength = self._signal_strength(current_data, direction)
-            style_reversion_strength = self._reversion_strength(current_data, direction)
-            entry_style = self._route_entry_style(current_data, direction)
-            if current_mkt_vol_rank < min_market_vol_rank:
+            if signal_gate_enabled and current_signal_pred < signal_gate_entry_threshold:
                 action_id = 0
-                action_name = "vol_hold"
-                action_value = 0.0
-            elif entry_style == "hold":
-                action_id = 0
-                action_name = "style_hold"
+                action_name = "signal_gate_hold"
                 action_value = 0.0
             else:
-                active_style = entry_style
-                confidence = style_trend_strength if entry_style == "trend" else style_reversion_strength
-                dynamic_fraction = min_trade_fraction + (trade_fraction - min_trade_fraction) * confidence
-                target_exposure = float(np.clip(direction * dynamic_fraction * self.max_position_size, -self.max_position_size, self.max_position_size))
-                exposure_gap = abs(target_exposure - current_exposure)
-                min_gap = rebalance_threshold if abs(current_exposure) > 1e-9 else entry_min_exposure
-                if exposure_gap < min_gap:
+                direction = 1 if action_id == 1 else -1
+                style_trend_strength = self._signal_strength(current_data, direction)
+                style_reversion_strength = self._reversion_strength(current_data, direction)
+                entry_style = self._route_entry_style(current_data, direction)
+                if current_mkt_vol_rank < min_market_vol_rank:
                     action_id = 0
-                    action_name = f"{entry_style}_inertia_hold"
+                    action_name = "vol_hold"
+                    action_value = 0.0
+                elif entry_style == "hold":
+                    action_id = 0
+                    action_name = "style_hold"
                     action_value = 0.0
                 else:
-                    target_notional_change = abs(target_exposure - current_exposure) * equity
-                    shares = max(1, math.floor(target_notional_change / (current_price * (buy_mult if direction > 0 else sell_mult))))
-                    if direction > 0:
-                        filled, _ = execute_trade("buy", shares, entry_style=entry_style)
-                        if filled == 0:
-                            invalid_act_penalty -= 0.001
+                    active_style = entry_style
+                    confidence = style_trend_strength if entry_style == "trend" else style_reversion_strength
+                    dynamic_fraction = min_trade_fraction + (trade_fraction - min_trade_fraction) * confidence
+                    target_exposure = float(np.clip(direction * dynamic_fraction * self.max_position_size, -self.max_position_size, self.max_position_size))
+                    exposure_gap = abs(target_exposure - current_exposure)
+                    min_gap = rebalance_threshold if abs(current_exposure) > 1e-9 else entry_min_exposure
+                    if exposure_gap < min_gap:
+                        action_id = 0
+                        action_name = f"{entry_style}_inertia_hold"
+                        action_value = 0.0
                     else:
-                        filled, _ = execute_trade("sell", shares, entry_style=entry_style)
-                        if filled == 0:
-                            invalid_act_penalty -= 0.001
-                    if filled > 0:
-                        action_name = f"{entry_style}_{action_name}"
+                        target_notional_change = abs(target_exposure - current_exposure) * equity
+                        shares = max(1, math.floor(target_notional_change / (current_price * (buy_mult if direction > 0 else sell_mult))))
+                        if direction > 0:
+                            filled, _ = execute_trade("buy", shares, entry_style=entry_style)
+                            if filled == 0:
+                                invalid_act_penalty -= 0.001
+                        else:
+                            filled, _ = execute_trade("sell", shares, entry_style=entry_style)
+                            if filled == 0:
+                                invalid_act_penalty -= 0.001
+                        if filled > 0:
+                            action_name = f"{entry_style}_{action_name}"
         elif action_id == 3:
-            if abs(current_exposure) < reduce_hold_threshold:
+            if signal_gate_enabled and current_signal_pred >= signal_gate_reduce_threshold and abs(current_exposure) >= reduce_hold_threshold:
+                action_id = 0
+                action_name = "signal_gate_keep"
+                action_value = 0.0
+            elif abs(current_exposure) < reduce_hold_threshold:
                 action_id = 0
                 action_name = "reduce_inertia_hold"
                 action_value = 0.0
@@ -1882,6 +2040,158 @@ def make_walk_forward_slices(
         start += step_bars
     return windows
 
+
+def assign_research_window_ids(
+    df: pd.DataFrame,
+    interval: str,
+    window_days: int = 20,
+) -> pd.DataFrame:
+    out = df.copy()
+    bars_per_day = interval_to_bars_per_day(interval)
+    rows_per_window = max(1, bars_per_day * max(1, window_days))
+    out["WindowID"] = (np.arange(len(out)) // rows_per_window) + 1
+    return out
+
+
+def build_signal_research_dataset(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    interval: str = "60minute",
+    history_days: int = 1095,
+    window_days: int = 20,
+    out_csv: Optional[Path] = None,
+) -> pd.DataFrame:
+    frames = []
+    for ticker in ticker_list:
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.warning(f"[SIGNAL DATASET] token missing for {ticker}, skipping.")
+            continue
+
+        df_ticker = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_ticker.empty:
+            main_logger.warning(f"[SIGNAL DATASET] no data for {ticker}, skipping.")
+            continue
+
+        df_ticker = assign_research_window_ids(df_ticker, interval=interval, window_days=window_days)
+        df_ticker["Ticker"] = ticker
+        frames.append(df_ticker)
+
+    dataset = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if out_csv is not None and not dataset.empty:
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        dataset.to_csv(out_csv, index=False)
+        main_logger.info(f"[SIGNAL DATASET] saved research dataset to {out_csv}")
+    return dataset
+
+
+def run_signal_research_workflow(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    interval: str = "60minute",
+    history_days: int = 1095,
+    window_days: int = 20,
+    experiment_ids: Optional[List[str]] = None,
+    max_window_pairs: Optional[int] = None,
+) -> pd.DataFrame:
+    from signal_main import run_signal_pipeline
+
+    signal_dir = RESULTS_DIR / "signal_research"
+    dataset_path = signal_dir / "research_dataset.csv"
+    dataset = build_signal_research_dataset(
+        ticker_list=ticker_list,
+        instrument_df=instrument_df,
+        interval=interval,
+        history_days=history_days,
+        window_days=window_days,
+        out_csv=dataset_path,
+    )
+    if dataset.empty:
+        main_logger.warning("[SIGNAL RESEARCH] dataset is empty, skipping pipeline.")
+        return pd.DataFrame()
+
+    _, _, compare = run_signal_pipeline(
+        df=dataset,
+        out_dir=signal_dir / "outputs",
+        experiment_ids=experiment_ids,
+        max_window_pairs=max_window_pairs,
+    )
+    main_logger.info(
+        f"[SIGNAL RESEARCH] completed. promoted={int(compare.get('PromotedToRL', pd.Series(dtype=bool)).sum()) if not compare.empty else 0}"
+    )
+    return compare
+
+
+def resolve_run_mode(default_mode: str = "walk_forward") -> str:
+    return os.getenv("SSELL1_RUN_MODE", default_mode).strip().lower()
+
+
+BEST_PARAMS_FILE = RESULTS_DIR / "best_params.joblib"
+
+
+def get_default_rl_params() -> dict:
+    return {
+        "learning_rate": 1e-4,
+        "n_steps": 512,
+        "batch_size": 64,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "clip_range": 0.2,
+        "ent_coef": 0.01,
+        "vf_coef": 0.5,
+        "max_grad_norm": 0.5,
+        "drawdown_penalty_factor": 0.01,
+        "stop_loss": 0.90,
+        "take_profit": 1.10,
+        "reward_scale": 1.0,
+        "max_position_size": 0.5,
+        "max_drawdown": 0.20,
+        "profit_weight": 1.5,
+        "sharpe_bonus_weight": 0.05,
+        "transaction_penalty_weight": 1.0,
+        "holding_bonus_weight": 0.001,
+        "volatility_threshold": 1.0,
+        "momentum_threshold_min": 30.0,
+        "momentum_threshold_max": 70.0,
+        "hold_threshold": 0.08,
+        "inference_buy_threshold": 0.08,
+        "inference_sell_threshold": 0.08,
+        "forced_stop_penalty_weight": 1.0,
+        "forced_tp_penalty_weight": 1.0,
+        "net_arch": "128_128",
+    }
+
+
+def load_saved_best_params() -> Optional[dict]:
+    if not BEST_PARAMS_FILE.exists():
+        return None
+    try:
+        params = joblib.load(BEST_PARAMS_FILE)
+        if isinstance(params, dict) and params:
+            main_logger.info(f"[RL PARAMS] loaded saved params from {BEST_PARAMS_FILE}")
+            return params
+    except Exception as exc:
+        main_logger.warning(f"[RL PARAMS] failed to load {BEST_PARAMS_FILE}: {exc}")
+    return None
+
+
+def save_best_params(params: dict) -> None:
+    try:
+        joblib.dump(params, BEST_PARAMS_FILE)
+        main_logger.info(f"[RL PARAMS] saved params to {BEST_PARAMS_FILE}")
+    except Exception as exc:
+        main_logger.warning(f"[RL PARAMS] failed to save {BEST_PARAMS_FILE}: {exc}")
+
+
+def resolve_runtime_best_params(run_mode: str) -> dict:
+    saved = load_saved_best_params()
+    if saved:
+        return saved
+    defaults = get_default_rl_params()
+    if run_mode in {"signal_baseline", "walk_forward", "experiment_suite"}:
+        main_logger.warning("[RL PARAMS] no saved params found; using fixed defaults for direct execution mode.")
+    return defaults
+
 def _compute_cycle_metrics(history: list, initial_balance: float) -> dict:
     if not history:
         return {
@@ -2008,6 +2318,7 @@ def walk_forward_runner(
     wf_dir = RESULTS_DIR / "walk_forward"
     wf_dir.mkdir(parents=True, exist_ok=True)
     all_rows = []
+    total_tickers = len(ticker_list)
 
     common_env_kwargs = {
         "stop_loss": best_params.get('stop_loss', stop_loss),
@@ -2024,20 +2335,38 @@ def walk_forward_runner(
             "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
             "trade_fraction": best_params.get("trade_fraction", 0.25),
             "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+            "signal_gate_enabled": True,
+            "signal_gate_entry_threshold": 0.68,
+            "signal_gate_reduce_threshold": 0.60,
         },
         "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
         "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08)
     }
+    gate_cfg = common_env_kwargs["reward_weights"]
+    main_logger.info(
+        "[WF] signal gate enabled=%s entry=%.2f reduce=%.2f",
+        gate_cfg.get("signal_gate_enabled", False),
+        float(gate_cfg.get("signal_gate_entry_threshold", 0.68)),
+        float(gate_cfg.get("signal_gate_reduce_threshold", 0.60)),
+    )
+    print(
+        f"[WF] signal gate enabled={gate_cfg.get('signal_gate_enabled', False)} "
+        f"entry={float(gate_cfg.get('signal_gate_entry_threshold', 0.68)):.2f} "
+        f"reduce={float(gate_cfg.get('signal_gate_reduce_threshold', 0.60)):.2f}"
+    )
 
-    for ticker in ticker_list:
+    for ticker_idx, ticker in enumerate(ticker_list, start=1):
+        print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
         token = get_instrument_token(ticker, instrument_df)
         if token is None:
             main_logger.warning(f"[WF:{ticker}] token missing, skipping.")
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (token missing)")
             continue
 
         df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
         if df_full.empty:
             main_logger.warning(f"[WF:{ticker}] no data, skipping.")
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (no data)")
             continue
 
         windows = make_walk_forward_slices(
@@ -2050,18 +2379,26 @@ def walk_forward_runner(
         )
         if not windows:
             main_logger.warning(f"[WF:{ticker}] not enough rows ({len(df_full)}) for walk-forward windows.")
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (insufficient rows)")
             continue
 
         ticker_best_score = -np.inf
         ticker_best_model = None
         ticker_best_norm = None
+        print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - {len(windows)} cycle(s)")
 
         for cycle_idx, (s, tr_end, va_end, te_end) in enumerate(windows, start=1):
             train_df = df_full.iloc[s:tr_end].reset_index(drop=True)
             val_df = df_full.iloc[tr_end:va_end].reset_index(drop=True)
             test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
             if train_df.empty or val_df.empty or test_df.empty:
+                print(f"[WF] {ticker} cycle {cycle_idx}/{len(windows)} - skipped (empty split)")
                 continue
+
+            print(
+                f"[WF] {ticker} cycle {cycle_idx}/{len(windows)} - "
+                f"train {len(train_df)} / val {len(val_df)} / test {len(test_df)}"
+            )
 
             env_train = SingleStockTradingEnv(
                 df=train_df,
@@ -2096,6 +2433,7 @@ def walk_forward_runner(
                 device='cpu'
             )
             model.learn(total_timesteps=train_timesteps)
+            print(f"[WF] {ticker} cycle {cycle_idx}/{len(windows)} - training complete")
 
             cycle_dir = wf_dir / ticker / f"cycle_{cycle_idx:03d}"
             cycle_dir.mkdir(parents=True, exist_ok=True)
@@ -2126,6 +2464,11 @@ def walk_forward_runner(
 
             val_metrics = val_eval["metrics"]
             test_metrics = test_eval["metrics"]
+            print(
+                f"[WF] {ticker} cycle {cycle_idx}/{len(windows)} - "
+                f"val score {val_metrics['score']:.4f}, test score {test_metrics['score']:.4f}, "
+                f"test return {test_metrics['net_return']:.4f}"
+            )
             row = {
                 "ticker": ticker,
                 "cycle": cycle_idx,
@@ -2162,14 +2505,19 @@ def walk_forward_runner(
             shutil.copy2(ticker_best_model, approved_model)
             shutil.copy2(ticker_best_norm, approved_norm)
             main_logger.info(f"[WF:{ticker}] approved model updated. score={ticker_best_score:.4f}, model={approved_model}")
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - approved score {ticker_best_score:.4f}")
+        else:
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - no approved cycle")
 
     if all_rows:
         wf_df = pd.DataFrame(all_rows)
         wf_csv = wf_dir / "walk_forward_summary.csv"
         wf_df.to_csv(wf_csv, index=False)
         main_logger.info(f"[WF] summary saved: {wf_csv}")
+        print(f"[WF] summary saved: {wf_csv}")
     else:
         main_logger.warning("[WF] no cycles produced results.")
+        print("[WF] no cycles produced results.")
 
     return all_rows
 
@@ -2254,6 +2602,40 @@ def compute_directional_edge(history_df: pd.DataFrame) -> Dict[str, float]:
     neg3 = float(neg["ret3"].mean()) if not neg.empty else 0.0
     return {"pos_next1": pos1, "neg_next1": neg1, "pos_next3": pos3, "neg_next3": neg3, "edge_gap_1": pos1 - neg1, "edge_gap_3": pos3 - neg3}
 
+def _signal_rule_direction(row: pd.Series) -> int:
+    trend_30 = float(row.get("Trend_30", 0.0))
+    trend_2h = float(row.get("Trend_2h", 0.0))
+    rel_1 = float(row.get("StockMinusMkt_1", 0.0))
+    rel_3 = float(row.get("StockMinusMkt_3", 0.0))
+    breakout = float(row.get("Breakout_3bar", 0.0))
+    persistence = float(row.get("SignPersistence_5", 0.0))
+    score = (
+        1.5 * trend_30
+        + 1.0 * trend_2h
+        + 2.0 * rel_3
+        + 1.0 * rel_1
+        + 0.75 * breakout
+        + 0.50 * persistence
+    )
+    if score > 0.001:
+        return 1
+    if score < -0.001:
+        return -1
+    return 0
+
+def _parse_signal_banded_threshold(policy_name: str) -> Optional[tuple[float, float]]:
+    if policy_name == "SIGNAL_E102_BANDED":
+        return (0.60, 0.52)
+    prefix = "SIGNAL_E102_BANDED_"
+    if not policy_name.startswith(prefix):
+        return None
+    suffix = policy_name[len(prefix):]
+    if not suffix.isdigit():
+        return None
+    entry_threshold = float(int(suffix)) / 100.0
+    reduce_threshold = max(0.50, entry_threshold - 0.08)
+    return (entry_threshold, reduce_threshold)
+
 def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator) -> int:
     if policy_name == "FLAT":
         return 0
@@ -2273,6 +2655,44 @@ def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator)
         if rsi > 70:
             return 2
         return 0
+    banded_thresholds = _parse_signal_banded_threshold(policy_name)
+    if policy_name == "SIGNAL_E102" or banded_thresholds is not None:
+        pred = float(row.get("Signal_E102_Pred", 0.5))
+        direction = _signal_rule_direction(row)
+        if policy_name == "SIGNAL_E102":
+            if pred >= 0.56 and direction > 0:
+                return 1
+            if pred >= 0.56 and direction < 0:
+                return 2
+            if pred < 0.49:
+                return 3
+            return 0
+        entry_threshold, reduce_threshold = banded_thresholds if banded_thresholds is not None else (0.60, 0.52)
+        if pred >= entry_threshold and direction > 0:
+            return 1
+        if pred >= entry_threshold and direction < 0:
+            return 2
+        if pred < reduce_threshold:
+            return 3
+        return 0
+    if policy_name == "SIGNAL_E102_LONGONLY":
+        pred = float(row.get("Signal_E102_Pred", 0.5))
+        trend_bias = float(row.get("Trend_30", 0.0)) + 0.5 * float(row.get("Trend_2h", 0.0))
+        if pred >= 0.54 and trend_bias >= -0.002:
+            return 1
+        if pred < 0.49:
+            return 3
+        return 0
+    if policy_name == "SIGNAL_E102_SYMMETRIC":
+        pred = float(row.get("Signal_E102_Pred", 0.5))
+        direction = _signal_rule_direction(row)
+        if pred >= 0.53:
+            if direction >= 0:
+                return 1
+            return 2
+        if pred <= 0.47:
+            return 3
+        return 0
     return 0
 
 def run_baseline_backtest(
@@ -2283,6 +2703,17 @@ def run_baseline_backtest(
     policy_name: str,
     seed: int = 42
 ) -> Dict[str, object]:
+    local_env_kwargs = copy.deepcopy(env_kwargs)
+    if policy_name.startswith("SIGNAL_E102"):
+        reward_weights = dict(local_env_kwargs.get("reward_weights", {}))
+        reward_weights["regime_gate_min_confidence"] = min(float(reward_weights.get("regime_gate_min_confidence", 0.60)), 0.45)
+        reward_weights["regime_gate_min_confirmations"] = 1
+        reward_weights["reversion_gate_min_confidence"] = min(float(reward_weights.get("reversion_gate_min_confidence", 0.55)), 0.45)
+        reward_weights["reversion_gate_min_confirmations"] = 1
+        reward_weights["min_market_vol_rank"] = 0.0
+        reward_weights["trade_fraction"] = max(float(reward_weights.get("trade_fraction", 0.25)), 0.35)
+        reward_weights["reduce_fraction"] = max(float(reward_weights.get("reduce_fraction", 0.50)), 0.60)
+        local_env_kwargs["reward_weights"] = reward_weights
     env = SingleStockTradingEnv(
         df=df_slice.reset_index(drop=True),
         ticker=ticker,
@@ -2290,7 +2721,7 @@ def run_baseline_backtest(
         max_episode_steps=len(df_slice),
         mode="test",
         env_rank=0,
-        **env_kwargs
+        **local_env_kwargs
     )
     obs, _ = env.reset()
     terminated = False
@@ -2304,6 +2735,205 @@ def run_baseline_backtest(
     metrics = compute_history_metrics(hist, initial_balance, interval_to_bars_per_day(TICKINT))
     dirm = compute_directional_edge(hist)
     return {"history": hist, "metrics": metrics, "directional": dirm}
+
+def summarize_signal_slice_coverage(
+    df_slice: pd.DataFrame,
+    ticker: str,
+    cycle_idx: int,
+    split_name: str,
+) -> Dict[str, object]:
+    pred = pd.to_numeric(df_slice.get("Signal_E102_Pred", pd.Series(dtype=float)), errors="coerce").fillna(0.5)
+    edge = pd.to_numeric(df_slice.get("Signal_E102_Edge", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    high_conf = pd.to_numeric(df_slice.get("Signal_E102_HighConf", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    row_count = int(len(df_slice))
+    nondefault_mask = (pred - 0.5).abs() > 1e-9
+    nondefault_count = int(nondefault_mask.sum())
+    return {
+        "ticker": ticker,
+        "cycle": cycle_idx,
+        "split": split_name,
+        "rows": row_count,
+        "signal_nondefault_rows": nondefault_count,
+        "signal_nondefault_pct": float(nondefault_count / row_count) if row_count else 0.0,
+        "signal_pred_mean": float(pred.mean()) if row_count else 0.5,
+        "signal_pred_std": float(pred.std()) if row_count else 0.0,
+        "signal_pred_p75": float(pred.quantile(0.75)) if row_count else 0.5,
+        "signal_pred_p90": float(pred.quantile(0.90)) if row_count else 0.5,
+        "signal_pred_max": float(pred.max()) if row_count else 0.5,
+        "signal_edge_mean": float(edge.mean()) if row_count else 0.0,
+        "signal_highconf_rows": int((high_conf > 0.5).sum()),
+        "signal_pred_ge_053": int((pred >= 0.53).sum()),
+        "signal_pred_ge_056": int((pred >= 0.56).sum()),
+        "signal_pred_ge_060": int((pred >= 0.60).sum()),
+        "signal_pred_ge_065": int((pred >= 0.65).sum()),
+        "signal_pred_le_047": int((pred <= 0.47).sum()),
+        "signal_pred_le_049": int((pred <= 0.49).sum()),
+    }
+
+def run_signal_baseline_suite(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str = "5minute",
+    history_days: int = 365,
+    train_days: int = 180,
+    val_days: int = 20,
+    test_days: int = 10,
+    step_days: int = 20,
+    max_windows_per_ticker: int = 1,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    policy_names = [
+        "SIGNAL_E102",
+        "SIGNAL_E102_LONGONLY",
+        "SIGNAL_E102_SYMMETRIC",
+        "SIGNAL_E102_BANDED",
+        "SIGNAL_E102_BANDED_62",
+        "SIGNAL_E102_BANDED_64",
+        "SIGNAL_E102_BANDED_66",
+        "SIGNAL_E102_BANDED_68",
+        "SIGNAL_E102_BANDED_70",
+        "SIGNAL_E102_BANDED_72",
+        "SMA",
+        "RSI",
+        "FLAT",
+    ]
+    rows = []
+    coverage_rows = []
+    total_tickers = len(ticker_list)
+
+    env_kwargs = {
+        "stop_loss": best_params.get("stop_loss", stop_loss),
+        "take_profit": best_params.get("take_profit", take_profit),
+        "max_position_size": best_params.get("max_position_size", max_position_size),
+        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+        "hold_threshold": best_params.get("hold_threshold", 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": best_params.get("trade_fraction", 0.25),
+            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+    }
+
+    for ticker_idx, ticker in enumerate(ticker_list, start=1):
+        print(f"[BASELINE] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.warning(f"[BASELINE:{ticker}] token missing, skipping.")
+            print(f"[BASELINE] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (token missing)")
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            main_logger.warning(f"[BASELINE:{ticker}] no data, skipping.")
+            print(f"[BASELINE] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (no data)")
+            continue
+
+        windows = make_walk_forward_slices(
+            df_full,
+            interval=interval,
+            train_days=train_days,
+            val_days=val_days,
+            test_days=test_days,
+            step_days=step_days,
+        )
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
+        if not windows:
+            main_logger.warning(f"[BASELINE:{ticker}] no walk-forward windows, skipping.")
+            print(f"[BASELINE] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (no windows)")
+            continue
+
+        print(f"[BASELINE] ticker {ticker_idx}/{total_tickers}: {ticker} - {len(windows)} cycle(s)")
+        for cycle_idx, (s, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            val_df = df_full.iloc[tr_end:va_end].reset_index(drop=True)
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if val_df.empty or test_df.empty:
+                print(f"[BASELINE] {ticker} cycle {cycle_idx}/{len(windows)} - skipped (empty split)")
+                continue
+            val_cov = summarize_signal_slice_coverage(val_df, ticker, cycle_idx, "val")
+            test_cov = summarize_signal_slice_coverage(test_df, ticker, cycle_idx, "test")
+            coverage_rows.extend([val_cov, test_cov])
+            print(
+                f"[BASELINE] {ticker} cycle {cycle_idx}/{len(windows)} - "
+                f"val {len(val_df)} / test {len(test_df)}"
+            )
+            print(
+                f"[BASELINE] {ticker} cycle {cycle_idx}/{len(windows)} coverage - "
+                f"val nondefault {val_cov['signal_nondefault_pct']:.1%}, "
+                f"test nondefault {test_cov['signal_nondefault_pct']:.1%}, "
+                f"test p90 {test_cov['signal_pred_p90']:.3f}"
+            )
+            for policy_name in policy_names:
+                val_res = run_baseline_backtest(val_df, ticker, initial_balance, env_kwargs, policy_name, seed=RANDOM_SEED + cycle_idx)
+                test_res = run_baseline_backtest(test_df, ticker, initial_balance, env_kwargs, policy_name, seed=RANDOM_SEED + 1000 + cycle_idx)
+                val_metrics = val_res["metrics"]
+                test_metrics = test_res["metrics"]
+                rows.append({
+                    "ticker": ticker,
+                    "cycle": cycle_idx,
+                    "policy": policy_name,
+                    "val_rows": len(val_df),
+                    "test_rows": len(test_df),
+                    "val_return": val_metrics["total_return"],
+                    "val_drawdown": val_metrics["max_drawdown"],
+                    "val_sharpe": val_metrics["sharpe"],
+                    "val_turnover": val_metrics["turnover"],
+                    "val_trades": val_metrics["trade_count"],
+                    "test_return": test_metrics["total_return"],
+                    "test_drawdown": test_metrics["max_drawdown"],
+                    "test_sharpe": test_metrics["sharpe"],
+                    "test_turnover": test_metrics["turnover"],
+                    "test_trades": test_metrics["trade_count"],
+                    **{f"val_{k}": v for k, v in val_res["directional"].items()},
+                    **{f"test_{k}": v for k, v in test_res["directional"].items()},
+                })
+                print(
+                    f"[BASELINE] {ticker} cycle {cycle_idx}/{len(windows)} {policy_name} - "
+                    f"test return {test_metrics['total_return']:.4f}, "
+                    f"sharpe {test_metrics['sharpe']:.4f}, turnover {test_metrics['turnover']:.4f}"
+                )
+
+    summary_df = pd.DataFrame(rows)
+    coverage_df = pd.DataFrame(coverage_rows)
+    summary_csv = baseline_dir / "baseline_walk_forward_summary.csv"
+    coverage_csv = baseline_dir / "signal_coverage_summary.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    coverage_df.to_csv(coverage_csv, index=False)
+    if not summary_df.empty:
+        policy_summary = (
+            summary_df.groupby("policy")[
+                ["test_return", "test_drawdown", "test_sharpe", "test_turnover", "test_trades"]
+            ]
+            .mean()
+            .reset_index()
+            .sort_values(["test_return", "test_sharpe"], ascending=[False, False])
+        )
+        policy_csv = baseline_dir / "baseline_policy_summary.csv"
+        policy_summary.to_csv(policy_csv, index=False)
+        main_logger.info(f"[BASELINE] summary saved: {summary_csv}")
+        main_logger.info(f"[BASELINE] signal coverage saved: {coverage_csv}")
+        main_logger.info(f"[BASELINE] policy summary saved: {policy_csv}")
+        print(f"[BASELINE] summary saved: {summary_csv}")
+        print(f"[BASELINE] signal coverage saved: {coverage_csv}")
+        print(f"[BASELINE] policy summary saved: {policy_csv}")
+    else:
+        main_logger.warning("[BASELINE] no baseline rows were produced.")
+        print("[BASELINE] no baseline rows were produced.")
+    return summary_df
 
 def train_rl_on_window(
     train_df: pd.DataFrame,
@@ -2438,7 +3068,7 @@ def run_experiment_suite(
                     rl_dir = compute_directional_edge(rl_hist)
                     rows.append({"ticker": ticker, "window": widx, "model": "RL", "data_mode": data_mode, "friction": friction, **rl_metrics, **rl_dir})
 
-                    for bname in ["FLAT", "RANDOM", "SMA", "RSI"]:
+                    for bname in ["FLAT", "RANDOM", "SMA", "RSI", "SIGNAL_E102", "SIGNAL_E102_BANDED"]:
                         bres = run_baseline_backtest(test_df, ticker, initial_balance, env_kwargs, bname, seed=RANDOM_SEED + widx)
                         rows.append({"ticker": ticker, "window": widx, "model": bname, "data_mode": data_mode, "friction": friction, **bres["metrics"], **bres["directional"]})
 
@@ -2766,14 +3396,21 @@ def objective(
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="ssell1 trading pipeline")
+    parser.add_argument(
+        "--mode",
+        choices=["signal_research", "signal_research_smoke", "signal_baseline", "experiment_suite", "walk_forward", "full_training"],
+        default=resolve_run_mode(),
+        help="Execution mode. Defaults to SSELL1_RUN_MODE or walk_forward.",
+    )
+    args = parser.parse_args()
+    run_mode = args.mode
+    main_logger.info(f"Resolved execution mode: {run_mode}")
     main_logger.info("Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).")
 
     # ----------------------------------------------------------------
     # 1. Function to read CSV from 'data/' and parse indicators
     # ----------------------------------------------------------------
-    import os
-    import pandas as pd
-    import yfinance as yf
     from pathlib import Path
     from ta import trend, momentum, volatility, volume
 
@@ -2980,6 +3617,93 @@ if __name__ == "__main__":
     ANNUAL_TRADING_DAYS = 252
     TRANSACTION_COST = 0.001
 
+    if run_mode in {"signal_research", "signal_research_smoke"}:
+        main_logger.info("Starting signal research workflow before any RL training.")
+        run_signal_research_workflow(
+            ticker_list=NSE_LIQUID_UNIVERSE[:3] if run_mode == "signal_research_smoke" else NSE_LIQUID_UNIVERSE.copy(),
+            instrument_df=instrument_df,
+            interval=TICKINT,
+            history_days=max(TRAIN_HISTORY_DAYS, 1095),
+            window_days=20,
+            experiment_ids=["E101", "E105", "E102"] if run_mode == "signal_research_smoke" else None,
+            max_window_pairs=3 if run_mode == "signal_research_smoke" else None,
+        )
+        raise SystemExit(0)
+
+    if run_mode in {"signal_baseline", "walk_forward", "experiment_suite"}:
+        best_params = resolve_runtime_best_params(run_mode)
+        optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
+        optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
+
+        if run_mode == "signal_baseline":
+            main_logger.info("Starting signal-only baseline walk-forward evaluation.")
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "experiment_suite":
+            main_logger.info("Starting diagnostic experiment suite (RL vs baselines, real/shuffled, cost-on/off).")
+            diag_tickers = NSE_LIQUID_UNIVERSE[:5]
+            run_experiment_suite(
+                ticker_list=diag_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=180,
+                val_days=20,
+                test_days=10,
+                step_days=20,
+                max_windows_per_ticker=2,
+                rl_timesteps=30000
+            )
+            raise SystemExit(0)
+
+        main_logger.info("Starting walk-forward training/validation/testing pipeline.")
+        wf_tickers = NSE_LIQUID_UNIVERSE.copy()
+        walk_forward_runner(
+            ticker_list=wf_tickers,
+            instrument_df=instrument_df,
+            best_params=best_params,
+            initial_balance=INITIAL_BALANCE,
+            stop_loss=STOP_LOSS,
+            take_profit=TAKE_PROFIT,
+            max_position_size=MAX_POSITION_SIZE,
+            max_drawdown=MAX_DRAWDOWN,
+            annual_trading_days=ANNUAL_TRADING_DAYS,
+            interval=TICKINT,
+            history_days=max(TRAIN_HISTORY_DAYS, 1095),
+            train_days=730,
+            val_days=90,
+            test_days=30,
+            step_days=30,
+            train_timesteps=50000
+        )
+        raise SystemExit(0)
+
     storage = optuna.storages.RDBStorage(
         url='sqlite:///optuna_study.db',
         engine_kwargs={'connect_args': {'check_same_thread': False}}
@@ -3026,6 +3750,7 @@ if __name__ == "__main__":
         main_logger.info(f"[OPTUNA] Best trial number: {best_trial.number}")
         main_logger.info(f"[OPTUNA] Best hyperparameters: {best_params}")
         main_logger.info(f"[OPTUNA] Best composite score: {best_score:.4f}")
+        save_best_params(best_params)
         #main_logger.info(f"[OPTUNA] Best trial user attributes: {user_attrs}")
     else:
         main_logger.critical("No successful trials found.")
@@ -3038,54 +3763,8 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------
     # 4b. Walk-forward mode (recommended for non-stationary markets)
     # ----------------------------------------------------------------
-    ENABLE_EXPERIMENT_SUITE = False
-    if ENABLE_EXPERIMENT_SUITE:
-        main_logger.info("Starting diagnostic experiment suite (RL vs baselines, real/shuffled, cost-on/off).")
-        diag_tickers = NSE_LIQUID_UNIVERSE[:5]
-        run_experiment_suite(
-            ticker_list=diag_tickers,
-            instrument_df=instrument_df,
-            best_params=best_params,
-            initial_balance=INITIAL_BALANCE,
-            stop_loss=STOP_LOSS,
-            take_profit=TAKE_PROFIT,
-            max_position_size=MAX_POSITION_SIZE,
-            max_drawdown=MAX_DRAWDOWN,
-            annual_trading_days=ANNUAL_TRADING_DAYS,
-            interval=TICKINT,
-            history_days=max(TRAIN_HISTORY_DAYS, 1095),
-            train_days=180,
-            val_days=20,
-            test_days=10,
-            step_days=20,
-            max_windows_per_ticker=2,
-            rl_timesteps=30000
-        )
-        raise SystemExit(0)
-
-    ENABLE_WALK_FORWARD = True
-    if ENABLE_WALK_FORWARD:
-        main_logger.info("Starting walk-forward training/validation/testing pipeline.")
-        wf_tickers = NSE_LIQUID_UNIVERSE.copy()
-        walk_forward_runner(
-            ticker_list=wf_tickers,
-            instrument_df=instrument_df,
-            best_params=best_params,
-            initial_balance=INITIAL_BALANCE,
-            stop_loss=STOP_LOSS,
-            take_profit=TAKE_PROFIT,
-            max_position_size=MAX_POSITION_SIZE,
-            max_drawdown=MAX_DRAWDOWN,
-            annual_trading_days=ANNUAL_TRADING_DAYS,
-            interval=TICKINT,
-            history_days=max(TRAIN_HISTORY_DAYS, 1095),
-            train_days=730,
-            val_days=90,
-            test_days=30,
-            step_days=30,
-            train_timesteps=50000
-        )
-        raise SystemExit(0)
+    if run_mode != "full_training":
+        raise ValueError(f"Unsupported run mode: {run_mode}")
 
     # ----------------------------------------------------------------
     # 5. Final training pass with best hyperparams
