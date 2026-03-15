@@ -26,6 +26,10 @@ from ssell1 import (
 BASE_DIR = Path(".").resolve()
 RESULTS_DIR = BASE_DIR / "results" / "eval_harness"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+RL_EXPORT_DIR = RESULTS_DIR / "rl_histories"
+RL_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+DIRECTIONAL_EXPORT_DIR = RESULTS_DIR / "directional_diagnostics"
+DIRECTIONAL_EXPORT_DIR.mkdir(parents=True, exist_ok=True)
 TB_DIR = BASE_DIR / "tensorboard_logs" / "eval_harness"
 TB_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,14 +40,15 @@ np.random.seed(RANDOM_SEED)
 @dataclass
 class HarnessConfig:
     interval: str = "60minute"
-    history_days: int = 730
+    history_days: int = 1095
 
     # Walk-forward window sizes in bars
     train_bars: int = 700
     val_bars: int = 120
     test_bars: int = 80
     step_bars: int = 80
-    max_windows: Optional[int] = 2
+    max_windows: Optional[int] = 3
+    window_ids: Optional[List[int]] = None
 
     initial_balance: float = 100000.0
     annual_trading_days: int = 252
@@ -54,7 +59,7 @@ class HarnessConfig:
     slippage_rate: float = 0.001
 
     # PPO train
-    total_timesteps: int = 10000
+    total_timesteps: int = 8000
     deterministic_eval: bool = True
     sb3_verbose: int = 1
 
@@ -73,7 +78,7 @@ class HarnessConfig:
     tickers: Optional[List[str]] = None
 
     # Diagnostics
-    run_shuffled_test: bool = False
+    run_shuffled_test: bool = True
     run_cost_off_test: bool = False
 
 
@@ -94,6 +99,110 @@ class ExperimentRow:
     avg_abs_action: float
     final_net_worth: float
     bars: int
+
+
+def compute_style_mix(
+    history_df: pd.DataFrame,
+    ticker: str,
+    window_id: int,
+    model_name: str,
+    data_variant: str,
+    friction_variant: str,
+) -> pd.DataFrame:
+    cols = [
+        "ticker", "window_id", "model_name", "data_variant", "friction_variant",
+        "style", "bars", "trade_rows", "trade_ratio", "mean_reward",
+        "start_net_worth", "end_net_worth", "net_change",
+    ]
+    if history_df.empty or "StrategyStyle" not in history_df.columns:
+        return pd.DataFrame(columns=cols)
+
+    h = history_df.copy()
+    h["StrategyStyle"] = h["StrategyStyle"].fillna("unknown").astype(str)
+    if "Net Worth" in h.columns:
+        h["Net Worth"] = pd.to_numeric(h["Net Worth"], errors="coerce").ffill().bfill()
+    else:
+        h["Net Worth"] = pd.to_numeric(h.get("Full Worth", 0.0), errors="coerce").ffill().bfill()
+    h["Reward"] = pd.to_numeric(h.get("Reward", 0.0), errors="coerce").fillna(0.0)
+    action_col = "Action" if "Action" in h.columns else "ActionLegacy"
+    h[action_col] = pd.to_numeric(h.get(action_col, 0.0), errors="coerce").fillna(0.0)
+
+    rows: List[Dict[str, object]] = []
+    for style, g in h.groupby("StrategyStyle", dropna=False):
+        start_nw = float(g["Net Worth"].iloc[0]) if len(g) else 0.0
+        end_nw = float(g["Net Worth"].iloc[-1]) if len(g) else 0.0
+        trade_rows = int((g[action_col] != 0).sum())
+        rows.append({
+            "ticker": ticker,
+            "window_id": window_id,
+            "model_name": model_name,
+            "data_variant": data_variant,
+            "friction_variant": friction_variant,
+            "style": style,
+            "bars": int(len(g)),
+            "trade_rows": trade_rows,
+            "trade_ratio": float(trade_rows / max(len(g), 1)),
+            "mean_reward": float(g["Reward"].mean()) if len(g) else 0.0,
+            "start_net_worth": start_nw,
+            "end_net_worth": end_nw,
+            "net_change": end_nw - start_nw,
+        })
+    return pd.DataFrame(rows, columns=cols)
+
+
+def compute_directional_diagnostic(
+    history_df: pd.DataFrame,
+    ticker: str,
+    window_id: int,
+    model_name: str,
+    data_variant: str,
+    friction_variant: str,
+) -> pd.DataFrame:
+    cols = [
+        "ticker", "window_id", "model_name", "data_variant", "friction_variant",
+        "horizon", "sample_count", "directional_accuracy",
+        "avg_future_return", "avg_long_future_return", "avg_short_future_return",
+        "avg_future_return_correct", "avg_future_return_wrong", "net_expectancy",
+    ]
+    if history_df.empty or "Close" not in history_df.columns:
+        return pd.DataFrame(columns=cols)
+
+    h = history_df.copy()
+    h["Close"] = pd.to_numeric(h["Close"], errors="coerce")
+    action_col = "Action" if "Action" in h.columns else "ActionLegacy"
+    h[action_col] = pd.to_numeric(h.get(action_col, 0.0), errors="coerce").fillna(0.0)
+    h["action_dir"] = np.sign(h[action_col])
+    h = h[h["action_dir"] != 0].copy()
+    if h.empty:
+        return pd.DataFrame(columns=cols)
+
+    rows: List[Dict[str, object]] = []
+    for horizon in (1, 3):
+        hc = h.copy()
+        hc["future_return"] = hc["Close"].shift(-horizon) / hc["Close"] - 1.0
+        hc["future_dir"] = np.sign(hc["future_return"])
+        hc = hc.dropna(subset=["future_return"])
+        if hc.empty:
+            continue
+
+        correct = hc["action_dir"] == hc["future_dir"]
+        rows.append({
+            "ticker": ticker,
+            "window_id": window_id,
+            "model_name": model_name,
+            "data_variant": data_variant,
+            "friction_variant": friction_variant,
+            "horizon": horizon,
+            "sample_count": int(len(hc)),
+            "directional_accuracy": float(correct.mean()),
+            "avg_future_return": float(hc["future_return"].mean()),
+            "avg_long_future_return": float(hc.loc[hc["action_dir"] > 0, "future_return"].mean()) if (hc["action_dir"] > 0).any() else 0.0,
+            "avg_short_future_return": float(hc.loc[hc["action_dir"] < 0, "future_return"].mean()) if (hc["action_dir"] < 0).any() else 0.0,
+            "avg_future_return_correct": float(hc.loc[correct, "future_return"].mean()) if correct.any() else 0.0,
+            "avg_future_return_wrong": float(hc.loc[~correct, "future_return"].mean()) if (~correct).any() else 0.0,
+            "net_expectancy": float((hc["action_dir"] * hc["future_return"]).mean()),
+        })
+    return pd.DataFrame(rows, columns=cols)
 
 
 def annualization_factor_from_interval(interval: str, annual_trading_days: int = 252) -> float:
@@ -267,7 +376,13 @@ def shuffle_close_series(df: pd.DataFrame, interval: str, seed: int = RANDOM_SEE
     return out
 
 
-def make_env_from_df(df: pd.DataFrame, ticker: str, config: HarnessConfig, env_rank: int = 0, mode: str = "train"):
+def make_env_from_df(
+    df: pd.DataFrame,
+    ticker: str,
+    config: HarnessConfig,
+    env_rank: int = 0,
+    mode: str = "train",
+):
     reward_weights = config.reward_weights or {
         "transaction_penalty_weight": 1.0,
         "forced_stop_penalty_weight": 0.001,
@@ -435,6 +550,32 @@ def save_history_csv(history_df: pd.DataFrame, out_path: Path) -> None:
     history_df.to_csv(out_path, index=False)
 
 
+def export_rl_history_copy(
+    history_df: pd.DataFrame,
+    ticker: str,
+    window_id: int,
+    data_variant: str,
+    friction_variant: str,
+) -> Path:
+    filename = f"history_rl_{ticker}_window_{window_id:03d}_{data_variant}_{friction_variant}.csv"
+    out_path = RL_EXPORT_DIR / filename
+    save_history_csv(history_df, out_path)
+    return out_path
+
+
+def export_directional_diagnostic_copy(
+    diagnostic_df: pd.DataFrame,
+    ticker: str,
+    window_id: int,
+    data_variant: str,
+    friction_variant: str,
+) -> Path:
+    filename = f"directional_diagnostic_{ticker}_window_{window_id:03d}_{data_variant}_{friction_variant}.csv"
+    out_path = DIRECTIONAL_EXPORT_DIR / filename
+    save_history_csv(diagnostic_df, out_path)
+    return out_path
+
+
 def run_single_window_suite(
     ticker: str,
     window_id: int,
@@ -446,6 +587,8 @@ def run_single_window_suite(
     friction_variant: str = "cost_on",
 ) -> List[ExperimentRow]:
     rows: List[ExperimentRow] = []
+    style_rows: List[pd.DataFrame] = []
+    diagnostic_rows: List[pd.DataFrame] = []
     out_dir = base_out_dir / ticker / f"window_{window_id:03d}" / data_variant / friction_variant
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -459,11 +602,14 @@ def run_single_window_suite(
 
     rl_history = run_rl_backtest(model_path, vecnorm_path, test_df, ticker, config)
     save_history_csv(rl_history, out_dir / "history_rl.csv")
+    export_rl_history_copy(rl_history, ticker, window_id, data_variant, friction_variant)
     rows.append(
         compute_metrics_from_history(
             rl_history, ticker, window_id, "RL", data_variant, friction_variant, config.interval
         )
     )
+    style_rows.append(compute_style_mix(rl_history, ticker, window_id, "RL", data_variant, friction_variant))
+    diagnostic_rows.append(compute_directional_diagnostic(rl_history, ticker, window_id, "RL", data_variant, friction_variant))
 
     baseline_map = {
         "FLAT": flat_policy,
@@ -479,8 +625,17 @@ def run_single_window_suite(
                 hist, ticker, window_id, model_name, data_variant, friction_variant, config.interval
             )
         )
+        style_rows.append(compute_style_mix(hist, ticker, window_id, model_name, data_variant, friction_variant))
+        diagnostic_rows.append(compute_directional_diagnostic(hist, ticker, window_id, model_name, data_variant, friction_variant))
 
     pd.DataFrame([asdict(r) for r in rows]).to_csv(out_dir / "summary_metrics.csv", index=False)
+    style_df = pd.concat([df for df in style_rows if not df.empty], ignore_index=True) if style_rows else pd.DataFrame()
+    if not style_df.empty:
+        style_df.to_csv(out_dir / "style_summary.csv", index=False)
+    diagnostic_df = pd.concat([df for df in diagnostic_rows if not df.empty], ignore_index=True) if diagnostic_rows else pd.DataFrame()
+    if not diagnostic_df.empty:
+        diagnostic_df.to_csv(out_dir / "directional_diagnostic.csv", index=False)
+        export_directional_diagnostic_copy(diagnostic_df, ticker, window_id, data_variant, friction_variant)
     return rows
 
 
@@ -507,6 +662,59 @@ def aggregate_results(rows: List[ExperimentRow], out_path: Path) -> pd.DataFrame
     return agg
 
 
+def aggregate_style_results(base_dir: Path, out_path: Path) -> pd.DataFrame:
+    style_files = sorted(base_dir.glob("*/*/*/*/style_summary.csv"))
+    if not style_files:
+        empty = pd.DataFrame()
+        empty.to_csv(out_path, index=False)
+        return empty
+
+    df = pd.concat((pd.read_csv(path) for path in style_files), ignore_index=True)
+    df.to_csv(out_path.with_name("master_style_results.csv"), index=False)
+    agg = (
+        df.groupby(["model_name", "data_variant", "friction_variant", "style"], as_index=False)
+        .agg(
+            windows=("window_id", "nunique"),
+            rows=("ticker", "count"),
+            total_bars=("bars", "sum"),
+            total_trade_rows=("trade_rows", "sum"),
+            mean_trade_ratio=("trade_ratio", "mean"),
+            mean_reward=("mean_reward", "mean"),
+            mean_net_change=("net_change", "mean"),
+        )
+    )
+    agg.to_csv(out_path, index=False)
+    return agg
+
+
+def aggregate_directional_results(base_dir: Path, out_path: Path) -> pd.DataFrame:
+    diagnostic_files = sorted(base_dir.glob("*/*/*/*/directional_diagnostic.csv"))
+    if not diagnostic_files:
+        empty = pd.DataFrame()
+        empty.to_csv(out_path, index=False)
+        return empty
+
+    df = pd.concat((pd.read_csv(path) for path in diagnostic_files), ignore_index=True)
+    df.to_csv(out_path.with_name("master_directional_results.csv"), index=False)
+    agg = (
+        df.groupby(["model_name", "data_variant", "friction_variant", "horizon"], as_index=False)
+        .agg(
+            windows=("window_id", "nunique"),
+            rows=("ticker", "count"),
+            total_samples=("sample_count", "sum"),
+            mean_directional_accuracy=("directional_accuracy", "mean"),
+            mean_avg_future_return=("avg_future_return", "mean"),
+            mean_avg_long_future_return=("avg_long_future_return", "mean"),
+            mean_avg_short_future_return=("avg_short_future_return", "mean"),
+            mean_avg_future_return_correct=("avg_future_return_correct", "mean"),
+            mean_avg_future_return_wrong=("avg_future_return_wrong", "mean"),
+            mean_net_expectancy=("net_expectancy", "mean"),
+        )
+    )
+    agg.to_csv(out_path, index=False)
+    return agg
+
+
 def run_experiment_suite(config: HarnessConfig) -> pd.DataFrame:
     if not config.tickers:
         raise ValueError("Please set config.tickers")
@@ -522,11 +730,15 @@ def run_experiment_suite(config: HarnessConfig) -> pd.DataFrame:
             test_bars=config.test_bars,
             step_bars=config.step_bars,
         )
-        if config.max_windows is not None:
-            windows = windows[: config.max_windows]
-        print(f"{ticker}: generated {len(windows)} windows")
+        indexed_windows = list(enumerate(windows, start=1))
+        if config.window_ids:
+            wanted = set(config.window_ids)
+            indexed_windows = [(window_id, w) for window_id, w in indexed_windows if window_id in wanted]
+        elif config.max_windows is not None:
+            indexed_windows = indexed_windows[: config.max_windows]
+        print(f"{ticker}: generated {len(indexed_windows)} windows")
 
-        for window_id, w in enumerate(windows, start=1):
+        for window_id, w in indexed_windows:
             print(f"Running {ticker} window {window_id}")
 
             cfg_cost_on = HarnessConfig(**asdict(config))
@@ -582,20 +794,26 @@ def run_experiment_suite(config: HarnessConfig) -> pd.DataFrame:
                 )
 
     master_path = RESULTS_DIR / "master_results.csv"
-    return aggregate_results(all_rows, master_path)
+    aggregate_results(all_rows, master_path)
+    aggregate_style_results(RESULTS_DIR, RESULTS_DIR / "aggregate_style_summary.csv")
+    aggregate_directional_results(RESULTS_DIR, RESULTS_DIR / "aggregate_directional_summary.csv")
+    return pd.read_csv(master_path.with_name("aggregate_summary.csv"))
 
 
 if __name__ == "__main__":
     config = HarnessConfig(
         interval="60minute",
-        history_days=730,
+        history_days=1095,
         train_bars=700,
         val_bars=120,
         test_bars=80,
         step_bars=80,
-        total_timesteps=10000,
-        tickers=["ITC", "SBIN", "RELIANCE", "TCS", "INFY"],
-        max_windows=2,
+        total_timesteps=5000,
+        tickers=[
+            "ITC", "SBIN", "RELIANCE", "TCS", "INFY",
+        ],
+        max_windows=3,
+        window_ids=None,
         reward_weights={
             "transaction_penalty_weight": 1.0,
             "forced_stop_penalty_weight": 0.001,
@@ -605,17 +823,25 @@ if __name__ == "__main__":
             "min_trade_fraction": 0.05,
             "reduce_fraction": 0.50,
             "directional_weight": 0.01,
-            "regime_gate_min_confidence": 0.70,
+            "regime_gate_min_confidence": 0.60,
             "regime_gate_min_confirmations": 2,
+            "reversion_gate_min_confidence": 0.55,
+            "reversion_gate_min_confirmations": 2,
+            "style_router_margin": 0.15,
+            "style_router_min_strength": 0.55,
             "action_penalty_weight": 0.001,
             "reduce_penalty_multiplier": 1.5,
             "flat_threshold": 0.0010,
             "weak_move_threshold": 0.0025,
             "flat_reward_bonus": 0.20,
             "wrong_flat_penalty": 0.25,
+            "rebalance_threshold": 0.20,
+            "entry_min_exposure": 0.02,
+            "reduce_hold_threshold": 0.02,
+            "min_market_vol_rank": 0.30,
         },
         run_cost_off_test=False,
-        run_shuffled_test=False,
+        run_shuffled_test=True,
     )
 
     summary = run_experiment_suite(config)

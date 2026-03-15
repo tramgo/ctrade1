@@ -40,6 +40,20 @@ try:
 except ImportError:
     raise ImportError("Please install 'concurrent-log-handler' package via pip: pip install concurrent-log-handler")
 
+
+def load_local_env(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -49,6 +63,7 @@ np.random.seed(RANDOM_SEED)
 torch.manual_seed(RANDOM_SEED)
 
 BASE_DIR = Path('.').resolve()
+load_local_env(BASE_DIR / ".env")
 RESULTS_DIR = BASE_DIR / 'results'
 PLOTS_DIR = BASE_DIR / 'plots'
 TB_LOG_DIR = BASE_DIR / 'tensorboard_logs'
@@ -245,17 +260,18 @@ import pyotp
 from urllib.parse import urlparse, parse_qs
 from kiteconnect import KiteConnect
 
-# API_KEY = "gqi9lxf3meq6iiwa"
-# API_SECRET = "1gu1alcoe96598xhooum6hxh8udf4m7o"
-# USERNAME = "KY4369"
-# PASSWORD = "Maligai321!"
-# TOTP_KEY = "XZ2SZ5L4CQDGAHYZQVMPDZQERZOOV3UF"  # Base32 format
+def get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
-API_KEY = "kaa6v9lt7eonna17"
-API_SECRET = "0s0lbrxg1sz58xrethio0v2zi5qa48mk"
-USERNAME = "WZ3843"
-PASSWORD = "Persian100!"
-TOTP_KEY = "VNBKFPN7KHY7BLFNJ6ZUWTJ2WWIVZHD2"  # Base32 format
+
+API_KEY = get_required_env("API_KEY")
+API_SECRET = get_required_env("API_SECRET")
+USERNAME = get_required_env("USERNAME")
+PASSWORD = get_required_env("PASSWORD")
+TOTP_KEY = get_required_env("TOTP_KEY")
 
 kite = KiteConnect(api_key=API_KEY)
 
