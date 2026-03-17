@@ -31,6 +31,8 @@ import traceback
 import pytz
 import shutil
 import argparse
+import ast
+import re
 
 from ta.momentum import StochasticOscillator
 from ta.volume import ChaikinMoneyFlowIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator
@@ -82,6 +84,34 @@ TRAIN_HISTORY_DAYS = 1095
 TEST_HISTORY_DAYS = 365
 DTDAYS = TRAIN_HISTORY_DAYS
 
+ACTIVE_LOG_FILES = ("main.log", "training.log", "testing.log", "phase.log")
+LOG_ARCHIVE_DIR = RESULTS_DIR / "log_runs"
+
+
+def rotate_active_logs(results_dir: Path, archive_dir: Path, filenames: tuple[str, ...]) -> None:
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = archive_dir / f"run_{timestamp}"
+    moved_any = False
+    for filename in filenames:
+        src = results_dir / filename
+        if not src.exists() or src.stat().st_size == 0:
+            continue
+        run_dir.mkdir(parents=True, exist_ok=True)
+        dst = run_dir / filename
+        try:
+            src.replace(dst)
+            moved_any = True
+        except Exception:
+            # If the file is locked for any reason, leave it in place rather than failing startup.
+            continue
+    if moved_any:
+        latest_ptr = archive_dir / "latest_run_dir.txt"
+        latest_ptr.write_text(str(run_dir), encoding="utf-8")
+
+
+rotate_active_logs(RESULTS_DIR, LOG_ARCHIVE_DIR, ACTIVE_LOG_FILES)
+
 NSE_LIQUID_UNIVERSE = [
     "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
     "TCS", "INFY", "WIPRO", "HCLTECH", "TECHM",
@@ -110,7 +140,218 @@ SECTOR_PROXY_MAP = {
 }
 
 MARKET_PROXY_SYMBOL = "NIFTYBEES"
-SIGNAL_EXPORT_LATEST = BASE_DIR / "results" / "signal_research" / "outputs" / "latest" / "promoted_predictions_oos.csv"
+SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
+    "E102": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_two_track" / "latest" / "promoted_predictions_oos.csv",
+        ],
+        "Signal_E102",
+    ),
+    "E302": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_generalization" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_two_track" / "latest" / "promoted_predictions_oos.csv",
+        ],
+        "Signal_E302",
+    ),
+    "E401": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_generalization_next" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_generalization_next" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E401",
+    ),
+    "E407": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_generalization_next" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_generalization_next" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E407",
+    ),
+    "E209": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_e102_deepdive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_e102_deepdive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E209",
+    ),
+    "E211": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_e102_deepdive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_e102_deepdive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E211",
+    ),
+    "E501": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E501",
+    ),
+    "E502": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E502",
+    ),
+    "E503": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E503",
+    ),
+    "E504": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E504",
+    ),
+    "E505": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E505",
+    ),
+    "E506": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E506",
+    ),
+    "E507": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E507",
+    ),
+    "E508": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E508",
+    ),
+    "E605": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E605",
+    ),
+    "E606": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E606",
+    ),
+    "E607": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E607",
+    ),
+    "E610": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_ablation_grid" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E610",
+    ),
+    "E702": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E702",
+    ),
+    "E703": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E703",
+    ),
+    "E705": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E705",
+    ),
+    "E706": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_setup_regimes" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E706",
+    ),
+    "E801": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E801",
+    ),
+    "E803": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E803",
+    ),
+    "E804": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E804",
+    ),
+    "E806": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_market_state_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E806",
+    ),
+    "E903": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E903",
+    ),
+    "E904": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E904",
+    ),
+    "E905": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E905",
+    ),
+    "E906": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_multiscale_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E906",
+    ),
+}
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
 _SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
 _DATA_KITE_CACHE: Dict[tuple, object] = {}
@@ -151,27 +392,36 @@ def load_signal_overlay_predictions(experiment_id: str = SIGNAL_OVERLAY_EXPERIME
     if cached is not None:
         return cached.copy()
 
-    if not SIGNAL_EXPORT_LATEST.exists():
-        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+    export_cfg = SIGNAL_OVERLAY_SOURCES.get(experiment_id)
+    if export_cfg is None:
+        empty = pd.DataFrame(columns=["Ticker", "Date", f"Signal_{experiment_id}_Pred"])
         _SIGNAL_OVERLAY_CACHE[cache_key] = empty
         return empty.copy()
+    export_paths, signal_prefix = export_cfg
+    existing_paths = [path for path in export_paths if path.exists()]
 
-    try:
-        pred_df = pd.read_csv(SIGNAL_EXPORT_LATEST)
-    except Exception as exc:
-        main_logger.warning(f"[SIGNAL OVERLAY] failed to read {SIGNAL_EXPORT_LATEST}: {exc}")
-        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+    if not existing_paths:
+        empty = pd.DataFrame(columns=["Ticker", "Date", f"{signal_prefix}_Pred"])
         _SIGNAL_OVERLAY_CACHE[cache_key] = empty
         return empty.copy()
-
-    if pred_df.empty or "ExperimentID" not in pred_df.columns:
-        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
-        _SIGNAL_OVERLAY_CACHE[cache_key] = empty
-        return empty.copy()
-
-    pred_df = pred_df.loc[pred_df["ExperimentID"] == experiment_id].copy()
+    pred_df = pd.DataFrame()
+    export_path = existing_paths[0]
+    for candidate_path in existing_paths:
+        try:
+            candidate_df = pd.read_csv(candidate_path)
+        except Exception as exc:
+            main_logger.warning(f"[SIGNAL OVERLAY] failed to read {candidate_path}: {exc}")
+            continue
+        if candidate_df.empty or "ExperimentID" not in candidate_df.columns:
+            continue
+        candidate_df = candidate_df.loc[candidate_df["ExperimentID"] == experiment_id].copy()
+        if candidate_df.empty:
+            continue
+        pred_df = candidate_df
+        export_path = candidate_path
+        break
     if pred_df.empty:
-        empty = pd.DataFrame(columns=["Ticker", "Date", "Signal_E102_Pred"])
+        empty = pd.DataFrame(columns=["Ticker", "Date", f"{signal_prefix}_Pred"])
         _SIGNAL_OVERLAY_CACHE[cache_key] = empty
         return empty.copy()
 
@@ -179,50 +429,151 @@ def load_signal_overlay_predictions(experiment_id: str = SIGNAL_OVERLAY_EXPERIME
     pred_df["Prediction"] = pd.to_numeric(pred_df["Prediction"], errors="coerce")
     pred_df = pred_df.dropna(subset=["Ticker", "Date", "Prediction"])
     pred_df = pred_df.sort_values(["Ticker", "Date"]).drop_duplicates(["Ticker", "Date"], keep="last")
-    pred_df = pred_df.rename(columns={"Prediction": "Signal_E102_Pred"})
-    pred_df["Signal_E102_Edge"] = (pred_df["Signal_E102_Pred"] - 0.5).clip(-0.5, 0.5)
-    pred_df["Signal_E102_HighConf"] = (pred_df["Signal_E102_Pred"] >= 0.60).astype(float)
-    keep_cols = ["Ticker", "Date", "Signal_E102_Pred", "Signal_E102_Edge", "Signal_E102_HighConf"]
+    pred_col = f"{signal_prefix}_Pred"
+    edge_col = f"{signal_prefix}_Edge"
+    high_conf_col = f"{signal_prefix}_HighConf"
+    pred_df = pred_df.rename(columns={"Prediction": pred_col})
+    pred_df[edge_col] = (pred_df[pred_col] - 0.5).clip(-0.5, 0.5)
+    pred_df[high_conf_col] = (pred_df[pred_col] >= 0.60).astype(float)
+    keep_cols = ["Ticker", "Date", pred_col, edge_col, high_conf_col]
     pred_df = pred_df[keep_cols].reset_index(drop=True)
     _SIGNAL_OVERLAY_CACHE[cache_key] = pred_df
-    main_logger.info(f"[SIGNAL OVERLAY] loaded {len(pred_df)} rows for {experiment_id} from {SIGNAL_EXPORT_LATEST}")
+    main_logger.info(f"[SIGNAL OVERLAY] loaded {len(pred_df)} rows for {experiment_id} from {export_path}")
     return pred_df.copy()
 
 
 def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd.DataFrame:
     out = df.copy()
 
-    if not ticker or "Date" not in out.columns:
-        out["Signal_E102_Pred"] = 0.5
-        out["Signal_E102_Edge"] = 0.0
-        out["Signal_E102_HighConf"] = 0.0
-        return out
-
-    pred_df = load_signal_overlay_predictions()
-    if pred_df.empty:
-        out["Signal_E102_Pred"] = 0.5
-        out["Signal_E102_Edge"] = 0.0
-        out["Signal_E102_HighConf"] = 0.0
-        return out
-
-    ticker_preds = pred_df.loc[pred_df["Ticker"] == ticker].copy()
-    if ticker_preds.empty:
-        out["Signal_E102_Pred"] = 0.5
-        out["Signal_E102_Edge"] = 0.0
-        out["Signal_E102_HighConf"] = 0.0
-        return out
-
-    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
-    ticker_preds["Date"] = pd.to_datetime(ticker_preds["Date"], errors="coerce")
-    out = out.sort_values("Date").reset_index(drop=True)
-    ticker_preds = ticker_preds.sort_values("Date").reset_index(drop=True)
-    out = out.merge(ticker_preds, on="Date", how="left")
-    for col, default in [
+    overlay_defaults = [
         ("Signal_E102_Pred", 0.5),
         ("Signal_E102_Edge", 0.0),
         ("Signal_E102_HighConf", 0.0),
-    ]:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+        ("Signal_E302_Pred", 0.5),
+        ("Signal_E302_Edge", 0.0),
+        ("Signal_E302_HighConf", 0.0),
+        ("Signal_E401_Pred", 0.5),
+        ("Signal_E401_Edge", 0.0),
+        ("Signal_E401_HighConf", 0.0),
+        ("Signal_E407_Pred", 0.5),
+        ("Signal_E407_Edge", 0.0),
+        ("Signal_E407_HighConf", 0.0),
+        ("Signal_E209_Pred", 0.5),
+        ("Signal_E209_Edge", 0.0),
+        ("Signal_E209_HighConf", 0.0),
+        ("Signal_E211_Pred", 0.5),
+        ("Signal_E211_Edge", 0.0),
+        ("Signal_E211_HighConf", 0.0),
+        ("Signal_E501_Pred", 0.5),
+        ("Signal_E501_Edge", 0.0),
+        ("Signal_E501_HighConf", 0.0),
+        ("Signal_E502_Pred", 0.5),
+        ("Signal_E502_Edge", 0.0),
+        ("Signal_E502_HighConf", 0.0),
+        ("Signal_E503_Pred", 0.5),
+        ("Signal_E503_Edge", 0.0),
+        ("Signal_E503_HighConf", 0.0),
+        ("Signal_E504_Pred", 0.5),
+        ("Signal_E504_Edge", 0.0),
+        ("Signal_E504_HighConf", 0.0),
+        ("Signal_E505_Pred", 0.5),
+        ("Signal_E505_Edge", 0.0),
+        ("Signal_E505_HighConf", 0.0),
+        ("Signal_E506_Pred", 0.5),
+        ("Signal_E506_Edge", 0.0),
+        ("Signal_E506_HighConf", 0.0),
+        ("Signal_E507_Pred", 0.5),
+        ("Signal_E507_Edge", 0.0),
+        ("Signal_E507_HighConf", 0.0),
+        ("Signal_E508_Pred", 0.5),
+        ("Signal_E508_Edge", 0.0),
+        ("Signal_E508_HighConf", 0.0),
+        ("Signal_E605_Pred", 0.5),
+        ("Signal_E605_Edge", 0.0),
+        ("Signal_E605_HighConf", 0.0),
+        ("Signal_E606_Pred", 0.5),
+        ("Signal_E606_Edge", 0.0),
+        ("Signal_E606_HighConf", 0.0),
+        ("Signal_E607_Pred", 0.5),
+        ("Signal_E607_Edge", 0.0),
+        ("Signal_E607_HighConf", 0.0),
+        ("Signal_E610_Pred", 0.5),
+        ("Signal_E610_Edge", 0.0),
+        ("Signal_E610_HighConf", 0.0),
+        ("Signal_E702_Pred", 0.5),
+        ("Signal_E702_Edge", 0.0),
+        ("Signal_E702_HighConf", 0.0),
+        ("Signal_E703_Pred", 0.5),
+        ("Signal_E703_Edge", 0.0),
+        ("Signal_E703_HighConf", 0.0),
+        ("Signal_E705_Pred", 0.5),
+        ("Signal_E705_Edge", 0.0),
+        ("Signal_E705_HighConf", 0.0),
+        ("Signal_E706_Pred", 0.5),
+        ("Signal_E706_Edge", 0.0),
+        ("Signal_E706_HighConf", 0.0),
+        ("Signal_E801_Pred", 0.5),
+        ("Signal_E801_Edge", 0.0),
+        ("Signal_E801_HighConf", 0.0),
+        ("Signal_E803_Pred", 0.5),
+        ("Signal_E803_Edge", 0.0),
+        ("Signal_E803_HighConf", 0.0),
+        ("Signal_E804_Pred", 0.5),
+        ("Signal_E804_Edge", 0.0),
+        ("Signal_E804_HighConf", 0.0),
+        ("Signal_E806_Pred", 0.5),
+        ("Signal_E806_Edge", 0.0),
+        ("Signal_E806_HighConf", 0.0),
+        ("Signal_E903_Pred", 0.5),
+        ("Signal_E903_Edge", 0.0),
+        ("Signal_E903_HighConf", 0.0),
+        ("Signal_E904_Pred", 0.5),
+        ("Signal_E904_Edge", 0.0),
+        ("Signal_E904_HighConf", 0.0),
+        ("Signal_E905_Pred", 0.5),
+        ("Signal_E905_Edge", 0.0),
+        ("Signal_E905_HighConf", 0.0),
+        ("Signal_E906_Pred", 0.5),
+        ("Signal_E906_Edge", 0.0),
+        ("Signal_E906_HighConf", 0.0),
+    ]
+    if not ticker or "Date" not in out.columns:
+        for col, default in overlay_defaults:
+            out[col] = default
+        return out
+
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    out = out.sort_values("Date").reset_index(drop=True)
+
+    for experiment_id in SIGNAL_OVERLAY_SOURCES.keys():
+        pred_df = load_signal_overlay_predictions(experiment_id)
+        signal_prefix = SIGNAL_OVERLAY_SOURCES[experiment_id][1]
+        pred_col = f"{signal_prefix}_Pred"
+        edge_col = f"{signal_prefix}_Edge"
+        high_conf_col = f"{signal_prefix}_HighConf"
+        if pred_df.empty:
+            out[pred_col] = 0.5
+            out[edge_col] = 0.0
+            out[high_conf_col] = 0.0
+            continue
+
+        ticker_preds = pred_df.loc[pred_df["Ticker"] == ticker].copy()
+        if ticker_preds.empty:
+            out[pred_col] = 0.5
+            out[edge_col] = 0.0
+            out[high_conf_col] = 0.0
+            continue
+
+        ticker_preds["Date"] = pd.to_datetime(ticker_preds["Date"], errors="coerce")
+        ticker_preds = ticker_preds[["Date", pred_col, edge_col, high_conf_col]].copy()
+        ticker_preds = ticker_preds.sort_values("Date").drop_duplicates(["Date"], keep="last").reset_index(drop=True)
+        out = out.merge(ticker_preds, on="Date", how="left")
+        for col, default in [
+            (pred_col, 0.5),
+            (edge_col, 0.0),
+            (high_conf_col, 0.0),
+        ]:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
     return out
 
 # --- Place these at the top of your script (after BASE_DIR is defined) ---
@@ -337,7 +688,14 @@ FEATURES_TO_SCALE = [
     "MktVolRank",
     "VolRegime", "MinuteNorm",
     "RegimeBull", "RegimeBear",
-    "Signal_E102_Pred", "Signal_E102_Edge", "Signal_E102_HighConf"
+    "Signal_E102_Pred", "Signal_E102_Edge", "Signal_E102_HighConf",
+    "Signal_E302_Pred", "Signal_E302_Edge", "Signal_E302_HighConf",
+    "XS_Rank_StockMinusMkt_1", "XS_Rank_StockMinusMkt_3", "XS_Rank_StockMinusMkt_6",
+    "XS_Rank_SectorMinusMkt_3", "XS_Rank_RelativeVolumeTime",
+    "XS_Rank_VolAdjStockMinusMkt_1", "XS_Rank_VolAdjStockMinusMkt_3",
+    "XS_LeaderSpread_3", "XS_LeaderTop20", "XS_LaggardBottom20",
+    "XS_LeaderPersist_3", "XS_LaggardPersist_3", "XS_LeaderPersist_6",
+    "XS_LaggardPersist_6", "XS_Rank_Change_3", "XS_VolumeLeaderSpread",
 ]
 
 
@@ -458,6 +816,264 @@ def get_ticker_from_token(instrument_token: int, instrument_df: pd.DataFrame) ->
         return ticker_series.iloc[0]
     else:
         return None
+
+
+def get_zerodha_nse_tradingsymbols(instrument_df: pd.DataFrame) -> list[str]:
+    if instrument_df.empty or "tradingsymbol" not in instrument_df.columns:
+        return []
+    df = instrument_df.copy()
+    if "exchange" in df.columns:
+        df = df[df["exchange"].astype(str).str.upper() == "NSE"]
+    if "segment" in df.columns:
+        allowed_segments = {"NSE", "NSE-EQ"}
+        df = df[df["segment"].astype(str).str.upper().isin(allowed_segments) | df["segment"].isna()]
+    symbols = (
+        df["tradingsymbol"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+    symbols = symbols[symbols != ""]
+    return sorted(symbols.unique().tolist())
+
+
+def extract_latest_walk_forward_test_rows(log_path: Path) -> pd.DataFrame:
+    if not log_path.exists():
+        return pd.DataFrame()
+    lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if "Resolved execution mode: walk_forward" in line:
+            start_idx = idx
+    if start_idx is None:
+        return pd.DataFrame()
+
+    pattern = re.compile(
+        r"\[WF:(.*?):cycle_(\d+)_test\] score=([-0-9.]+), return=([-0-9.]+), dd=([-0-9.]+), "
+        r"sharpe=([-0-9.]+), turnover=([-0-9.]+), trades=([0-9]+)"
+    )
+    rows = []
+    for line in lines[start_idx:]:
+        match = pattern.search(line)
+        if not match:
+            continue
+        rows.append(
+            {
+                "ticker": match.group(1),
+                "cycle": int(match.group(2)),
+                "test_score": float(match.group(3)),
+                "test_return": float(match.group(4)),
+                "test_drawdown": float(match.group(5)),
+                "test_sharpe": float(match.group(6)),
+                "test_turnover": float(match.group(7)),
+                "test_trades": int(match.group(8)),
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+def get_latest_archived_main_log() -> Optional[Path]:
+    if not LOG_ARCHIVE_DIR.exists():
+        return None
+    candidates = sorted(LOG_ARCHIVE_DIR.rglob("main.log"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def load_focus_source_rows(log_path: Path) -> pd.DataFrame:
+    summary_path = RESULTS_DIR / "walk_forward" / "walk_forward_summary.csv"
+    if summary_path.exists():
+        try:
+            wf_df = pd.read_csv(summary_path)
+            needed = {"ticker", "test_return", "test_turnover", "test_trades"}
+            if not wf_df.empty and needed.issubset(wf_df.columns):
+                return wf_df.copy()
+        except Exception:
+            pass
+
+    wf_df = extract_latest_walk_forward_test_rows(log_path)
+    if not wf_df.empty:
+        return wf_df
+
+    archived = get_latest_archived_main_log()
+    if archived is not None and archived != log_path:
+        wf_df = extract_latest_walk_forward_test_rows(archived)
+        if not wf_df.empty:
+            return wf_df
+    return pd.DataFrame()
+
+
+def extract_latest_focus_tickers_from_log(log_path: Path) -> list[str]:
+    if not log_path.exists():
+        return []
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return []
+    pattern = re.compile(r"\[WF-FOCUS\] selected \d+ tickers .*: \[(.*)\]")
+    for line in reversed(lines):
+        match = pattern.search(line)
+        if not match:
+            continue
+        payload = match.group(1).strip()
+        if not payload:
+            return []
+        tickers = [item.strip().strip("'\"") for item in payload.split(",") if item.strip()]
+        return [ticker for ticker in tickers if ticker]
+    return []
+
+
+def get_recent_archived_focus_tickers(zerodha_symbols: set[str], max_logs: int = 10) -> list[str]:
+    archived = sorted(
+        (RESULTS_DIR / "log_runs").glob("run_*/main.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for candidate in archived[:max_logs]:
+        prior_tickers = [ticker for ticker in extract_latest_focus_tickers_from_log(candidate) if ticker in zerodha_symbols]
+        if prior_tickers:
+            return prior_tickers
+    return []
+
+
+def get_baseline_backfill_tickers(
+    zerodha_symbols: set[str],
+    policy_name: str = "SIGNAL_E211_BANDED_68",
+    max_count: int = 12,
+) -> list[str]:
+    summary_csv = RESULTS_DIR / "signal_baseline" / "baseline_walk_forward_summary.csv"
+    if not summary_csv.exists():
+        return []
+    try:
+        summary_df = pd.read_csv(summary_csv)
+    except Exception:
+        return []
+    required_cols = {"ticker", "policy", "test_return", "test_turnover", "test_trades"}
+    if not required_cols.issubset(summary_df.columns):
+        return []
+    scoped = summary_df.loc[summary_df["policy"].astype(str) == policy_name].copy()
+    if scoped.empty:
+        return []
+    scoped["ticker"] = scoped["ticker"].astype(str)
+    scoped = scoped[scoped["ticker"].isin(zerodha_symbols)].copy()
+    if scoped.empty:
+        return []
+    for col in ["test_return", "test_turnover", "test_trades"]:
+        scoped[col] = pd.to_numeric(scoped[col], errors="coerce")
+    scoped["has_activity"] = (scoped["test_trades"] > 0).astype(int)
+    scoped.sort_values(
+        ["has_activity", "test_return", "test_turnover", "test_trades"],
+        ascending=[False, False, True, True],
+        inplace=True,
+    )
+    return scoped["ticker"].dropna().drop_duplicates().head(max_count).tolist()
+
+
+def build_focus_universe_from_latest_walk_forward(
+    instrument_df: pd.DataFrame,
+    log_path: Path = RESULTS_DIR / "main.log",
+    min_return: Optional[float] = None,
+    max_turnover: Optional[float] = None,
+    require_trades: Optional[bool] = None,
+) -> list[str]:
+    zerodha_symbols = set(get_zerodha_nse_tradingsymbols(instrument_df))
+    if PINNED_FOCUS_UNIVERSE_FILE.exists():
+        try:
+            pinned_df = pd.read_csv(PINNED_FOCUS_UNIVERSE_FILE)
+            if "ticker" in pinned_df.columns:
+                pinned_df = pinned_df[pinned_df["ticker"].isin(zerodha_symbols)].copy()
+                pinned_tickers = pinned_df["ticker"].dropna().astype(str).tolist()
+                if pinned_tickers:
+                    main_logger.info(
+                        "[WF-FOCUS] using pinned incumbent focus universe from %s: %s",
+                        PINNED_FOCUS_UNIVERSE_FILE,
+                        pinned_tickers,
+                    )
+                    return pinned_tickers
+        except Exception as exc:
+            main_logger.warning("[WF-FOCUS] failed to read pinned focus universe: %s", exc)
+    if min_return is None:
+        min_return = -0.001
+    if max_turnover is None:
+        max_turnover = 0.25
+    if require_trades is None:
+        require_trades = True
+    wf_df = load_focus_source_rows(log_path)
+    if wf_df.empty:
+        main_logger.warning("[WF-FOCUS] no walk-forward test rows found in latest log block.")
+        return []
+
+    focus_df = wf_df.copy()
+    focus_df = focus_df[focus_df["test_return"] >= float(min_return)]
+    focus_df = focus_df[focus_df["test_turnover"] <= float(max_turnover)]
+    if require_trades:
+        focus_df = focus_df[(focus_df["test_trades"] > 0) | (focus_df["test_return"] > 0)]
+
+    focus_df = focus_df[focus_df["ticker"].isin(zerodha_symbols)].copy()
+    if focus_df.empty and FOCUS_UNIVERSE_FILE.exists():
+        try:
+            prior_df = pd.read_csv(FOCUS_UNIVERSE_FILE)
+            if "ticker" in prior_df.columns:
+                prior_df = prior_df[prior_df["ticker"].isin(zerodha_symbols)].copy()
+                prior_tickers = prior_df["ticker"].dropna().astype(str).tolist()
+                if prior_tickers:
+                    main_logger.warning(
+                        "[WF-FOCUS] latest walk-forward block produced no eligible tickers; reusing prior focus universe from %s",
+                        FOCUS_UNIVERSE_FILE,
+                    )
+                    return prior_tickers
+        except Exception as exc:
+            main_logger.warning("[WF-FOCUS] failed to reuse prior focus universe: %s", exc)
+    if focus_df.empty:
+        candidate_logs = [log_path]
+        archived = sorted(
+            (RESULTS_DIR / "log_runs").glob("run_*/main.log"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        candidate_logs.extend(archived[:10])
+        for candidate in candidate_logs:
+            prior_tickers = [ticker for ticker in extract_latest_focus_tickers_from_log(candidate) if ticker in zerodha_symbols]
+            if prior_tickers:
+                main_logger.warning(
+                    "[WF-FOCUS] latest walk-forward block produced no eligible tickers; reusing archived focus universe from %s",
+                    candidate,
+                )
+                return prior_tickers
+    focus_df.sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True], inplace=True)
+    tickers = focus_df["ticker"].dropna().astype(str).tolist()
+    if 0 < len(tickers) < FOCUS_TARGET_MIN_TICKERS:
+        archived_focus = get_recent_archived_focus_tickers(zerodha_symbols)
+        baseline_backfill = get_baseline_backfill_tickers(zerodha_symbols)
+        backfill_candidates = archived_focus + [ticker for ticker in baseline_backfill if ticker not in archived_focus]
+        for ticker in backfill_candidates:
+            if ticker in tickers:
+                continue
+            tickers.append(ticker)
+            if len(tickers) >= FOCUS_TARGET_MIN_TICKERS:
+                break
+        if "selection_source" not in focus_df.columns:
+            focus_df["selection_source"] = "latest_walk_forward"
+        existing_tickers = set(focus_df["ticker"].dropna().astype(str).tolist())
+        for ticker in tickers:
+            if ticker in existing_tickers:
+                continue
+            fill_row = {col: np.nan for col in focus_df.columns}
+            fill_row["ticker"] = ticker
+            fill_row["selection_source"] = (
+                "archived_focus_backfill" if ticker in archived_focus else "baseline_e211_backfill"
+            )
+            focus_df = pd.concat([focus_df, pd.DataFrame([fill_row])], ignore_index=True)
+    tickers = tickers[:FOCUS_TARGET_MAX_TICKERS]
+    focus_df = focus_df[focus_df["ticker"].astype(str).isin(tickers)].copy()
+    focus_df.to_csv(FOCUS_UNIVERSE_FILE, index=False)
+    main_logger.info(
+        "[WF-FOCUS] selected %s tickers from latest walk-forward block using Zerodha NSE symbols: %s",
+        len(tickers),
+        tickers,
+    )
+    return tickers
 
 
 def load_context_frames_for_token(instrument_token: int, days: int, interval: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
@@ -714,6 +1330,29 @@ def build_rl_features(
     df["RegimeBear"] = (df["Trend_2h"] < 0).astype(float)
     df["ADX_strong"] = (trend.ADXIndicator(high, low, close, window=win_30m).adx() >= 25).astype(float)
     df["ADX_weak"] = 1.0 - df["ADX_strong"]
+    df["MarketStateBullCalm"] = ((df["RegimeBull"] > 0.5) & (df["MktVolRank"] <= 0.60)).astype(float)
+    df["MarketStateBullStress"] = ((df["RegimeBull"] > 0.5) & (df["MktVolRank"] > 0.60)).astype(float)
+    df["MarketStateBearCalm"] = ((df["RegimeBear"] > 0.5) & (df["MktVolRank"] <= 0.60)).astype(float)
+    df["MarketStateBearStress"] = ((df["RegimeBear"] > 0.5) & (df["MktVolRank"] > 0.60)).astype(float)
+    df["MarketStateTransition"] = ((df["ADX_weak"] > 0.5) | (df["Trend_30"].abs() <= 0.0015)).astype(float)
+    df["MarketStateTrendScore"] = (df["Trend_30"] + 0.5 * df["Trend_2h"]).clip(-1.0, 1.0).fillna(0.0)
+    df["MarketStateVolPressure"] = ((pd.to_numeric(df["MktVolRank"], errors="coerce").fillna(0.5) - 0.5) * 2.0).clip(-1.0, 1.0)
+    ret_3h = close.pct_change(3).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    ret_6h = close.pct_change(6).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    ret_12h = close.pct_change(12).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    vol_3 = close.pct_change().rolling(3).std()
+    vol_20 = close.pct_change().rolling(20).std()
+    range_mean_3 = candle_range.rolling(3).mean()
+    range_mean_12 = candle_range.rolling(12).mean()
+    df["MultiScaleRet_3h"] = ret_3h.clip(-0.2, 0.2)
+    df["MultiScaleRet_6h"] = ret_6h.clip(-0.3, 0.3)
+    df["MultiScaleRet_12h"] = ret_12h.clip(-0.4, 0.4)
+    df["MultiScaleTrendGap"] = (df["Trend_30"] - df["Trend_2h"]).clip(-1.0, 1.0).fillna(0.0)
+    df["MultiScaleMomentumAlignment"] = (df["Trend_30"] * df["Trend_2h"]).clip(-1.0, 1.0).fillna(0.0)
+    df["MultiScaleVolRatio_3v20"] = (vol_3 / (vol_20 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
+    df["MultiScaleRangeCompression_3v12"] = (range_mean_3 / (range_mean_12 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
+    df["MultiScaleBodyPressure_3"] = df["BodyToRange"].rolling(3).mean().fillna(0.0).clip(-1.0, 1.0)
+    df["MultiScaleBreakoutPressure_3"] = df["Breakout_3bar"].rolling(3).mean().fillna(0.0).clip(-1.0, 1.0)
 
     df = _contextualize_with_market(df, benchmark_df=benchmark_df, sector_df=sector_df)
     df = merge_signal_overlay_features(df, ticker=ticker)
@@ -1514,18 +2153,27 @@ class SingleStockTradingEnv(gym.Env):
         signal_gate_enabled = bool(self.reward_weights.get("signal_gate_enabled", False))
         signal_gate_entry_threshold = float(self.reward_weights.get("signal_gate_entry_threshold", 0.68))
         signal_gate_reduce_threshold = float(self.reward_weights.get("signal_gate_reduce_threshold", 0.60))
+        signal_confirm_enabled = bool(self.reward_weights.get("signal_confirm_enabled", False))
+        signal_confirm_entry_threshold = float(self.reward_weights.get("signal_confirm_entry_threshold", 0.70))
+        signal_confirm_reduce_threshold = float(self.reward_weights.get("signal_confirm_reduce_threshold", 0.58))
         equity = max(self.net_worth, eps)
         current_exposure = self._current_exposure(current_price)
         style_trend_strength = 0.0
         style_reversion_strength = 0.0
         target_exposure = current_exposure
         current_mkt_vol_rank = float(current_data.get("MktVolRank", 0.5))
-        current_signal_pred = float(current_data.get("Signal_E102_Pred", 0.5))
+        signal_gate_source = str(self.reward_weights.get("signal_gate_source", "Signal_E102_Pred"))
+        current_signal_pred = float(current_data.get(signal_gate_source, 0.5))
+        current_confirm_signal_pred = float(current_data.get("Signal_E302_Pred", 0.5))
 
         if action_id in (1, 2):
             if signal_gate_enabled and current_signal_pred < signal_gate_entry_threshold:
                 action_id = 0
                 action_name = "signal_gate_hold"
+                action_value = 0.0
+            elif signal_confirm_enabled and current_confirm_signal_pred < signal_confirm_entry_threshold:
+                action_id = 0
+                action_name = "signal_confirm_hold"
                 action_value = 0.0
             else:
                 direction = 1 if action_id == 1 else -1
@@ -1568,6 +2216,10 @@ class SingleStockTradingEnv(gym.Env):
             if signal_gate_enabled and current_signal_pred >= signal_gate_reduce_threshold and abs(current_exposure) >= reduce_hold_threshold:
                 action_id = 0
                 action_name = "signal_gate_keep"
+                action_value = 0.0
+            elif signal_confirm_enabled and current_confirm_signal_pred >= signal_confirm_reduce_threshold and abs(current_exposure) >= reduce_hold_threshold:
+                action_id = 0
+                action_name = "signal_confirm_keep"
                 action_value = 0.0
             elif abs(current_exposure) < reduce_hold_threshold:
                 action_id = 0
@@ -2019,7 +2671,8 @@ def make_walk_forward_slices(
     train_days: int = 180,
     val_days: int = 20,
     test_days: int = 10,
-    step_days: int = 20
+    step_days: int = 20,
+    train_mode: str = "rolling",
 ):
     bars_per_day = interval_to_bars_per_day(interval)
     train_bars = train_days * bars_per_day
@@ -2031,12 +2684,13 @@ def make_walk_forward_slices(
     start = 0
     total = len(df)
     while True:
-        train_end = start + train_bars
+        train_start = 0 if train_mode == "expanding" else start
+        train_end = train_start + train_bars if train_mode != "expanding" else train_bars + start
         val_end = train_end + val_bars
         test_end = val_end + test_bars
         if test_end > total:
             break
-        windows.append((start, train_end, val_end, test_end))
+        windows.append((train_start, train_end, val_end, test_end))
         start += step_bars
     return windows
 
@@ -2050,6 +2704,61 @@ def assign_research_window_ids(
     bars_per_day = interval_to_bars_per_day(interval)
     rows_per_window = max(1, bars_per_day * max(1, window_days))
     out["WindowID"] = (np.arange(len(out)) // rows_per_window) + 1
+    return out
+
+
+def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame:
+    if dataset.empty or "Date" not in dataset.columns or "Ticker" not in dataset.columns:
+        return dataset
+
+    out = dataset.copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    out = out.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+
+    close = pd.to_numeric(out.get("Close"), errors="coerce")
+    mkt_ret_6 = pd.to_numeric(out.get("MktRet_6"), errors="coerce").fillna(0.0)
+    real_vol = np.exp(pd.to_numeric(out.get("RealVol20_log"), errors="coerce").fillna(np.log(1e-6)))
+    real_vol = pd.Series(real_vol, index=out.index).replace([np.inf, -np.inf], np.nan).clip(lower=1e-6).fillna(1e-6)
+
+    out["StockMinusMkt_6"] = close.groupby(out["Ticker"]).pct_change(6).fillna(0.0) - mkt_ret_6
+    out["VolAdjStockMinusMkt_1"] = (
+        pd.to_numeric(out.get("StockMinusMkt_1"), errors="coerce").fillna(0.0) / real_vol
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-10.0, 10.0)
+    out["VolAdjStockMinusMkt_3"] = (
+        pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0) / real_vol
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-10.0, 10.0)
+
+    rank_inputs = {
+        "XS_Rank_StockMinusMkt_1": "StockMinusMkt_1",
+        "XS_Rank_StockMinusMkt_3": "StockMinusMkt_3",
+        "XS_Rank_StockMinusMkt_6": "StockMinusMkt_6",
+        "XS_Rank_SectorMinusMkt_3": "SectorMinusMkt_3",
+        "XS_Rank_RelativeVolumeTime": "RelativeVolumeTime",
+        "XS_Rank_VolAdjStockMinusMkt_1": "VolAdjStockMinusMkt_1",
+        "XS_Rank_VolAdjStockMinusMkt_3": "VolAdjStockMinusMkt_3",
+    }
+    for feature_col, source_col in rank_inputs.items():
+        source = pd.to_numeric(out.get(source_col), errors="coerce")
+        out[feature_col] = source.groupby(out["Date"]).rank(method="average", pct=True).fillna(0.5)
+
+    out["XS_LeaderSpread_3"] = (
+        out["XS_Rank_StockMinusMkt_3"] - out["XS_Rank_SectorMinusMkt_3"]
+    ).fillna(0.0)
+    out["XS_VolumeLeaderSpread"] = (out["XS_Rank_RelativeVolumeTime"] - 0.5).fillna(0.0)
+
+    top20 = (out["XS_Rank_StockMinusMkt_3"] >= 0.80).astype(float)
+    bottom20 = (out["XS_Rank_StockMinusMkt_3"] <= 0.20).astype(float)
+    out["XS_LeaderTop20"] = top20
+    out["XS_LaggardBottom20"] = bottom20
+    out["XS_LeaderPersist_3"] = top20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
+    out["XS_LaggardPersist_3"] = bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
+    out["XS_LeaderPersist_6"] = top20.groupby(out["Ticker"]).transform(lambda s: s.rolling(6, min_periods=1).sum()).fillna(0.0)
+    out["XS_LaggardPersist_6"] = bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(6, min_periods=1).sum()).fillna(0.0)
+    out["XS_Rank_Change_3"] = out.groupby("Ticker")["XS_Rank_StockMinusMkt_3"].diff(3).fillna(0.0)
+
+    numeric_cols = [col for col in out.columns if col not in {"Ticker", "Date"}]
+    out[numeric_cols] = out[numeric_cols].apply(pd.to_numeric, errors="coerce")
+    out.fillna(0.0, inplace=True)
     return out
 
 
@@ -2078,6 +2787,8 @@ def build_signal_research_dataset(
         frames.append(df_ticker)
 
     dataset = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if not dataset.empty:
+        dataset = add_cross_sectional_research_features(dataset)
     if out_csv is not None and not dataset.empty:
         out_csv.parent.mkdir(parents=True, exist_ok=True)
         dataset.to_csv(out_csv, index=False)
@@ -2092,12 +2803,73 @@ def run_signal_research_workflow(
     history_days: int = 1095,
     window_days: int = 20,
     experiment_ids: Optional[List[str]] = None,
+    experiment_set: str = "default",
     max_window_pairs: Optional[int] = None,
 ) -> pd.DataFrame:
-    from signal_main import run_signal_pipeline
+    from signal_main import resolve_experiment_pool, run_signal_pipeline
 
     signal_dir = RESULTS_DIR / "signal_research"
     dataset_path = signal_dir / "research_dataset.csv"
+    output_dir_name = "outputs"
+    if experiment_set == "generalization":
+        output_dir_name = "outputs_generalization"
+        main_logger.info("[SIGNAL RESEARCH] E302 branch in broad generalization evaluation mode.")
+    elif experiment_set == "generalization_next":
+        output_dir_name = "outputs_generalization_next"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Generalization-next discovery wave enabled. "
+            "E102 and E302 are frozen benchmarks; RL integration is intentionally out of scope."
+        )
+    elif experiment_set == "generalization_wave2":
+        output_dir_name = "outputs_generalization_wave2"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Generalization wave 2 enabled. "
+            "Following the productive T4/setup signal from wave 1, now testing session-isolated and setup-library families. "
+            "E102/E302 remain frozen benchmarks and RL stays out of scope."
+        )
+    elif experiment_set == "e102_deepdive":
+        output_dir_name = "outputs_e102_deepdive"
+        main_logger.info(
+            "[SIGNAL RESEARCH] E102 deep-dive enabled. "
+            "Testing regime inclusion for volatility, session segment, and trend state while keeping the core E102 idea fixed."
+        )
+    elif experiment_set == "cross_sectional_60m":
+        output_dir_name = "outputs_cross_sectional_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Cross-sectional 60m discovery enabled. "
+            "E211 is frozen as the incumbent benchmark; this wave is baseline-first and RL stays out of scope."
+        )
+    elif experiment_set == "ablation_grid":
+        output_dir_name = "outputs_ablation_grid"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Formal ablation grid enabled. "
+            "Testing targets and feature families systematically while E211 remains the frozen benchmark."
+        )
+    elif experiment_set == "setup_regimes":
+        output_dir_name = "outputs_setup_regimes"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Setup-regime discovery enabled. "
+            "Testing regime-conditional setup families on 60m while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "market_state_60m":
+        output_dir_name = "outputs_market_state_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Market-state 60m discovery enabled. "
+            "Testing explicit market-state labels on top of 60m context while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "multiscale_60m":
+        output_dir_name = "outputs_multiscale_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Multi-scale 60m discovery enabled. "
+            "Testing multi-timescale context on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "e302_sweep":
+        output_dir_name = "outputs_e302"
+        main_logger.info("[SIGNAL RESEARCH] E302 standalone evaluation mode enabled. RL integration for E302 is intentionally disabled for this phase.")
+    elif experiment_set == "two_track":
+        output_dir_name = "outputs_two_track"
+    elif experiment_set == "focused":
+        output_dir_name = "outputs_focused"
     dataset = build_signal_research_dataset(
         ticker_list=ticker_list,
         instrument_df=instrument_df,
@@ -2112,7 +2884,8 @@ def run_signal_research_workflow(
 
     _, _, compare = run_signal_pipeline(
         df=dataset,
-        out_dir=signal_dir / "outputs",
+        out_dir=signal_dir / output_dir_name,
+        experiments=resolve_experiment_pool(experiment_set),
         experiment_ids=experiment_ids,
         max_window_pairs=max_window_pairs,
     )
@@ -2127,6 +2900,21 @@ def resolve_run_mode(default_mode: str = "walk_forward") -> str:
 
 
 BEST_PARAMS_FILE = RESULTS_DIR / "best_params.joblib"
+PARETO_TRIALS_FILE = RESULTS_DIR / "optuna_overlay_pareto_trials.csv"
+PARETO_ALL_TRIALS_FILE = RESULTS_DIR / "optuna_overlay_all_trials.csv"
+PARETO_SELECTED_FILE = RESULTS_DIR / "optuna_overlay_selected_trial.csv"
+PARETO_SELECTED_ACTIVE_FILE = RESULTS_DIR / "optuna_overlay_selected_active_trial.csv"
+OVERLAY_TUNE_TIMESTEPS = 20000
+FIXED_OVERLAY_MAX_POSITION_SIZE = 0.50
+FIXED_OVERLAY_TRADE_FRACTION = 0.25
+FIXED_OVERLAY_REDUCE_FRACTION = 0.50
+FOCUS_UNIVERSE_FILE = RESULTS_DIR / "focus_universe_latest.csv"
+PINNED_FOCUS_UNIVERSE_FILE = RESULTS_DIR / "focus_universe_incumbent.csv"
+FOCUS_MIN_RETURN = -0.001
+FOCUS_MAX_TURNOVER = 0.25
+FOCUS_REQUIRE_TRADES = True
+FOCUS_TARGET_MIN_TICKERS = 8
+FOCUS_TARGET_MAX_TICKERS = 10
 
 
 def get_default_rl_params() -> dict:
@@ -2191,6 +2979,144 @@ def resolve_runtime_best_params(run_mode: str) -> dict:
     if run_mode in {"signal_baseline", "walk_forward", "experiment_suite"}:
         main_logger.warning("[RL PARAMS] no saved params found; using fixed defaults for direct execution mode.")
     return defaults
+
+
+def _normalize_selection_series(values: list[float], higher_is_better: bool) -> np.ndarray:
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return np.asarray([], dtype=float)
+    finite_mask = np.isfinite(arr)
+    if not finite_mask.any():
+        return np.zeros_like(arr, dtype=float)
+    working = arr.copy()
+    fallback = np.nanmin(working[finite_mask]) if higher_is_better else np.nanmax(working[finite_mask])
+    working[~finite_mask] = fallback
+    lo = np.min(working)
+    hi = np.max(working)
+    if abs(hi - lo) < 1e-12:
+        norm = np.full_like(working, 0.5, dtype=float)
+    else:
+        norm = (working - lo) / (hi - lo)
+    return norm if higher_is_better else (1.0 - norm)
+
+
+def export_and_select_pareto_trials(study) -> Optional[dict]:
+    rows = []
+    for trial in study.trials:
+        if trial.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        values = list(trial.values) if trial.values is not None else [trial.value]
+        rows.append(
+            {
+                "trial_number": trial.number,
+                "values": values,
+                "return_objective": values[0] if len(values) > 0 else np.nan,
+                "drawdown_objective": values[1] if len(values) > 1 else np.nan,
+                "turnover_objective": values[2] if len(values) > 2 else np.nan,
+                "avg_sharpe": trial.user_attrs.get("avg_sharpe", np.nan),
+                "avg_trade_count": trial.user_attrs.get("avg_trade_count", np.nan),
+                "avg_networth_change": trial.user_attrs.get("avg_networth_change", np.nan),
+                "avg_max_drawdown": trial.user_attrs.get("avg_max_drawdown", np.nan),
+                "avg_turnover": trial.user_attrs.get("avg_turnover", np.nan),
+                "avg_trade_count_raw": trial.user_attrs.get("avg_trade_count_raw", np.nan),
+                "params": trial.params,
+            }
+        )
+    if not rows:
+        return None
+
+    all_df = pd.DataFrame(rows)
+    all_df.to_csv(PARETO_ALL_TRIALS_FILE, index=False)
+
+    pareto_trials = [t for t in study.best_trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if not pareto_trials:
+        return None
+
+    pareto_rows = [row for row in rows if row["trial_number"] in {t.number for t in pareto_trials}]
+    pareto_df = pd.DataFrame(pareto_rows).copy()
+    return_norm = _normalize_selection_series(pareto_df["return_objective"].tolist(), higher_is_better=True)
+    dd_norm = _normalize_selection_series(pareto_df["drawdown_objective"].tolist(), higher_is_better=False)
+    turnover_norm = _normalize_selection_series(pareto_df["turnover_objective"].tolist(), higher_is_better=False)
+    sharpe_norm = _normalize_selection_series(pareto_df["avg_sharpe"].tolist(), higher_is_better=True)
+
+    pareto_df["selection_score"] = (
+        0.45 * return_norm
+        + 0.25 * dd_norm
+        + 0.20 * turnover_norm
+        + 0.10 * sharpe_norm
+    )
+    pareto_df.sort_values(
+        ["selection_score", "return_objective", "avg_sharpe"],
+        ascending=[False, False, False],
+        inplace=True,
+    )
+    pareto_df.to_csv(PARETO_TRIALS_FILE, index=False)
+
+    selected_row = pareto_df.iloc[0].to_dict()
+    pd.DataFrame([selected_row]).to_csv(PARETO_SELECTED_FILE, index=False)
+
+    selected_trial = next((trial for trial in pareto_trials if trial.number == int(selected_row["trial_number"])), None)
+    if selected_trial is None:
+        return None
+    main_logger.info(
+        "[OPTUNA-MO] selected trial=%s return=%.6f drawdown=%.6f turnover=%.6f sharpe=%.6f selection_score=%.4f",
+        selected_trial.number,
+        float(selected_row["return_objective"]),
+        float(selected_row["drawdown_objective"]),
+        float(selected_row["turnover_objective"]),
+        float(selected_row.get("avg_sharpe", np.nan)),
+        float(selected_row["selection_score"]),
+    )
+    return selected_trial.params
+
+
+def select_active_overlay_candidate(min_avg_trades: float = 5.0) -> Optional[dict]:
+    if not PARETO_ALL_TRIALS_FILE.exists():
+        main_logger.warning(f"[OPTUNA-MO] trial file not found: {PARETO_ALL_TRIALS_FILE}")
+        return None
+    try:
+        df = pd.read_csv(PARETO_ALL_TRIALS_FILE)
+    except Exception as exc:
+        main_logger.warning(f"[OPTUNA-MO] failed to read {PARETO_ALL_TRIALS_FILE}: {exc}")
+        return None
+    if df.empty:
+        return None
+
+    active = df[df["avg_trade_count"].fillna(0.0) >= float(min_avg_trades)].copy()
+    if active.empty:
+        main_logger.warning(f"[OPTUNA-MO] no trials met active-trade floor {min_avg_trades:.1f}.")
+        return None
+
+    active.sort_values(
+        ["return_objective", "drawdown_objective", "turnover_objective", "avg_sharpe"],
+        ascending=[False, True, True, False],
+        inplace=True,
+    )
+    selected_row = active.iloc[0].to_dict()
+    pd.DataFrame([selected_row]).to_csv(PARETO_SELECTED_ACTIVE_FILE, index=False)
+
+    params_raw = selected_row.get("params", "")
+    if not isinstance(params_raw, str) or not params_raw.strip():
+        main_logger.warning("[OPTUNA-MO] selected active trial does not contain params.")
+        return None
+    try:
+        params = ast.literal_eval(params_raw)
+    except Exception as exc:
+        main_logger.warning(f"[OPTUNA-MO] failed to parse selected active params: {exc}")
+        return None
+    if not isinstance(params, dict) or not params:
+        return None
+
+    main_logger.info(
+        "[OPTUNA-MO] active candidate trial=%s return=%.6f drawdown=%.6f turnover=%.6f sharpe=%.6f avg_trades=%.2f",
+        int(selected_row["trial_number"]),
+        float(selected_row["return_objective"]),
+        float(selected_row["drawdown_objective"]),
+        float(selected_row["turnover_objective"]),
+        float(selected_row.get("avg_sharpe", np.nan)),
+        float(selected_row.get("avg_trade_count", 0.0)),
+    )
+    return params
 
 def _compute_cycle_metrics(history: list, initial_balance: float) -> dict:
     if not history:
@@ -2313,17 +3239,25 @@ def walk_forward_runner(
     val_days: int = 20,
     test_days: int = 10,
     step_days: int = 20,
-    train_timesteps: int = 50000
+    train_timesteps: int = 50000,
+    window_offset: int = 0,
+    max_windows_per_ticker: int = 0,
+    output_subdir: str = "walk_forward",
+    slice_mode: str = "rolling",
+    baseline_policy_name: Optional[str] = None,
+    save_eval_histories: bool = False,
 ):
-    wf_dir = RESULTS_DIR / "walk_forward"
+    wf_dir = RESULTS_DIR / output_subdir
     wf_dir.mkdir(parents=True, exist_ok=True)
     all_rows = []
+    compare_rows = []
+    control_rows = []
     total_tickers = len(ticker_list)
 
     common_env_kwargs = {
         "stop_loss": best_params.get('stop_loss', stop_loss),
         "take_profit": best_params.get('take_profit', take_profit),
-        "max_position_size": best_params.get('max_position_size', max_position_size),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
         "max_drawdown": best_params.get('max_drawdown', max_drawdown),
         "annual_trading_days": annual_trading_days,
         "some_factor": best_params.get('drawdown_penalty_factor', 0.01),
@@ -2333,27 +3267,46 @@ def walk_forward_runner(
             "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
             "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
             "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
-            "trade_fraction": best_params.get("trade_fraction", 0.25),
-            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
             "signal_gate_enabled": True,
+            "signal_gate_source": "Signal_E211_Pred",
             "signal_gate_entry_threshold": 0.68,
             "signal_gate_reduce_threshold": 0.60,
+            "signal_confirm_enabled": False,
+            "signal_confirm_entry_threshold": 0.70,
+            "signal_confirm_reduce_threshold": 0.58,
         },
         "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
         "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08)
     }
     gate_cfg = common_env_kwargs["reward_weights"]
     main_logger.info(
-        "[WF] signal gate enabled=%s entry=%.2f reduce=%.2f",
+        "[WF] signal gate enabled=%s source=%s entry=%.2f reduce=%.2f",
         gate_cfg.get("signal_gate_enabled", False),
+        gate_cfg.get("signal_gate_source", "Signal_E102_Pred"),
         float(gate_cfg.get("signal_gate_entry_threshold", 0.68)),
         float(gate_cfg.get("signal_gate_reduce_threshold", 0.60)),
     )
     print(
         f"[WF] signal gate enabled={gate_cfg.get('signal_gate_enabled', False)} "
+        f"source={gate_cfg.get('signal_gate_source', 'Signal_E102_Pred')} "
         f"entry={float(gate_cfg.get('signal_gate_entry_threshold', 0.68)):.2f} "
         f"reduce={float(gate_cfg.get('signal_gate_reduce_threshold', 0.60)):.2f}"
     )
+    main_logger.info(
+        "[WF] signal confirm enabled=%s entry=%.2f reduce=%.2f",
+        gate_cfg.get("signal_confirm_enabled", False),
+        float(gate_cfg.get("signal_confirm_entry_threshold", 0.70)),
+        float(gate_cfg.get("signal_confirm_reduce_threshold", 0.58)),
+    )
+    print(
+        f"[WF] signal confirm enabled={gate_cfg.get('signal_confirm_enabled', False)} "
+        f"entry={float(gate_cfg.get('signal_confirm_entry_threshold', 0.70)):.2f} "
+        f"reduce={float(gate_cfg.get('signal_confirm_reduce_threshold', 0.58)):.2f}"
+    )
+    main_logger.info("[WF] E302 remains available to the policy as observation features; confirmation gate is soft-disabled.")
+    print("[WF] E302 remains available to the policy as observation features; confirmation gate is soft-disabled.")
 
     for ticker_idx, ticker in enumerate(ticker_list, start=1):
         print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
@@ -2376,10 +3329,19 @@ def walk_forward_runner(
             val_days=val_days,
             test_days=test_days,
             step_days=step_days
+            ,
+            train_mode=slice_mode,
         )
+        if window_offset > 0:
+            windows = windows[window_offset:]
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
         if not windows:
-            main_logger.warning(f"[WF:{ticker}] not enough rows ({len(df_full)}) for walk-forward windows.")
-            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (insufficient rows)")
+            main_logger.warning(
+                f"[WF:{ticker}] not enough rows ({len(df_full)}) for requested walk-forward windows "
+                f"(offset={window_offset}, max={max_windows_per_ticker})."
+            )
+            print(f"[WF] ticker {ticker_idx}/{total_tickers}: {ticker} - skipped (insufficient rows for requested window)")
             continue
 
         ticker_best_score = -np.inf
@@ -2464,6 +3426,14 @@ def walk_forward_runner(
 
             val_metrics = val_eval["metrics"]
             test_metrics = test_eval["metrics"]
+            if save_eval_histories:
+                val_hist_df = _save_history_csv(val_eval["history"], cycle_dir / "history_val.csv")
+                test_hist_df = _save_history_csv(test_eval["history"], cycle_dir / "history_test.csv")
+            else:
+                val_hist_df = pd.DataFrame(val_eval["history"])
+                test_hist_df = pd.DataFrame(test_eval["history"])
+            val_control = summarize_control_history(val_hist_df)
+            test_control = summarize_control_history(test_hist_df)
             print(
                 f"[WF] {ticker} cycle {cycle_idx}/{len(windows)} - "
                 f"val score {val_metrics['score']:.4f}, test score {test_metrics['score']:.4f}, "
@@ -2487,10 +3457,63 @@ def walk_forward_runner(
                 "test_sharpe": test_metrics["sharpe"],
                 "test_turnover": test_metrics["turnover"],
                 "test_trades": test_metrics["trade_count"],
+                "slice_mode": slice_mode,
                 "model_path": str(model_path),
                 "vecnorm_path": str(vecnorm_path)
             }
             all_rows.append(row)
+            control_rows.append({
+                "ticker": ticker,
+                "cycle": cycle_idx,
+                "split": "val",
+                "slice_mode": slice_mode,
+                **val_control,
+            })
+            control_rows.append({
+                "ticker": ticker,
+                "cycle": cycle_idx,
+                "split": "test",
+                "slice_mode": slice_mode,
+                **test_control,
+            })
+
+            if baseline_policy_name:
+                val_baseline = run_baseline_backtest(
+                    val_df,
+                    ticker,
+                    initial_balance,
+                    common_env_kwargs,
+                    baseline_policy_name,
+                    seed=RANDOM_SEED + cycle_idx,
+                )
+                test_baseline = run_baseline_backtest(
+                    test_df,
+                    ticker,
+                    initial_balance,
+                    common_env_kwargs,
+                    baseline_policy_name,
+                    seed=RANDOM_SEED + 1000 + cycle_idx,
+                )
+                if save_eval_histories:
+                    _save_history_csv(val_baseline["history"], cycle_dir / f"baseline_{baseline_policy_name}_val.csv")
+                    _save_history_csv(test_baseline["history"], cycle_dir / f"baseline_{baseline_policy_name}_test.csv")
+                baseline_val_metrics = val_baseline["metrics"]
+                baseline_test_metrics = test_baseline["metrics"]
+                compare_rows.append({
+                    "ticker": ticker,
+                    "cycle": cycle_idx,
+                    "slice_mode": slice_mode,
+                    "baseline_policy": baseline_policy_name,
+                    "rl_val_return": val_metrics["net_return"],
+                    "rl_test_return": test_metrics["net_return"],
+                    "rl_test_turnover": test_metrics["turnover"],
+                    "rl_test_trades": test_metrics["trade_count"],
+                    "baseline_val_return": baseline_val_metrics["total_return"],
+                    "baseline_test_return": baseline_test_metrics["total_return"],
+                    "baseline_test_turnover": baseline_test_metrics["turnover"],
+                    "baseline_test_trades": baseline_test_metrics["trade_count"],
+                    "excess_return": test_metrics["net_return"] - baseline_test_metrics["total_return"],
+                })
 
             if val_metrics["score"] > ticker_best_score:
                 ticker_best_score = val_metrics["score"]
@@ -2515,6 +3538,80 @@ def walk_forward_runner(
         wf_df.to_csv(wf_csv, index=False)
         main_logger.info(f"[WF] summary saved: {wf_csv}")
         print(f"[WF] summary saved: {wf_csv}")
+        if control_rows:
+            control_df = pd.DataFrame(control_rows)
+            control_csv = wf_dir / "walk_forward_control_summary.csv"
+            control_df.to_csv(control_csv, index=False)
+            main_logger.info(f"[WF] control summary saved: {control_csv}")
+            test_control_df = control_df.loc[control_df["split"] == "test"].copy()
+            if not test_control_df.empty:
+                control_stats = (
+                    test_control_df.groupby("ticker")[
+                        [
+                            "long_actions",
+                            "short_actions",
+                            "reduce_actions",
+                            "hold_actions",
+                            "signal_gate_holds",
+                            "signal_confirm_holds",
+                            "vol_holds",
+                            "style_holds",
+                            "forced_stop_events",
+                            "forced_tp_events",
+                            "long_position_bars",
+                            "short_position_bars",
+                            "flat_bars",
+                            "control_event_rate",
+                        ]
+                    ]
+                    .mean()
+                    .reset_index()
+                )
+                total_row = {"ticker": "ALL"}
+                for col in control_stats.columns:
+                    if col == "ticker":
+                        continue
+                    total_row[col] = float(pd.to_numeric(control_stats[col], errors="coerce").mean())
+                control_stats = pd.concat([control_stats, pd.DataFrame([total_row])], ignore_index=True)
+                control_stats_csv = wf_dir / "walk_forward_control_stats.csv"
+                control_stats.to_csv(control_stats_csv, index=False)
+                main_logger.info(f"[WF] control stats saved: {control_stats_csv}")
+        if compare_rows:
+            compare_df = pd.DataFrame(compare_rows)
+            compare_csv = wf_dir / "walk_forward_baseline_compare.csv"
+            compare_df.to_csv(compare_csv, index=False)
+            ticker_compare = (
+                compare_df.groupby("ticker")[
+                    [
+                        "rl_test_return",
+                        "baseline_test_return",
+                        "excess_return",
+                        "rl_test_turnover",
+                        "baseline_test_turnover",
+                        "rl_test_trades",
+                        "baseline_test_trades",
+                    ]
+                ]
+                .mean()
+                .reset_index()
+                .sort_values("excess_return", ascending=False)
+            )
+            ticker_compare_csv = wf_dir / "walk_forward_baseline_compare_by_ticker.csv"
+            ticker_compare.to_csv(ticker_compare_csv, index=False)
+            stats_df = _build_rl_vs_baseline_stats(compare_df, group_label=f"{output_subdir}_{slice_mode}")
+            if not stats_df.empty:
+                stats_csv = wf_dir / "walk_forward_stats_report.csv"
+                stats_df.to_csv(stats_csv, index=False)
+                main_logger.info(f"[WF] stats report saved: {stats_csv}")
+                stats_row = stats_df.iloc[0].to_dict()
+                main_logger.info(
+                    "[WF] stats summary: mean_rl=%.6f mean_baseline=%.6f mean_excess=%.6f hit_rate=%.2f t_stat=%.3f",
+                    float(stats_row.get("mean_rl_return", 0.0)),
+                    float(stats_row.get("mean_baseline_return", 0.0)),
+                    float(stats_row.get("mean_excess_return", 0.0)),
+                    float(stats_row.get("hit_rate_vs_baseline", 0.0)),
+                    float(stats_row.get("excess_t_stat", 0.0)),
+                )
     else:
         main_logger.warning("[WF] no cycles produced results.")
         print("[WF] no cycles produced results.")
@@ -2602,6 +3699,129 @@ def compute_directional_edge(history_df: pd.DataFrame) -> Dict[str, float]:
     neg3 = float(neg["ret3"].mean()) if not neg.empty else 0.0
     return {"pos_next1": pos1, "neg_next1": neg1, "pos_next3": pos3, "neg_next3": neg3, "edge_gap_1": pos1 - neg1, "edge_gap_3": pos3 - neg3}
 
+
+def summarize_control_history(history_df: pd.DataFrame) -> Dict[str, float]:
+    if history_df.empty:
+        return {
+            "long_actions": 0,
+            "short_actions": 0,
+            "reduce_actions": 0,
+            "hold_actions": 0,
+            "signal_gate_holds": 0,
+            "signal_confirm_holds": 0,
+            "vol_holds": 0,
+            "style_holds": 0,
+            "forced_stop_events": 0,
+            "forced_tp_events": 0,
+            "long_position_bars": 0,
+            "short_position_bars": 0,
+            "flat_bars": 0,
+            "control_event_rate": 0.0,
+        }
+    out = history_df.copy()
+    action_series = pd.to_numeric(out.get("Action", pd.Series(dtype=float)), errors="coerce").fillna(0).astype(int)
+    action_name = out.get("ActionName", pd.Series(dtype=str)).fillna("").astype(str)
+    position = pd.to_numeric(out.get("Position", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    forced_stop_penalty = pd.to_numeric(out.get("forced_stop_penalty", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    forced_tp_penalty = pd.to_numeric(out.get("forced_tp_penalty", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+
+    signal_gate_holds = int(action_name.str.contains("signal_gate", regex=False).sum())
+    signal_confirm_holds = int(action_name.str.contains("signal_confirm", regex=False).sum())
+    vol_holds = int(action_name.str.contains("vol_hold", regex=False).sum())
+    style_holds = int(action_name.str.contains("style_hold", regex=False).sum())
+    forced_stop_events = int((forced_stop_penalty < 0).sum())
+    forced_tp_events = int((forced_tp_penalty < 0).sum())
+    control_events = signal_gate_holds + signal_confirm_holds + vol_holds + style_holds + forced_stop_events + forced_tp_events
+    row_count = max(1, len(out))
+    return {
+        "long_actions": int((action_series == 1).sum()),
+        "short_actions": int((action_series == 2).sum()),
+        "reduce_actions": int((action_series == 3).sum()),
+        "hold_actions": int((action_series == 0).sum()),
+        "signal_gate_holds": signal_gate_holds,
+        "signal_confirm_holds": signal_confirm_holds,
+        "vol_holds": vol_holds,
+        "style_holds": style_holds,
+        "forced_stop_events": forced_stop_events,
+        "forced_tp_events": forced_tp_events,
+        "long_position_bars": int((position > 0).sum()),
+        "short_position_bars": int((position < 0).sum()),
+        "flat_bars": int((position == 0).sum()),
+        "control_event_rate": float(control_events / row_count),
+    }
+
+
+def _save_history_csv(history: list | pd.DataFrame, out_path: Path) -> pd.DataFrame:
+    hist_df = history.copy() if isinstance(history, pd.DataFrame) else pd.DataFrame(history)
+    hist_df.to_csv(out_path, index=False)
+    return hist_df
+
+
+def _bootstrap_mean_ci(values: np.ndarray, n_boot: int = 2000, alpha: float = 0.05, seed: int = RANDOM_SEED) -> tuple[float, float]:
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return (0.0, 0.0)
+    rng = np.random.default_rng(seed)
+    means = np.empty(n_boot, dtype=float)
+    for i in range(n_boot):
+        sample = rng.choice(arr, size=arr.size, replace=True)
+        means[i] = float(np.mean(sample))
+    lo = float(np.quantile(means, alpha / 2))
+    hi = float(np.quantile(means, 1 - alpha / 2))
+    return (lo, hi)
+
+
+def _build_rl_vs_baseline_stats(compare_df: pd.DataFrame, group_label: str) -> pd.DataFrame:
+    if compare_df.empty:
+        return pd.DataFrame()
+    df = compare_df.copy()
+    for col in ["rl_test_return", "baseline_test_return", "excess_return"]:
+        df[col] = pd.to_numeric(df.get(col, pd.Series(dtype=float)), errors="coerce")
+    df = df[np.isfinite(df["rl_test_return"]) & np.isfinite(df["baseline_test_return"])].copy()
+    if df.empty:
+        return pd.DataFrame()
+    df["excess_return"] = df["rl_test_return"] - df["baseline_test_return"]
+    excess = df["excess_return"].to_numpy(dtype=float)
+    rl_returns = df["rl_test_return"].to_numpy(dtype=float)
+    baseline_returns = df["baseline_test_return"].to_numpy(dtype=float)
+    wins = int((excess > 0).sum())
+    losses = int((excess < 0).sum())
+    ties = int((np.isclose(excess, 0.0)).sum())
+    positive_excess = df.loc[df["excess_return"] > 0].groupby("ticker")["excess_return"].sum().sort_values(ascending=False)
+    top_ticker = positive_excess.index[0] if not positive_excess.empty else ""
+    top_share = float((positive_excess.iloc[0] / positive_excess.sum()) if (not positive_excess.empty and positive_excess.sum() != 0) else 0.0)
+    std_excess = float(np.std(excess, ddof=1)) if len(excess) > 1 else 0.0
+    mean_excess = float(np.mean(excess))
+    t_stat = float(mean_excess / (std_excess / np.sqrt(len(excess)))) if len(excess) > 1 and std_excess > 0 else 0.0
+    z_like = float(mean_excess / std_excess) if std_excess > 0 else 0.0
+    ci_lo, ci_hi = _bootstrap_mean_ci(excess, n_boot=2000) if len(excess) >= 3 else (mean_excess, mean_excess)
+    row = {
+        "group": group_label,
+        "n_rows": int(len(df)),
+        "n_tickers": int(df["ticker"].nunique()),
+        "mean_rl_return": float(np.mean(rl_returns)),
+        "median_rl_return": float(np.median(rl_returns)),
+        "var_rl_return": float(np.var(rl_returns, ddof=1)) if len(rl_returns) > 1 else 0.0,
+        "mean_baseline_return": float(np.mean(baseline_returns)),
+        "median_baseline_return": float(np.median(baseline_returns)),
+        "mean_excess_return": mean_excess,
+        "median_excess_return": float(np.median(excess)),
+        "var_excess_return": float(np.var(excess, ddof=1)) if len(excess) > 1 else 0.0,
+        "hit_rate_vs_baseline": float(wins / len(df)),
+        "wins": wins,
+        "losses": losses,
+        "ties": ties,
+        "ticker_win_rate": float(df.groupby("ticker")["excess_return"].mean().gt(0).mean()),
+        "top_positive_excess_ticker": top_ticker,
+        "top_positive_excess_share": top_share,
+        "excess_t_stat": t_stat,
+        "excess_z_like": z_like,
+        "bootstrap_mean_excess_ci_low": ci_lo,
+        "bootstrap_mean_excess_ci_high": ci_hi,
+    }
+    return pd.DataFrame([row])
+
 def _signal_rule_direction(row: pd.Series) -> int:
     trend_30 = float(row.get("Trend_30", 0.0))
     trend_2h = float(row.get("Trend_2h", 0.0))
@@ -2636,6 +3856,80 @@ def _parse_signal_banded_threshold(policy_name: str) -> Optional[tuple[float, fl
     reduce_threshold = max(0.50, entry_threshold - 0.08)
     return (entry_threshold, reduce_threshold)
 
+
+def _parse_signal_banded_threshold_for_prefix(policy_name: str, prefix_root: str) -> Optional[tuple[float, float]]:
+    base_name = f"{prefix_root}_BANDED"
+    if policy_name == base_name:
+        return (0.60, 0.52)
+    prefix = f"{prefix_root}_BANDED_"
+    if not policy_name.startswith(prefix):
+        return None
+    suffix = policy_name[len(prefix):]
+    if not suffix.isdigit():
+        return None
+    entry_threshold = float(int(suffix)) / 100.0
+    reduce_threshold = max(0.50, entry_threshold - 0.08)
+    return (entry_threshold, reduce_threshold)
+
+
+def _parse_combo_banded_threshold(policy_name: str) -> Optional[tuple[float, float, float]]:
+    if policy_name == "SIGNAL_COMBO_E102_E302_BANDED":
+        return (0.68, 0.70, 0.56)
+    prefix = "SIGNAL_COMBO_E102_E302_BANDED_"
+    if not policy_name.startswith(prefix):
+        return None
+    suffix = policy_name[len(prefix):]
+    if not suffix.isdigit():
+        return None
+    primary_entry = float(int(suffix)) / 100.0
+    secondary_entry = min(0.90, primary_entry + 0.02)
+    reduce_threshold = max(0.50, primary_entry - 0.12)
+    return (primary_entry, secondary_entry, reduce_threshold)
+
+
+def _signal_policy_action(
+    policy_name: str,
+    row: pd.Series,
+    pred_col: str,
+    base_name: str,
+) -> Optional[int]:
+    banded_thresholds = _parse_signal_banded_threshold_for_prefix(policy_name, base_name)
+    pred = float(row.get(pred_col, 0.5))
+    direction = _signal_rule_direction(row)
+    if policy_name == base_name:
+        if pred >= 0.56 and direction > 0:
+            return 1
+        if pred >= 0.56 and direction < 0:
+            return 2
+        if pred < 0.49:
+            return 3
+        return 0
+    if banded_thresholds is not None:
+        entry_threshold, reduce_threshold = banded_thresholds
+        if pred >= entry_threshold and direction > 0:
+            return 1
+        if pred >= entry_threshold and direction < 0:
+            return 2
+        if pred < reduce_threshold:
+            return 3
+        return 0
+    if policy_name == f"{base_name}_LONGONLY":
+        trend_bias = float(row.get("Trend_30", 0.0)) + 0.5 * float(row.get("Trend_2h", 0.0))
+        if pred >= 0.54 and trend_bias >= -0.002:
+            return 1
+        if pred < 0.49:
+            return 3
+        return 0
+    if policy_name == f"{base_name}_SYMMETRIC":
+        if pred >= 0.53:
+            if direction >= 0:
+                return 1
+            return 2
+        if pred <= 0.47:
+            return 3
+        return 0
+    return None
+
 def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator) -> int:
     if policy_name == "FLAT":
         return 0
@@ -2655,44 +3949,25 @@ def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator)
         if rsi > 70:
             return 2
         return 0
-    banded_thresholds = _parse_signal_banded_threshold(policy_name)
-    if policy_name == "SIGNAL_E102" or banded_thresholds is not None:
-        pred = float(row.get("Signal_E102_Pred", 0.5))
+    combo_thresholds = _parse_combo_banded_threshold(policy_name)
+    if combo_thresholds is not None:
+        pred_e102 = float(row.get("Signal_E102_Pred", 0.5))
+        pred_e302 = float(row.get("Signal_E302_Pred", 0.5))
         direction = _signal_rule_direction(row)
-        if policy_name == "SIGNAL_E102":
-            if pred >= 0.56 and direction > 0:
-                return 1
-            if pred >= 0.56 and direction < 0:
-                return 2
-            if pred < 0.49:
-                return 3
-            return 0
-        entry_threshold, reduce_threshold = banded_thresholds if banded_thresholds is not None else (0.60, 0.52)
-        if pred >= entry_threshold and direction > 0:
+        entry_e102, entry_e302, reduce_threshold = combo_thresholds
+        if pred_e102 >= entry_e102 and pred_e302 >= entry_e302 and direction > 0:
             return 1
-        if pred >= entry_threshold and direction < 0:
+        if pred_e102 >= entry_e102 and pred_e302 >= entry_e302 and direction < 0:
             return 2
-        if pred < reduce_threshold:
+        if max(pred_e102, pred_e302) < reduce_threshold:
             return 3
         return 0
-    if policy_name == "SIGNAL_E102_LONGONLY":
-        pred = float(row.get("Signal_E102_Pred", 0.5))
-        trend_bias = float(row.get("Trend_30", 0.0)) + 0.5 * float(row.get("Trend_2h", 0.0))
-        if pred >= 0.54 and trend_bias >= -0.002:
-            return 1
-        if pred < 0.49:
-            return 3
-        return 0
-    if policy_name == "SIGNAL_E102_SYMMETRIC":
-        pred = float(row.get("Signal_E102_Pred", 0.5))
-        direction = _signal_rule_direction(row)
-        if pred >= 0.53:
-            if direction >= 0:
-                return 1
-            return 2
-        if pred <= 0.47:
-            return 3
-        return 0
+    for _, (_, signal_prefix) in SIGNAL_OVERLAY_SOURCES.items():
+        base_name = signal_prefix.replace("Signal_", "SIGNAL_")
+        pred_col = f"{signal_prefix}_Pred"
+        signal_action = _signal_policy_action(policy_name, row, pred_col, base_name)
+        if signal_action is not None:
+            return signal_action
     return 0
 
 def run_baseline_backtest(
@@ -2704,7 +3979,7 @@ def run_baseline_backtest(
     seed: int = 42
 ) -> Dict[str, object]:
     local_env_kwargs = copy.deepcopy(env_kwargs)
-    if policy_name.startswith("SIGNAL_E102"):
+    if policy_name.startswith("SIGNAL_E") or policy_name.startswith("SIGNAL_COMBO_E102_E302"):
         reward_weights = dict(local_env_kwargs.get("reward_weights", {}))
         reward_weights["regime_gate_min_confidence"] = min(float(reward_weights.get("regime_gate_min_confidence", 0.60)), 0.45)
         reward_weights["regime_gate_min_confirmations"] = 1
@@ -2745,9 +4020,14 @@ def summarize_signal_slice_coverage(
     pred = pd.to_numeric(df_slice.get("Signal_E102_Pred", pd.Series(dtype=float)), errors="coerce").fillna(0.5)
     edge = pd.to_numeric(df_slice.get("Signal_E102_Edge", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
     high_conf = pd.to_numeric(df_slice.get("Signal_E102_HighConf", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    pred_e302 = pd.to_numeric(df_slice.get("Signal_E302_Pred", pd.Series(dtype=float)), errors="coerce").fillna(0.5)
+    edge_e302 = pd.to_numeric(df_slice.get("Signal_E302_Edge", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    high_conf_e302 = pd.to_numeric(df_slice.get("Signal_E302_HighConf", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
     row_count = int(len(df_slice))
     nondefault_mask = (pred - 0.5).abs() > 1e-9
     nondefault_count = int(nondefault_mask.sum())
+    nondefault_mask_e302 = (pred_e302 - 0.5).abs() > 1e-9
+    nondefault_count_e302 = int(nondefault_mask_e302.sum())
     return {
         "ticker": ticker,
         "cycle": cycle_idx,
@@ -2768,7 +4048,534 @@ def summarize_signal_slice_coverage(
         "signal_pred_ge_065": int((pred >= 0.65).sum()),
         "signal_pred_le_047": int((pred <= 0.47).sum()),
         "signal_pred_le_049": int((pred <= 0.49).sum()),
+        "signal_e302_nondefault_rows": nondefault_count_e302,
+        "signal_e302_nondefault_pct": float(nondefault_count_e302 / row_count) if row_count else 0.0,
+        "signal_e302_pred_mean": float(pred_e302.mean()) if row_count else 0.5,
+        "signal_e302_pred_std": float(pred_e302.std()) if row_count else 0.0,
+        "signal_e302_pred_p75": float(pred_e302.quantile(0.75)) if row_count else 0.5,
+        "signal_e302_pred_p90": float(pred_e302.quantile(0.90)) if row_count else 0.5,
+        "signal_e302_pred_max": float(pred_e302.max()) if row_count else 0.5,
+        "signal_e302_edge_mean": float(edge_e302.mean()) if row_count else 0.0,
+        "signal_e302_highconf_rows": int((high_conf_e302 > 0.5).sum()),
+        "signal_e302_pred_ge_060": int((pred_e302 >= 0.60).sum()),
+        "signal_e302_pred_ge_065": int((pred_e302 >= 0.65).sum()),
+        "signal_combo_ge_068_070": int(((pred >= 0.68) & (pred_e302 >= 0.70)).sum()),
     }
+
+
+def build_signal_policy_family(experiment_id: str) -> List[str]:
+    base = f"SIGNAL_{experiment_id}"
+    return [
+        f"{base}_LONGONLY",
+        f"{base}_BANDED_64",
+        f"{base}_BANDED_66",
+        f"{base}_BANDED_68",
+        f"{base}_BANDED_70",
+    ]
+
+
+def load_cross_sectional_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_cross_sectional_60m" / "latest" / "cross_sectional_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read cross-sectional promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_ablation_grid_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_ablation_grid" / "latest" / "ablation_shortlist.csv"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        shortlist_df = pd.read_csv(promoted_path)
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read ablation shortlist: {exc}")
+        return []
+    if shortlist_df.empty or "ExperimentID" not in shortlist_df.columns:
+        return []
+    promoted_mask = pd.to_numeric(shortlist_df.get("StandalonePromoted"), errors="coerce").fillna(0).astype(bool)
+    ids = shortlist_df.loc[promoted_mask, "ExperimentID"].astype(str).tolist()
+    return ids
+
+
+def load_setup_regime_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_setup_regimes" / "latest" / "setup_regime_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read setup-regime promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_market_state_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_market_state_60m" / "latest" / "market_state_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read market-state promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_multiscale_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_multiscale_60m" / "latest" / "multiscale_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read multiscale promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def build_cross_sectional_scoreboard(summary_df: pd.DataFrame, policy_summary: pd.DataFrame) -> pd.DataFrame:
+    if summary_df.empty or policy_summary.empty:
+        return pd.DataFrame()
+
+    benchmark_policy = "SIGNAL_E211_BANDED_68"
+    challenger_policies = [
+        policy
+        for policy in policy_summary["policy"].tolist()
+        if isinstance(policy, str) and policy.startswith("SIGNAL_E5")
+    ]
+    if not challenger_policies:
+        return pd.DataFrame()
+
+    benchmark_row = policy_summary.loc[policy_summary["policy"] == benchmark_policy].head(1)
+    challenger_row = policy_summary.loc[policy_summary["policy"].isin(challenger_policies)].sort_values(
+        ["test_return", "test_sharpe", "test_turnover"],
+        ascending=[False, False, True],
+    ).head(1)
+    if benchmark_row.empty or challenger_row.empty:
+        return pd.DataFrame()
+
+    def _breadth(policy_name: str) -> dict:
+        policy_df = summary_df.loc[summary_df["policy"] == policy_name].copy()
+        if policy_df.empty:
+            return {
+                "positive_tickers": 0,
+                "zero_tickers": 0,
+                "negative_tickers": 0,
+                "top_positive_share": 0.0,
+            }
+        ticker_means = (
+            policy_df.groupby("ticker")[["test_return"]]
+            .mean()
+            .reset_index()
+        )
+        positive = int((ticker_means["test_return"] > 0).sum())
+        zero = int((ticker_means["test_return"] == 0).sum())
+        negative = int((ticker_means["test_return"] < 0).sum())
+        positive_returns = ticker_means.loc[ticker_means["test_return"] > 0, "test_return"]
+        if positive_returns.empty or float(positive_returns.sum()) <= 0:
+            top_share = 0.0
+        else:
+            top_share = float(positive_returns.max() / positive_returns.sum())
+        return {
+            "positive_tickers": positive,
+            "zero_tickers": zero,
+            "negative_tickers": negative,
+            "top_positive_share": top_share,
+        }
+
+    benchmark = benchmark_row.iloc[0].to_dict()
+    challenger = challenger_row.iloc[0].to_dict()
+    challenger_breadth = _breadth(str(challenger["policy"]))
+    benchmark_breadth = _breadth(str(benchmark["policy"]))
+    verdict = "benchmark_only"
+    if float(challenger.get("test_return", 0.0)) > float(benchmark.get("test_return", 0.0)):
+        verdict = "baseline_promoted"
+        if (
+            challenger_breadth["positive_tickers"] >= max(2, benchmark_breadth["positive_tickers"])
+            and challenger_breadth["top_positive_share"] <= 0.60
+            and float(challenger.get("test_turnover", 0.0)) <= (1.15 * max(float(benchmark.get("test_turnover", 0.0)), 1e-9))
+        ):
+            verdict = "rl_eligible"
+
+    rows = []
+    for role, row_data, breadth in [
+        ("incumbent_benchmark", benchmark, benchmark_breadth),
+        ("cross_sectional_challenger", challenger, challenger_breadth),
+    ]:
+        rows.append(
+            {
+                "Role": role,
+                "Policy": row_data.get("policy"),
+                "MeanReturn": row_data.get("test_return"),
+                "MeanSharpe": row_data.get("test_sharpe"),
+                "MeanTurnover": row_data.get("test_turnover"),
+                "MeanTrades": row_data.get("test_trades"),
+                "PositiveTickers": breadth["positive_tickers"],
+                "ZeroTickers": breadth["zero_tickers"],
+                "NegativeTickers": breadth["negative_tickers"],
+                "TopPositiveShare": breadth["top_positive_share"],
+                "PromotionVerdict": verdict if role == "cross_sectional_challenger" else "benchmark_only",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def policy_breadth_metrics(summary_df: pd.DataFrame, policy_name: str) -> dict:
+    if summary_df.empty or "policy" not in summary_df.columns:
+        return {
+            "positive_tickers": 0,
+            "zero_tickers": 0,
+            "negative_tickers": 0,
+            "top_positive_share": 0.0,
+        }
+    policy_df = summary_df.loc[summary_df["policy"] == policy_name].copy()
+    if policy_df.empty or "ticker" not in policy_df.columns:
+        return {
+            "positive_tickers": 0,
+            "zero_tickers": 0,
+            "negative_tickers": 0,
+            "top_positive_share": 0.0,
+        }
+    ticker_means = policy_df.groupby("ticker")["test_return"].mean().reset_index()
+    positive = int((ticker_means["test_return"] > 0).sum())
+    zero = int((ticker_means["test_return"] == 0).sum())
+    negative = int((ticker_means["test_return"] < 0).sum())
+    positive_returns = ticker_means.loc[ticker_means["test_return"] > 0, "test_return"]
+    if positive_returns.empty or float(positive_returns.sum()) <= 0:
+        top_share = 0.0
+    else:
+        top_share = float(positive_returns.max() / positive_returns.sum())
+    return {
+        "positive_tickers": positive,
+        "zero_tickers": zero,
+        "negative_tickers": negative,
+        "top_positive_share": top_share,
+    }
+
+
+def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
+    signal_research_dir = RESULTS_DIR / "signal_research"
+    signal_baseline_dir = RESULTS_DIR / "signal_baseline"
+
+    baseline_walk_csv = signal_baseline_dir / "baseline_walk_forward_summary.csv"
+    baseline_walk_df = pd.read_csv(baseline_walk_csv) if baseline_walk_csv.exists() else pd.DataFrame()
+
+    branch_specs = [
+        {
+            "branch": "E211_Incumbent",
+            "research_summary": signal_research_dir / "outputs_e102_deepdive" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_e102_deepdive" / "latest" / "e102_deepdive_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "e102_deepdive_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E209", "SIGNAL_E211"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E209", "E211"],
+        },
+        {
+            "branch": "AblationGrid",
+            "research_summary": signal_research_dir / "outputs_ablation_grid" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_ablation_grid" / "latest" / "ablation_shortlist.csv",
+            "baseline_summary": signal_baseline_dir / "ablation_grid_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E605", "SIGNAL_E606", "SIGNAL_E607", "SIGNAL_E610"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E605", "E606", "E607", "E610"],
+        },
+        {
+            "branch": "E302_Broader",
+            "research_summary": signal_research_dir / "outputs_e302" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_e302" / "latest" / "e302_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "e302_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E302"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E302", "E325", "E329"],
+        },
+        {
+            "branch": "GeneralizationNext",
+            "research_summary": signal_research_dir / "outputs_generalization_next" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_generalization_next" / "latest" / "generalization_next_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "generalization_next_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E401", "SIGNAL_E407"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E401", "E407"],
+        },
+        {
+            "branch": "GeneralizationWave2",
+            "research_summary": signal_research_dir / "outputs_generalization_wave2" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_generalization_wave2" / "latest" / "generalization_wave2_shortlist_summary.csv",
+            "baseline_summary": None,
+            "policy_prefixes": [],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E415"],
+        },
+        {
+            "branch": "CrossSectional60m",
+            "research_summary": signal_research_dir / "outputs_cross_sectional_60m" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_cross_sectional_60m" / "latest" / "cross_sectional_60m_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "cross_sectional_60m_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E5"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": [f"E50{i}" for i in range(1, 9)],
+        },
+    ]
+
+    candidate_rows = []
+    branch_rows = []
+    benchmark_return = np.nan
+    if not baseline_walk_df.empty:
+        bench_df = baseline_walk_df.loc[baseline_walk_df["policy"] == "SIGNAL_E211_BANDED_68"].copy()
+        if not bench_df.empty:
+            benchmark_return = float(pd.to_numeric(bench_df["test_return"], errors="coerce").mean())
+
+    for spec in branch_specs:
+        research_df = pd.read_csv(spec["research_summary"]) if spec["research_summary"] and spec["research_summary"].exists() else pd.DataFrame()
+        shortlist_df = pd.read_csv(spec["shortlist"]) if spec["shortlist"] and spec["shortlist"].exists() else pd.DataFrame()
+        baseline_policy_df = pd.read_csv(spec["baseline_summary"]) if spec["baseline_summary"] and spec["baseline_summary"].exists() else pd.DataFrame()
+
+        if not shortlist_df.empty:
+            candidates_df = shortlist_df.copy()
+        elif not research_df.empty:
+            candidates_df = research_df.loc[research_df["ExperimentID"].isin(spec["candidate_ids"])].copy()
+        else:
+            candidates_df = pd.DataFrame(columns=["ExperimentID"])
+
+        best_policy_name = ""
+        best_policy_return = np.nan
+        best_policy_turnover = np.nan
+        best_policy_trades = np.nan
+        if not baseline_policy_df.empty and "policy" in baseline_policy_df.columns:
+            mask = pd.Series(False, index=baseline_policy_df.index)
+            for prefix in spec["policy_prefixes"]:
+                mask = mask | baseline_policy_df["policy"].astype(str).str.startswith(prefix)
+            branch_policy_df = baseline_policy_df.loc[mask].copy()
+            if not branch_policy_df.empty:
+                branch_policy_df = branch_policy_df.sort_values(
+                    ["test_return", "test_sharpe", "test_turnover"],
+                    ascending=[False, False, True],
+                )
+                best_row = branch_policy_df.iloc[0]
+                best_policy_name = str(best_row.get("policy", ""))
+                best_policy_return = float(pd.to_numeric(best_row.get("test_return"), errors="coerce"))
+                best_policy_turnover = float(pd.to_numeric(best_row.get("test_turnover"), errors="coerce"))
+                best_policy_trades = float(pd.to_numeric(best_row.get("test_trades"), errors="coerce"))
+
+        breadth = policy_breadth_metrics(baseline_walk_df, best_policy_name) if best_policy_name else {
+            "positive_tickers": 0,
+            "zero_tickers": 0,
+            "negative_tickers": 0,
+            "top_positive_share": 0.0,
+        }
+
+        for _, row in candidates_df.iterrows():
+            experiment_id = str(row.get("ExperimentID", ""))
+            family = row.get("Family", "")
+            promoted = bool(row.get("StandalonePromoted", False)) if "StandalonePromoted" in row else False
+            candidate_rows.append(
+                {
+                    "Branch": spec["branch"],
+                    "ExperimentID": experiment_id,
+                    "Family": family,
+                    "StandalonePromoted": promoted,
+                    "ResearchAUC": row.get("Real_AUC", np.nan),
+                    "ResearchBalancedAccuracy": row.get("Real_BalancedAccuracy", np.nan),
+                    "ResearchSpreadTopBottom": row.get("Real_Spread_TopBottom", np.nan),
+                    "GapAUC": row.get("Gap_AUC", np.nan),
+                    "GapBalancedAccuracy": row.get("Gap_BalancedAccuracy", np.nan),
+                    "GapSpreadTopBottom": row.get("Gap_Spread_TopBottom", np.nan),
+                    "RealTradeCount": row.get("Real_TradeCount", np.nan),
+                    "SelectionScore": row.get("SelectionScore", np.nan),
+                    "BestBaselinePolicy": best_policy_name,
+                    "BestBaselineReturn": best_policy_return,
+                    "BestBaselineTurnover": best_policy_turnover,
+                    "BestBaselineTrades": best_policy_trades,
+                    "PositiveTickers": breadth["positive_tickers"],
+                    "ZeroTickers": breadth["zero_tickers"],
+                    "NegativeTickers": breadth["negative_tickers"],
+                    "TopPositiveShare": breadth["top_positive_share"],
+                    "BenchmarkPolicy": spec["benchmark_policy"],
+                    "BenchmarkReturn": benchmark_return,
+                }
+            )
+
+        verdict = "research_only"
+        if best_policy_name:
+            verdict = "benchmark_only"
+            if np.isfinite(best_policy_return) and np.isfinite(benchmark_return) and best_policy_return > benchmark_return:
+                verdict = "baseline_promoted"
+                if breadth["positive_tickers"] >= 2 and breadth["top_positive_share"] <= 0.60:
+                    verdict = "rl_eligible"
+        elif not candidates_df.empty:
+            verdict = "research_only"
+        else:
+            verdict = "not_run"
+
+        branch_rows.append(
+            {
+                "Branch": spec["branch"],
+                "CandidateCount": int(len(candidates_df)),
+                "PromotedCandidateCount": int(pd.to_numeric(candidates_df.get("StandalonePromoted", pd.Series(dtype=float)), errors="coerce").fillna(0).astype(bool).sum()) if not candidates_df.empty else 0,
+                "BestResearchExperimentID": str(candidates_df.sort_values(["SelectionScore", "Real_Spread_TopBottom"], ascending=[False, False]).iloc[0]["ExperimentID"]) if (not candidates_df.empty and "SelectionScore" in candidates_df.columns and candidates_df["SelectionScore"].notna().any()) else (str(candidates_df.iloc[0]["ExperimentID"]) if not candidates_df.empty else ""),
+                "BestBaselinePolicy": best_policy_name,
+                "BestBaselineReturn": best_policy_return,
+                "BestBaselineTurnover": best_policy_turnover,
+                "BestBaselineTrades": best_policy_trades,
+                "PositiveTickers": breadth["positive_tickers"],
+                "ZeroTickers": breadth["zero_tickers"],
+                "NegativeTickers": breadth["negative_tickers"],
+                "TopPositiveShare": breadth["top_positive_share"],
+                "BenchmarkPolicy": spec["benchmark_policy"],
+                "BenchmarkReturn": benchmark_return,
+                "Decision": verdict,
+            }
+        )
+
+    candidate_registry = pd.DataFrame(candidate_rows)
+    branch_scoreboard = pd.DataFrame(branch_rows)
+    return candidate_registry, branch_scoreboard
+
+
+def refresh_experiment_branch_registry() -> tuple[Path, Path]:
+    candidate_registry, branch_scoreboard = build_experiment_branch_registry()
+    candidate_csv = RESULTS_DIR / "experiment_branch_registry.csv"
+    branch_csv = RESULTS_DIR / "branch_decision_scoreboard.csv"
+    candidate_registry.to_csv(candidate_csv, index=False)
+    branch_scoreboard.to_csv(branch_csv, index=False)
+    main_logger.info(f"[REGISTRY] experiment branch registry saved: {candidate_csv}")
+    main_logger.info(f"[REGISTRY] branch decision scoreboard saved: {branch_csv}")
+    print(f"[REGISTRY] experiment branch registry saved: {candidate_csv}")
+    print(f"[REGISTRY] branch decision scoreboard saved: {branch_csv}")
+    return candidate_csv, branch_csv
+
+
+def build_setup_library_scoreboard() -> pd.DataFrame:
+    signal_research_dir = RESULTS_DIR / "signal_research"
+    signal_baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_walk_csv = signal_baseline_dir / "baseline_walk_forward_summary.csv"
+    baseline_walk_df = pd.read_csv(baseline_walk_csv) if baseline_walk_csv.exists() else pd.DataFrame()
+
+    setup_map = {
+        "S1_TrendContinuation": {
+            "experiments": ["E209", "E211", "E501", "E502"],
+            "policy_prefixes": ["SIGNAL_E209", "SIGNAL_E211", "SIGNAL_E501"],
+        },
+        "S2_PullbackToTrend": {
+            "experiments": ["E413", "E414"],
+            "policy_prefixes": [],
+        },
+        "S3_MeanReversion": {
+            "experiments": ["E503", "E504"],
+            "policy_prefixes": ["SIGNAL_E504"],
+        },
+        "S4_RelativeStrengthCarry": {
+            "experiments": ["E407", "E416", "E507", "E508"],
+            "policy_prefixes": ["SIGNAL_E407", "SIGNAL_E508"],
+        },
+        "S5_FailedBreakoutReversal": {
+            "experiments": ["E415", "E401"],
+            "policy_prefixes": ["SIGNAL_E401"],
+        },
+    }
+
+    research_sources = [
+        signal_research_dir / "outputs_e102_deepdive" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+        signal_research_dir / "outputs_generalization_next" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+        signal_research_dir / "outputs_generalization_wave2" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+        signal_research_dir / "outputs_cross_sectional_60m" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+    ]
+    research_frames = [pd.read_csv(path) for path in research_sources if path.exists()]
+    research_df = pd.concat(research_frames, ignore_index=True) if research_frames else pd.DataFrame()
+
+    policy_summary_files = [
+        signal_baseline_dir / "e102_deepdive_policy_summary.csv",
+        signal_baseline_dir / "generalization_next_policy_summary.csv",
+        signal_baseline_dir / "cross_sectional_60m_policy_summary.csv",
+    ]
+    policy_frames = [pd.read_csv(path) for path in policy_summary_files if path.exists()]
+    policy_df = pd.concat(policy_frames, ignore_index=True) if policy_frames else pd.DataFrame()
+    if not policy_df.empty:
+        policy_df = policy_df.drop_duplicates(subset=["policy"], keep="last").reset_index(drop=True)
+
+    rows = []
+    for setup_name, cfg in setup_map.items():
+        setup_research = research_df.loc[research_df["ExperimentID"].isin(cfg["experiments"])].copy() if not research_df.empty else pd.DataFrame()
+        if not setup_research.empty:
+            setup_research["SetupScore"] = (
+                pd.to_numeric(setup_research.get("Gap_AUC"), errors="coerce").fillna(0.0)
+                + pd.to_numeric(setup_research.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+                + pd.to_numeric(setup_research.get("Gap_IC_Spearman"), errors="coerce").fillna(0.0)
+                + pd.to_numeric(setup_research.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+            )
+            best_research = setup_research.sort_values(
+                ["SetupScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+                ascending=[False, False, False],
+            ).head(1)
+            best_research_experiment = str(best_research.iloc[0].get("ExperimentID", ""))
+            best_research_score = float(pd.to_numeric(best_research.iloc[0].get("SetupScore"), errors="coerce"))
+        else:
+            best_research_experiment = ""
+            best_research_score = np.nan
+
+        best_policy_name = ""
+        best_policy_return = np.nan
+        best_policy_turnover = np.nan
+        best_policy_trades = np.nan
+        if not policy_df.empty and cfg["policy_prefixes"]:
+            mask = pd.Series(False, index=policy_df.index)
+            for prefix in cfg["policy_prefixes"]:
+                mask = mask | policy_df["policy"].astype(str).str.startswith(prefix)
+            setup_policies = policy_df.loc[mask].copy()
+            if not setup_policies.empty:
+                setup_policies = setup_policies.sort_values(
+                    ["test_return", "test_sharpe", "test_turnover"],
+                    ascending=[False, False, True],
+                )
+                best_policy = setup_policies.iloc[0]
+                best_policy_name = str(best_policy.get("policy", ""))
+                best_policy_return = float(pd.to_numeric(best_policy.get("test_return"), errors="coerce"))
+                best_policy_turnover = float(pd.to_numeric(best_policy.get("test_turnover"), errors="coerce"))
+                best_policy_trades = float(pd.to_numeric(best_policy.get("test_trades"), errors="coerce"))
+
+        breadth = policy_breadth_metrics(baseline_walk_df, best_policy_name) if best_policy_name else {
+            "positive_tickers": 0,
+            "zero_tickers": 0,
+            "negative_tickers": 0,
+            "top_positive_share": 0.0,
+        }
+        rows.append(
+            {
+                "Setup": setup_name,
+                "BestResearchExperimentID": best_research_experiment,
+                "BestResearchScore": best_research_score,
+                "BestBaselinePolicy": best_policy_name,
+                "BestBaselineReturn": best_policy_return,
+                "BestBaselineTurnover": best_policy_turnover,
+                "BestBaselineTrades": best_policy_trades,
+                "PositiveTickers": breadth["positive_tickers"],
+                "ZeroTickers": breadth["zero_tickers"],
+                "NegativeTickers": breadth["negative_tickers"],
+                "TopPositiveShare": breadth["top_positive_share"],
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    scoreboard_csv = RESULTS_DIR / "setup_library_scoreboard.csv"
+    out.to_csv(scoreboard_csv, index=False)
+    main_logger.info(f"[SETUPS] setup-library scoreboard saved: {scoreboard_csv}")
+    print(f"[SETUPS] setup-library scoreboard saved: {scoreboard_csv}")
+    return out
 
 def run_signal_baseline_suite(
     ticker_list: List[str],
@@ -2787,6 +4594,7 @@ def run_signal_baseline_suite(
     test_days: int = 10,
     step_days: int = 20,
     max_windows_per_ticker: int = 1,
+    policy_filter: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     baseline_dir = RESULTS_DIR / "signal_baseline"
     baseline_dir.mkdir(parents=True, exist_ok=True)
@@ -2801,10 +4609,55 @@ def run_signal_baseline_suite(
         "SIGNAL_E102_BANDED_68",
         "SIGNAL_E102_BANDED_70",
         "SIGNAL_E102_BANDED_72",
+        "SIGNAL_E302",
+        "SIGNAL_E302_LONGONLY",
+        "SIGNAL_E302_SYMMETRIC",
+        "SIGNAL_E302_BANDED",
+        "SIGNAL_E302_BANDED_62",
+        "SIGNAL_E302_BANDED_64",
+        "SIGNAL_E302_BANDED_66",
+        "SIGNAL_E302_BANDED_68",
+        "SIGNAL_E302_BANDED_70",
+        "SIGNAL_E401_LONGONLY",
+        "SIGNAL_E401_BANDED_64",
+        "SIGNAL_E401_BANDED_66",
+        "SIGNAL_E401_BANDED_68",
+        "SIGNAL_E401_BANDED_70",
+        "SIGNAL_E407_LONGONLY",
+        "SIGNAL_E407_BANDED_64",
+        "SIGNAL_E407_BANDED_66",
+        "SIGNAL_E407_BANDED_68",
+        "SIGNAL_E407_BANDED_70",
+        "SIGNAL_E209_LONGONLY",
+        "SIGNAL_E209_BANDED_64",
+        "SIGNAL_E209_BANDED_66",
+        "SIGNAL_E209_BANDED_68",
+        "SIGNAL_E209_BANDED_70",
+        "SIGNAL_E211_LONGONLY",
+        "SIGNAL_E211_BANDED_64",
+        "SIGNAL_E211_BANDED_66",
+        "SIGNAL_E211_BANDED_68",
+        "SIGNAL_E211_BANDED_70",
+        "SIGNAL_COMBO_E102_E302_BANDED",
+        "SIGNAL_COMBO_E102_E302_BANDED_70",
+        "SIGNAL_COMBO_E102_E302_BANDED_72",
         "SMA",
         "RSI",
         "FLAT",
     ]
+    for experiment_id in [f"E50{i}" for i in range(1, 9)]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E605", "E606", "E607", "E610"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E702", "E703", "E705", "E706"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E801", "E803", "E804", "E806"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E903", "E904", "E905", "E906"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    if policy_filter:
+        wanted = {policy.strip() for policy in policy_filter if policy and policy.strip()}
+        policy_names = [policy for policy in policy_names if policy in wanted]
     rows = []
     coverage_rows = []
     total_tickers = len(ticker_list)
@@ -2812,7 +4665,7 @@ def run_signal_baseline_suite(
     env_kwargs = {
         "stop_loss": best_params.get("stop_loss", stop_loss),
         "take_profit": best_params.get("take_profit", take_profit),
-        "max_position_size": best_params.get("max_position_size", max_position_size),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
         "max_drawdown": best_params.get("max_drawdown", max_drawdown),
         "annual_trading_days": annual_trading_days,
         "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
@@ -2822,8 +4675,8 @@ def run_signal_baseline_suite(
             "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
             "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
             "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
-            "trade_fraction": best_params.get("trade_fraction", 0.25),
-            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
         },
         "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
         "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
@@ -2924,12 +4777,162 @@ def run_signal_baseline_suite(
         )
         policy_csv = baseline_dir / "baseline_policy_summary.csv"
         policy_summary.to_csv(policy_csv, index=False)
+        e302_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    [
+                        "FLAT",
+                        "SIGNAL_E302_LONGONLY",
+                        "SIGNAL_E302_BANDED_64",
+                        "SIGNAL_E302_BANDED_66",
+                        "SIGNAL_E302_BANDED_68",
+                        "SIGNAL_E302_BANDED_70",
+                    ]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        e302_policy_csv = baseline_dir / "e302_policy_summary.csv"
+        e302_policy_summary.to_csv(e302_policy_csv, index=False)
+        generalization_next_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    [
+                        "FLAT",
+                        "SIGNAL_E401_LONGONLY",
+                        "SIGNAL_E401_BANDED_64",
+                        "SIGNAL_E401_BANDED_66",
+                        "SIGNAL_E401_BANDED_68",
+                        "SIGNAL_E401_BANDED_70",
+                        "SIGNAL_E407_LONGONLY",
+                        "SIGNAL_E407_BANDED_64",
+                        "SIGNAL_E407_BANDED_66",
+                        "SIGNAL_E407_BANDED_68",
+                        "SIGNAL_E407_BANDED_70",
+                    ]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        generalization_next_policy_csv = baseline_dir / "generalization_next_policy_summary.csv"
+        generalization_next_policy_summary.to_csv(generalization_next_policy_csv, index=False)
+        e102_deepdive_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    [
+                        "FLAT",
+                        "SIGNAL_E102_BANDED_70",
+                        "SIGNAL_E102_BANDED_72",
+                        "SIGNAL_E209_LONGONLY",
+                        "SIGNAL_E209_BANDED_64",
+                        "SIGNAL_E209_BANDED_66",
+                        "SIGNAL_E209_BANDED_68",
+                        "SIGNAL_E209_BANDED_70",
+                        "SIGNAL_E211_LONGONLY",
+                        "SIGNAL_E211_BANDED_64",
+                        "SIGNAL_E211_BANDED_66",
+                        "SIGNAL_E211_BANDED_68",
+                        "SIGNAL_E211_BANDED_70",
+                    ]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        e102_deepdive_policy_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+        e102_deepdive_policy_summary.to_csv(e102_deepdive_policy_csv, index=False)
+        cross_sectional_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E5")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        cross_sectional_policy_csv = baseline_dir / "cross_sectional_60m_policy_summary.csv"
+        cross_sectional_policy_summary.to_csv(cross_sectional_policy_csv, index=False)
+        cross_sectional_scoreboard = build_cross_sectional_scoreboard(summary_df, policy_summary)
+        cross_sectional_scoreboard_csv = baseline_dir / "cross_sectional_60m_branch_scoreboard.csv"
+        if not cross_sectional_scoreboard.empty:
+            cross_sectional_scoreboard.to_csv(cross_sectional_scoreboard_csv, index=False)
+        ablation_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E60")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        ablation_policy_csv = baseline_dir / "ablation_grid_policy_summary.csv"
+        ablation_policy_summary.to_csv(ablation_policy_csv, index=False)
+        setup_regime_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E70")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        setup_regime_policy_csv = baseline_dir / "setup_regime_policy_summary.csv"
+        setup_regime_policy_summary.to_csv(setup_regime_policy_csv, index=False)
+        market_state_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E80")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        market_state_policy_csv = baseline_dir / "market_state_60m_policy_summary.csv"
+        market_state_policy_summary.to_csv(market_state_policy_csv, index=False)
+        multiscale_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E90")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        multiscale_policy_csv = baseline_dir / "multiscale_60m_policy_summary.csv"
+        multiscale_policy_summary.to_csv(multiscale_policy_csv, index=False)
         main_logger.info(f"[BASELINE] summary saved: {summary_csv}")
         main_logger.info(f"[BASELINE] signal coverage saved: {coverage_csv}")
         main_logger.info(f"[BASELINE] policy summary saved: {policy_csv}")
+        main_logger.info(f"[BASELINE] E302 policy summary saved: {e302_policy_csv}")
+        main_logger.info(f"[BASELINE] generalization-next policy summary saved: {generalization_next_policy_csv}")
+        main_logger.info(f"[BASELINE] E102 deep-dive policy summary saved: {e102_deepdive_policy_csv}")
+        main_logger.info(f"[BASELINE] cross-sectional policy summary saved: {cross_sectional_policy_csv}")
+        if not cross_sectional_scoreboard.empty:
+            main_logger.info(f"[BASELINE] cross-sectional branch scoreboard saved: {cross_sectional_scoreboard_csv}")
+        main_logger.info(f"[BASELINE] ablation-grid policy summary saved: {ablation_policy_csv}")
+        main_logger.info(f"[BASELINE] setup-regime policy summary saved: {setup_regime_policy_csv}")
+        main_logger.info(f"[BASELINE] market-state policy summary saved: {market_state_policy_csv}")
+        main_logger.info(f"[BASELINE] multiscale policy summary saved: {multiscale_policy_csv}")
         print(f"[BASELINE] summary saved: {summary_csv}")
         print(f"[BASELINE] signal coverage saved: {coverage_csv}")
         print(f"[BASELINE] policy summary saved: {policy_csv}")
+        print(f"[BASELINE] E302 policy summary saved: {e302_policy_csv}")
+        print(f"[BASELINE] generalization-next policy summary saved: {generalization_next_policy_csv}")
+        print(f"[BASELINE] E102 deep-dive policy summary saved: {e102_deepdive_policy_csv}")
+        print(f"[BASELINE] cross-sectional policy summary saved: {cross_sectional_policy_csv}")
+        if not cross_sectional_scoreboard.empty:
+            print(f"[BASELINE] cross-sectional branch scoreboard saved: {cross_sectional_scoreboard_csv}")
+        print(f"[BASELINE] ablation-grid policy summary saved: {ablation_policy_csv}")
+        print(f"[BASELINE] setup-regime policy summary saved: {setup_regime_policy_csv}")
+        print(f"[BASELINE] market-state policy summary saved: {market_state_policy_csv}")
+        print(f"[BASELINE] multiscale policy summary saved: {multiscale_policy_csv}")
     else:
         main_logger.warning("[BASELINE] no baseline rows were produced.")
         print("[BASELINE] no baseline rows were produced.")
@@ -3026,7 +5029,7 @@ def run_experiment_suite(
                     env_kwargs = {
                         "stop_loss": best_params.get("stop_loss", stop_loss),
                         "take_profit": best_params.get("take_profit", take_profit),
-                        "max_position_size": best_params.get("max_position_size", max_position_size),
+                        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
                         "max_drawdown": best_params.get("max_drawdown", max_drawdown),
                         "annual_trading_days": annual_trading_days,
                         "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
@@ -3036,8 +5039,8 @@ def run_experiment_suite(
                             "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
                             "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
                             "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
-                            "trade_fraction": best_params.get("trade_fraction", 0.25),
-                            "reduce_fraction": best_params.get("reduce_fraction", 0.50),
+                            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+                            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
                         },
                         "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
                         "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
@@ -3138,6 +5141,7 @@ def objective(
     # === Build Environment List and Store Ticker-Env Pairs ===
     env_factories = []
     env_pairs = []  # list of (ticker, env_instance)
+    validation_slices = []
     for i, ticker in enumerate(train_tickers):
         main_logger.info(f"[Trial {trial.number}] Creating training environment for ticker {ticker}")
         # After: Fetching data with Kite
@@ -3178,7 +5182,10 @@ def objective(
                 'momentum_threshold_min': momentum_threshold_min,
                 'momentum_threshold_max': momentum_threshold_max,
                 'forced_stop_penalty_weight': forced_stop_penalty_weight,
-                'forced_tp_penalty_weight': forced_tp_penalty_weight
+                'forced_tp_penalty_weight': forced_tp_penalty_weight,
+                'signal_gate_enabled': True,
+                'signal_gate_entry_threshold': 0.68,
+                'signal_gate_reduce_threshold': 0.60,
             },
             max_episode_steps=len(df_train),
             mode="train",  # Training mode: filtering is NOT applied here.
@@ -3187,6 +5194,7 @@ def objective(
         )
         main_logger.info(f"[Trial {trial.number}] Environment for ticker {ticker} created (env_rank={i}).")
         env_pairs.append((ticker, env_instance))
+        validation_slices.append((ticker, df_val.reset_index(drop=True)))
         # Wrap each environment instance in a lambda for SubprocVecEnv.
         env_factories.append(lambda e=env_instance: e)
     
@@ -3321,8 +5329,9 @@ def objective(
     final_metrics_all = vec_env_train.env_method("get_final_metrics")    
     #main_logger.info(f"[Trial {trial.number}] Retrieved final_metrics_all: {final_metrics_all}")    
 
-    # Collect full net worth from each sub-environment's history
+    # Collect full net worth and path-quality metrics from each sub-environment's history
     full_worth_list = []
+    cycle_metric_list = []
     for metrics_dict in final_metrics_all:
         if metrics_dict is None:
             continue
@@ -3333,6 +5342,7 @@ def objective(
         final_record = history[-1]
         full_worth = final_record.get("Full Worth", final_record.get("Net Worth", 0.0))
         full_worth_list.append(full_worth)
+        cycle_metric_list.append(_compute_cycle_metrics(history, initial_balance))
 
     # Compute average final full net worth across sub-environments
     if len(full_worth_list) == 0:
@@ -3342,6 +5352,21 @@ def objective(
 
     # Compute net worth change relative to the initial balance
     networth_change = (avg_full_worth - initial_balance) / initial_balance
+    avg_max_drawdown = float(np.mean([m["max_drawdown"] for m in cycle_metric_list])) if cycle_metric_list else 1.0
+    avg_turnover = float(np.mean([m["turnover"] for m in cycle_metric_list])) if cycle_metric_list else 1.0
+    avg_sharpe = float(np.mean([m["sharpe"] for m in cycle_metric_list])) if cycle_metric_list else -10.0
+    avg_trade_count = float(np.mean([m["trade_count"] for m in cycle_metric_list])) if cycle_metric_list else 0.0
+    trial.set_user_attr("avg_networth_change", networth_change)
+    trial.set_user_attr("avg_max_drawdown", avg_max_drawdown)
+    trial.set_user_attr("avg_turnover", avg_turnover)
+    trial.set_user_attr("avg_sharpe", avg_sharpe)
+    trial.set_user_attr("avg_trade_count_raw", avg_trade_count)
+    trial.set_user_attr("avg_trade_count", avg_trade_count)
+    main_logger.info(
+        f"[Trial {trial.number}] aggregate metrics: "
+        f"networth_change={networth_change:.6f}, avg_dd={avg_max_drawdown:.6f}, "
+        f"avg_turnover={avg_turnover:.6f}, avg_sharpe={avg_sharpe:.6f}, avg_trades={avg_trade_count:.2f}"
+    )
 
     # --- Log Detailed Metrics for Each Ticker via a For Loop (using full net worth change) ---
     for idx, (ticker, env_instance) in enumerate(env_pairs):
@@ -3395,11 +5420,335 @@ def objective(
     return networth_change
 
 
+def objective_overlay_validation(
+    trial,
+    train_tickers: list,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int
+):
+    import math
+    import numpy as np
+    import torch
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
+    from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+
+    learning_rate = trial.suggest_loguniform('learning_rate', 1e-6, 1e-3)
+    n_steps = trial.suggest_categorical('n_steps', [512])
+    batch_size = trial.suggest_categorical('batch_size', [32, 64])
+    gamma = trial.suggest_uniform('gamma', 0.95, 0.999)
+    gae_lambda = trial.suggest_uniform('gae_lambda', 0.80, 1.00)
+    clip_range = trial.suggest_uniform('clip_range', 0.05, 0.3)
+    ent_coef = trial.suggest_loguniform('ent_coef', 1e-5, 1e-1)
+    vf_coef = trial.suggest_uniform('vf_coef', 0.05, 0.5)
+    max_grad_norm = trial.suggest_uniform('max_grad_norm', 0.3, 1.0)
+
+    drawdown_penalty_factor = trial.suggest_float('drawdown_penalty_factor', 0.0, 5.0, log=False)
+    tuned_stop_loss = trial.suggest_float('stop_loss', 0.75, 0.95, step=0.01)
+    tuned_take_profit = trial.suggest_float('take_profit', 1.01, 1.50, step=0.01)
+    tuned_reward_scale = trial.suggest_float('reward_scale', 0.5, 3.0, step=0.1)
+    tuned_max_position_size = FIXED_OVERLAY_MAX_POSITION_SIZE
+    tuned_max_drawdown = trial.suggest_float('max_drawdown', 0.02, 0.2, step=0.005)
+    profit_weight = trial.suggest_float('profit_weight', 0.0, 5.0)
+    sharpe_bonus_weight = trial.suggest_float('sharpe_bonus_weight', 0.01, 5.0)
+    transaction_penalty_weight = trial.suggest_float("transaction_penalty_weight", 0.0, 5.0, log=False)
+    holding_bonus_weight = trial.suggest_float('holding_bonus_weight', 0.0, 5.0)
+    volatility_threshold = trial.suggest_float("volatility_threshold", 0.5, 2.5)
+    momentum_threshold_min = trial.suggest_float("momentum_threshold_min", 30, 50)
+    momentum_threshold_max = trial.suggest_float("momentum_threshold_max", 50, 80)
+    hold_threshold = trial.suggest_float("hold_threshold", 0.0, 0.1, step=0.01)
+    tuned_inference_buy_threshold = trial.suggest_float("inference_buy_threshold", 0.05, 0.1)
+    tuned_inference_sell_threshold = trial.suggest_float("inference_sell_threshold", 0.05, 0.1)
+    forced_stop_penalty_weight = trial.suggest_float("forced_stop_penalty_weight", 0.0, 5.0, log=False)
+    forced_tp_penalty_weight = trial.suggest_float("forced_tp_penalty_weight", 0.0, 5.0, log=False)
+
+    env_factories = []
+    validation_slices = []
+    for i, ticker in enumerate(train_tickers):
+        main_logger.info(f"[Trial {trial.number}] Creating training environment for ticker {ticker}")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.error(f"Token not found for ticker {ticker}. Skipping.")
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=DTDAYS, interval=TICKINT)
+        if df_full.empty:
+            main_logger.warning(f"[Trial {trial.number}] No data for ticker {ticker}. Skipping.")
+            continue
+        df_train, df_val, df_test = split_chronological(df_full, train_ratio=0.70, val_ratio=0.15)
+        if df_train.empty:
+            main_logger.warning(f"[Trial {trial.number}] Training data empty for ticker {ticker}. Skipping.")
+            continue
+        main_logger.info(f"[Trial {trial.number}] {ticker} split sizes train/val/test: {len(df_train)}/{len(df_val)}/{len(df_test)}")
+
+        env_instance = SingleStockTradingEnv(
+            df=df_train,
+            ticker=ticker,
+            initial_balance=initial_balance,
+            stop_loss=tuned_stop_loss,
+            take_profit=tuned_take_profit,
+            max_position_size=tuned_max_position_size,
+            max_drawdown=tuned_max_drawdown,
+            annual_trading_days=annual_trading_days,
+            env_rank=i,
+            some_factor=drawdown_penalty_factor,
+            hold_threshold=hold_threshold,
+            reward_weights={
+                'reward_scale': tuned_reward_scale,
+                'profit_weight': profit_weight,
+                'sharpe_bonus_weight': sharpe_bonus_weight,
+                'transaction_penalty_weight': transaction_penalty_weight,
+                'holding_bonus_weight': holding_bonus_weight,
+                'volatility_threshold': volatility_threshold,
+                'momentum_threshold_min': momentum_threshold_min,
+                'momentum_threshold_max': momentum_threshold_max,
+                'forced_stop_penalty_weight': forced_stop_penalty_weight,
+                'forced_tp_penalty_weight': forced_tp_penalty_weight,
+                'signal_gate_enabled': True,
+                'signal_gate_entry_threshold': 0.68,
+                'signal_gate_reduce_threshold': 0.60,
+            },
+            max_episode_steps=len(df_train),
+            mode="train",
+            inference_buy_threshold=tuned_inference_buy_threshold,
+            inference_sell_threshold=tuned_inference_sell_threshold
+        )
+        env_factories.append(lambda e=env_instance: e)
+        validation_slices.append((ticker, df_val.reset_index(drop=True)))
+        main_logger.info(f"[Trial {trial.number}] Environment for ticker {ticker} created (env_rank={i}).")
+
+    if not env_factories:
+        main_logger.critical(f"[Trial {trial.number}] No training environments were created. Exiting trial.")
+        return {
+            "net_return": -1.0,
+            "avg_max_drawdown": 1.0,
+            "avg_turnover": 1.0,
+            "avg_sharpe": -10.0,
+            "avg_trade_count": 0.0,
+        }
+
+    vec_env_train = SubprocVecEnv(env_factories)
+    vec_env_train = VecNormalize(vec_env_train, norm_obs=True, norm_reward=True, clip_obs=10000.0, clip_reward=250000.0)
+
+    num_layers = trial.suggest_int("num_layers", 2, 5)
+    net_arch = []
+    for layer_i in range(num_layers):
+        layer_size = trial.suggest_categorical(f"layer_size_{layer_i}", [64, 128, 256])
+        net_arch.append(layer_size)
+
+    policy_kwargs = dict(activation_fn=torch.nn.ReLU, net_arch=net_arch)
+    trial_log_dir = TB_LOG_DIR / f"trial_{trial.number}"
+    trial_log_dir.mkdir(parents=True, exist_ok=True)
+
+    model = PPO(
+        'MlpPolicy',
+        vec_env_train,
+        verbose=0,
+        seed=RANDOM_SEED,
+        policy_kwargs=policy_kwargs,
+        learning_rate=learning_rate,
+        n_steps=n_steps,
+        batch_size=batch_size,
+        gamma=gamma,
+        gae_lambda=gae_lambda,
+        clip_range=clip_range,
+        ent_coef=ent_coef,
+        vf_coef=vf_coef,
+        max_grad_norm=max_grad_norm,
+        tensorboard_log=str(trial_log_dir),
+        device='cpu'
+    )
+
+    trial_checkpoint_dir = RESULTS_DIR / f"checkpoints_trial_{trial.number}"
+    trial_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_callback = CheckpointCallback(
+        save_freq=500,
+        save_path=str(trial_checkpoint_dir),
+        name_prefix="ppo_model"
+    )
+    custom_callback = CustomTensorboardCallback()
+    early_stopping_callback = EarlyStoppingCallback(
+        monitor="rolling_sharpe",
+        patience=3000,
+        min_delta=0.02,
+        verbose=1,
+        trial_id=trial.number,
+        window=2000
+    )
+    callback_list = CallbackList([custom_callback, checkpoint_callback, early_stopping_callback])
+
+    total_timesteps = OVERLAY_TUNE_TIMESTEPS
+    start_time = time.time()
+    main_logger.info(f"[Trial {trial.number}] Trial Hyperparameters: {trial.params}")
+    main_logger.info(f"[Trial {trial.number}] Starting PPO training with {total_timesteps} timesteps.")
+    try:
+        model.learn(total_timesteps=total_timesteps, callback=callback_list)
+    except Exception:
+        error_message = traceback.format_exc()
+        main_logger.critical(f"[Trial {trial.number}] Training failed with exception:\n{error_message}")
+        vec_env_train.close()
+        return {
+            "net_return": -1.0,
+            "avg_max_drawdown": 1.0,
+            "avg_turnover": 1.0,
+            "avg_sharpe": -10.0,
+            "avg_trade_count": 0.0,
+        }
+    duration = time.time() - start_time
+    main_logger.info(f"[Trial {trial.number}] Finished PPO training in {duration:.2f} seconds.")
+
+    trial_model_path = trial_checkpoint_dir / "trial_model_final.zip"
+    trial_vecnorm_path = trial_checkpoint_dir / "trial_vecnorm_final.pkl"
+    model.save(str(trial_model_path))
+    vec_env_train.save(str(trial_vecnorm_path))
+
+    eval_env_kwargs = {
+        "stop_loss": tuned_stop_loss,
+        "take_profit": tuned_take_profit,
+        "max_position_size": tuned_max_position_size,
+        "max_drawdown": tuned_max_drawdown,
+        "annual_trading_days": annual_trading_days,
+        "some_factor": drawdown_penalty_factor,
+        "hold_threshold": hold_threshold,
+        "reward_weights": {
+            "reward_scale": tuned_reward_scale,
+            "profit_weight": profit_weight,
+            "sharpe_bonus_weight": sharpe_bonus_weight,
+            "transaction_penalty_weight": transaction_penalty_weight,
+            "holding_bonus_weight": holding_bonus_weight,
+            "volatility_threshold": volatility_threshold,
+            "momentum_threshold_min": momentum_threshold_min,
+            "momentum_threshold_max": momentum_threshold_max,
+            "forced_stop_penalty_weight": forced_stop_penalty_weight,
+            "forced_tp_penalty_weight": forced_tp_penalty_weight,
+            "signal_gate_enabled": True,
+            "signal_gate_entry_threshold": 0.68,
+            "signal_gate_reduce_threshold": 0.60,
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
+        },
+        "inference_buy_threshold": tuned_inference_buy_threshold,
+        "inference_sell_threshold": tuned_inference_sell_threshold
+    }
+
+    validation_results = []
+    for ticker, df_val in validation_slices:
+        if df_val.empty:
+            continue
+        eval_result = _evaluate_slice_with_frozen_norm(
+            model_path=trial_model_path,
+            vecnorm_path=trial_vecnorm_path,
+            df_slice=df_val,
+            ticker=ticker,
+            initial_balance=initial_balance,
+            env_kwargs=eval_env_kwargs,
+            eval_tag=f"trial_{trial.number}_val"
+        )
+        validation_results.append((ticker, eval_result["metrics"]))
+
+    vec_env_train.close()
+    del vec_env_train
+    import gc
+    gc.collect()
+
+    cycle_metric_list = [metrics for _, metrics in validation_results]
+    result = {
+        "net_return": float(np.mean([m["net_return"] for m in cycle_metric_list])) if cycle_metric_list else -1.0,
+        "avg_max_drawdown": float(np.mean([m["max_drawdown"] for m in cycle_metric_list])) if cycle_metric_list else 1.0,
+        "avg_turnover": float(np.mean([m["turnover"] for m in cycle_metric_list])) if cycle_metric_list else 1.0,
+        "avg_sharpe": float(np.mean([m["sharpe"] for m in cycle_metric_list])) if cycle_metric_list else -10.0,
+        "avg_trade_count": float(np.mean([m["trade_count"] for m in cycle_metric_list])) if cycle_metric_list else 0.0,
+    }
+    trial.set_user_attr("avg_networth_change", result["net_return"])
+    trial.set_user_attr("avg_max_drawdown", result["avg_max_drawdown"])
+    trial.set_user_attr("avg_turnover", result["avg_turnover"])
+    trial.set_user_attr("avg_sharpe", result["avg_sharpe"])
+    trial.set_user_attr("avg_trade_count_raw", result["avg_trade_count"])
+    trial.set_user_attr("avg_trade_count", result["avg_trade_count"])
+    main_logger.info(
+        f"[Trial {trial.number}] aggregate metrics: "
+        f"networth_change={result['net_return']:.6f}, avg_dd={result['avg_max_drawdown']:.6f}, "
+        f"avg_turnover={result['avg_turnover']:.6f}, avg_sharpe={result['avg_sharpe']:.6f}, "
+        f"avg_trades={result['avg_trade_count']:.2f}"
+    )
+    for ticker, metrics in validation_results:
+        main_logger.info(
+            f"[Trial {trial.number}] Validation summary for {ticker}: "
+            f"return={metrics['net_return']:.6f}, dd={metrics['max_drawdown']:.6f}, "
+            f"turnover={metrics['turnover']:.6f}, sharpe={metrics['sharpe']:.6f}, trades={metrics['trade_count']}"
+        )
+    return result
+
+
+def objective_multi_objective(
+    trial,
+    train_tickers: list,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int
+):
+    result = objective_overlay_validation(
+        trial,
+        train_tickers=train_tickers,
+        initial_balance=initial_balance,
+        stop_loss=stop_loss,
+        take_profit=take_profit,
+        max_position_size=max_position_size,
+        max_drawdown=max_drawdown,
+        annual_trading_days=annual_trading_days,
+    )
+    networth_change = float(result.get("net_return", -1.0))
+    if not np.isfinite(networth_change):
+        return (-1.0, 1.0, 1.0)
+    avg_max_drawdown = float(result.get("avg_max_drawdown", trial.user_attrs.get("avg_max_drawdown", 1.0)))
+    avg_turnover = float(result.get("avg_turnover", trial.user_attrs.get("avg_turnover", 1.0)))
+    return (networth_change, avg_max_drawdown, avg_turnover)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ssell1 trading pipeline")
     parser.add_argument(
         "--mode",
-        choices=["signal_research", "signal_research_smoke", "signal_baseline", "experiment_suite", "walk_forward", "full_training"],
+        choices=[
+            "signal_research",
+            "signal_research_smoke",
+            "signal_research_generalization",
+            "signal_research_generalization_next",
+            "signal_research_generalization_wave2",
+            "signal_research_e102_deepdive",
+            "signal_research_cross_sectional_60m",
+            "signal_research_ablation_grid",
+            "signal_research_setup_regimes",
+            "signal_research_market_state_60m",
+            "signal_research_multiscale_60m",
+            "signal_research_e302",
+            "signal_research_two_track",
+            "signal_baseline",
+            "signal_baseline_e302",
+            "signal_baseline_generalization_next",
+            "signal_baseline_e102_deepdive",
+            "signal_baseline_cross_sectional_60m",
+            "signal_baseline_ablation_grid",
+            "signal_baseline_setup_regimes",
+            "signal_baseline_market_state_60m",
+            "signal_baseline_multiscale_60m",
+            "refresh_branch_registry",
+            "refresh_setup_library_scoreboard",
+            "experiment_suite",
+            "walk_forward",
+            "walk_forward_focus",
+            "walk_forward_focus_adjacent",
+            "walk_forward_focus_timeseries",
+            "tune_overlay",
+            "select_overlay_candidate",
+            "full_training",
+        ],
         default=resolve_run_mode(),
         help="Execution mode. Defaults to SSELL1_RUN_MODE or walk_forward.",
     )
@@ -3617,20 +5966,128 @@ if __name__ == "__main__":
     ANNUAL_TRADING_DAYS = 252
     TRANSACTION_COST = 0.001
 
-    if run_mode in {"signal_research", "signal_research_smoke"}:
+    if run_mode.startswith("signal_research"):
         main_logger.info("Starting signal research workflow before any RL training.")
+        experiment_set = "default"
+        experiment_ids = None
+        max_window_pairs = None
+        ticker_list = NSE_LIQUID_UNIVERSE.copy()
+        if run_mode == "signal_research_smoke":
+            ticker_list = NSE_LIQUID_UNIVERSE[:3]
+            experiment_set = "focused"
+            experiment_ids = ["E101", "E105", "E102"]
+            max_window_pairs = 3
+        elif run_mode == "signal_research_generalization":
+            experiment_set = "generalization"
+        elif run_mode == "signal_research_generalization_next":
+            experiment_set = "generalization_next"
+        elif run_mode == "signal_research_generalization_wave2":
+            experiment_set = "generalization_wave2"
+        elif run_mode == "signal_research_e102_deepdive":
+            experiment_set = "e102_deepdive"
+        elif run_mode == "signal_research_cross_sectional_60m":
+            experiment_set = "cross_sectional_60m"
+        elif run_mode == "signal_research_ablation_grid":
+            experiment_set = "ablation_grid"
+        elif run_mode == "signal_research_setup_regimes":
+            experiment_set = "setup_regimes"
+        elif run_mode == "signal_research_market_state_60m":
+            experiment_set = "market_state_60m"
+        elif run_mode == "signal_research_multiscale_60m":
+            experiment_set = "multiscale_60m"
+        elif run_mode == "signal_research_e302":
+            experiment_set = "e302_sweep"
+        elif run_mode == "signal_research_two_track":
+            experiment_set = "two_track"
         run_signal_research_workflow(
-            ticker_list=NSE_LIQUID_UNIVERSE[:3] if run_mode == "signal_research_smoke" else NSE_LIQUID_UNIVERSE.copy(),
+            ticker_list=ticker_list,
             instrument_df=instrument_df,
             interval=TICKINT,
             history_days=max(TRAIN_HISTORY_DAYS, 1095),
             window_days=20,
-            experiment_ids=["E101", "E105", "E102"] if run_mode == "signal_research_smoke" else None,
-            max_window_pairs=3 if run_mode == "signal_research_smoke" else None,
+            experiment_ids=experiment_ids,
+            experiment_set=experiment_set,
+            max_window_pairs=max_window_pairs,
         )
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "walk_forward", "experiment_suite"}:
+    if run_mode == "refresh_branch_registry":
+        main_logger.info("Refreshing master experiment branch registry and branch decision scoreboard.")
+        refresh_experiment_branch_registry()
+        raise SystemExit(0)
+
+    if run_mode == "refresh_setup_library_scoreboard":
+        main_logger.info("Refreshing setup-library scoreboard from current research and baseline artifacts.")
+        build_setup_library_scoreboard()
+        raise SystemExit(0)
+
+    if run_mode == "tune_overlay":
+        storage = optuna.storages.RDBStorage(
+            url='sqlite:///optuna_study.db',
+            engine_kwargs={'connect_args': {'check_same_thread': False}}
+        )
+        unique_study_name = generate_unique_study_name(base_name="rl_overlay_multiobjective")
+        study = optuna.create_study(
+            directions=["maximize", "minimize", "minimize"],
+            sampler=optuna.samplers.TPESampler(seed=RANDOM_SEED),
+            storage=storage,
+            study_name=unique_study_name,
+            load_if_exists=False
+        )
+        n_trials = 10
+        main_logger.info(
+            "[OPTUNA-MO] Starting gated overlay multi-objective study for %s trials. "
+            "Objectives: maximize return, minimize drawdown, minimize turnover.",
+            n_trials,
+        )
+        study.optimize(
+            lambda trial: objective_multi_objective(
+                trial,
+                train_tickers=optuna_tickers,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+            ),
+            n_trials=n_trials,
+            n_jobs=1
+        )
+        selected_params = export_and_select_pareto_trials(study)
+        if not selected_params:
+            main_logger.critical("[OPTUNA-MO] No completed Pareto trials were available.")
+            raise SystemExit(1)
+        save_best_params(selected_params)
+        main_logger.info(
+            "[OPTUNA-MO] Saved selected compromise params to %s. Pareto files: %s, %s, %s",
+            BEST_PARAMS_FILE,
+            PARETO_ALL_TRIALS_FILE,
+            PARETO_TRIALS_FILE,
+            PARETO_SELECTED_FILE,
+        )
+        print(f"[OPTUNA-MO] saved selected params to {BEST_PARAMS_FILE}")
+        print(f"[OPTUNA-MO] all trials: {PARETO_ALL_TRIALS_FILE}")
+        print(f"[OPTUNA-MO] pareto frontier: {PARETO_TRIALS_FILE}")
+        print(f"[OPTUNA-MO] selected trial: {PARETO_SELECTED_FILE}")
+        raise SystemExit(0)
+
+    if run_mode == "select_overlay_candidate":
+        params = select_active_overlay_candidate(min_avg_trades=5.0)
+        if not params:
+            main_logger.critical("[OPTUNA-MO] Could not select an active overlay candidate.")
+            raise SystemExit(1)
+        save_best_params(params)
+        main_logger.info(
+            "[OPTUNA-MO] Saved active overlay candidate to %s using %s",
+            BEST_PARAMS_FILE,
+            PARETO_SELECTED_ACTIVE_FILE,
+        )
+        print(f"[OPTUNA-MO] saved active overlay candidate to {BEST_PARAMS_FILE}")
+        print(f"[OPTUNA-MO] selected active trial: {PARETO_SELECTED_ACTIVE_FILE}")
+        raise SystemExit(0)
+
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -3655,6 +6112,287 @@ if __name__ == "__main__":
                 test_days=30,
                 step_days=30,
                 max_windows_per_ticker=1,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_e302":
+            main_logger.info("Starting E302 standalone baseline evaluation. RL integration for E302 is intentionally disabled for this phase.")
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=[
+                    "FLAT",
+                    "SIGNAL_E302_LONGONLY",
+                    "SIGNAL_E302_BANDED_64",
+                    "SIGNAL_E302_BANDED_66",
+                    "SIGNAL_E302_BANDED_68",
+                    "SIGNAL_E302_BANDED_70",
+                ],
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_generalization_next":
+            main_logger.info(
+                "Starting generalization-next shortlist baseline evaluation. "
+                "Evaluating E401 and E407 as standalone baseline branches only."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=[
+                    "FLAT",
+                    "SIGNAL_E401_LONGONLY",
+                    "SIGNAL_E401_BANDED_64",
+                    "SIGNAL_E401_BANDED_66",
+                    "SIGNAL_E401_BANDED_68",
+                    "SIGNAL_E401_BANDED_70",
+                    "SIGNAL_E407_LONGONLY",
+                    "SIGNAL_E407_BANDED_64",
+                    "SIGNAL_E407_BANDED_66",
+                    "SIGNAL_E407_BANDED_68",
+                    "SIGNAL_E407_BANDED_70",
+                ],
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_e102_deepdive":
+            main_logger.info(
+                "Starting E102 deep-dive baseline evaluation. "
+                "Comparing bull-regime E209/E211 against the plain E102 baseline family."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=[
+                    "FLAT",
+                    "SIGNAL_E102_BANDED_70",
+                    "SIGNAL_E102_BANDED_72",
+                    "SIGNAL_E209_LONGONLY",
+                    "SIGNAL_E209_BANDED_64",
+                    "SIGNAL_E209_BANDED_66",
+                    "SIGNAL_E209_BANDED_68",
+                    "SIGNAL_E209_BANDED_70",
+                    "SIGNAL_E211_LONGONLY",
+                    "SIGNAL_E211_BANDED_64",
+                    "SIGNAL_E211_BANDED_66",
+                    "SIGNAL_E211_BANDED_68",
+                    "SIGNAL_E211_BANDED_70",
+                ],
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_cross_sectional_60m":
+            promoted_cross_ids = load_cross_sectional_promoted_ids()
+            if not promoted_cross_ids:
+                promoted_cross_ids = [f"E50{i}" for i in range(1, 9)]
+            cross_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_cross_ids:
+                cross_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting cross-sectional 60m baseline evaluation. "
+                "E211 remains benchmark-only; RL stays out of scope until a new baseline clearly beats SIGNAL_E211_BANDED_68. "
+                f"Evaluating promoted shortlist: {', '.join(promoted_cross_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=cross_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_ablation_grid":
+            promoted_ablation_ids = load_ablation_grid_promoted_ids()
+            if not promoted_ablation_ids:
+                promoted_ablation_ids = ["E605", "E606", "E607", "E610"]
+            ablation_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_ablation_ids:
+                ablation_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting ablation-grid baseline evaluation. "
+                "Testing promoted ablation survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_ablation_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=ablation_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_setup_regimes":
+            promoted_setup_ids = load_setup_regime_promoted_ids()
+            if not promoted_setup_ids:
+                promoted_setup_ids = ["E702", "E703", "E705", "E706"]
+            setup_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_setup_ids:
+                setup_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting setup-regime baseline evaluation. "
+                "Testing promoted setup-regime survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_setup_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=setup_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_market_state_60m":
+            promoted_market_state_ids = load_market_state_promoted_ids()
+            if not promoted_market_state_ids:
+                promoted_market_state_ids = ["E801", "E803", "E804", "E806"]
+            market_state_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_market_state_ids:
+                market_state_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting market-state 60m baseline evaluation. "
+                "Testing promoted market-state survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_market_state_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=market_state_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_multiscale_60m":
+            promoted_multiscale_ids = load_multiscale_promoted_ids()
+            if not promoted_multiscale_ids:
+                promoted_multiscale_ids = ["E903", "E904", "E905", "E906"]
+            multiscale_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_multiscale_ids:
+                multiscale_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting multi-scale 60m baseline evaluation. "
+                "Testing promoted multi-scale survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_multiscale_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=multiscale_policy_filter,
             )
             raise SystemExit(0)
 
@@ -3683,7 +6421,65 @@ if __name__ == "__main__":
             raise SystemExit(0)
 
         main_logger.info("Starting walk-forward training/validation/testing pipeline.")
-        wf_tickers = NSE_LIQUID_UNIVERSE.copy()
+        if run_mode in {"walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries"}:
+            wf_tickers = build_focus_universe_from_latest_walk_forward(instrument_df=instrument_df)
+            if not wf_tickers:
+                main_logger.critical("[WF-FOCUS] No focus tickers were selected from the latest walk-forward block.")
+                raise SystemExit(1)
+            print(f"[WF-FOCUS] using {len(wf_tickers)} Zerodha NSE tickers: {', '.join(wf_tickers)}")
+        else:
+            wf_tickers = NSE_LIQUID_UNIVERSE.copy()
+        wf_output_subdir = "walk_forward"
+        wf_history_days = max(TRAIN_HISTORY_DAYS, 1095)
+        wf_window_offset = 0
+        wf_max_windows = 0
+        wf_train_days = 730
+        wf_val_days = 90
+        wf_test_days = 30
+        wf_step_days = 30
+        wf_slice_mode = "rolling"
+        wf_baseline_policy = "SIGNAL_E211_BANDED_68"
+        wf_save_histories = False
+        if run_mode == "walk_forward_focus_adjacent":
+            wf_output_subdir = "walk_forward_adjacent"
+            wf_history_days = max(TRAIN_HISTORY_DAYS, 1460)
+            wf_window_offset = 1
+            wf_max_windows = 1
+            wf_train_days = 540
+            wf_val_days = 60
+            wf_test_days = 30
+            wf_step_days = 30
+            main_logger.info(
+                "[WF-FOCUS-ADJ] running adjacent validation window with history_days=%s, "
+                "train_days=%s, val_days=%s, test_days=%s, step_days=%s, window_offset=%s",
+                wf_history_days,
+                wf_train_days,
+                wf_val_days,
+                wf_test_days,
+                wf_step_days,
+                wf_window_offset,
+            )
+        elif run_mode == "walk_forward_focus_timeseries":
+            wf_output_subdir = "walk_forward_timeseries_rolling"
+            wf_history_days = max(TRAIN_HISTORY_DAYS, 1460)
+            wf_window_offset = 0
+            wf_max_windows = 4
+            wf_train_days = 360
+            wf_val_days = 60
+            wf_test_days = 30
+            wf_step_days = 30
+            wf_slice_mode = "rolling"
+            wf_save_histories = True
+            main_logger.info(
+                "[WF-FOCUS-TS] running rolling time-series validation with history_days=%s, "
+                "train_days=%s, val_days=%s, test_days=%s, step_days=%s, max_windows=%s",
+                wf_history_days,
+                wf_train_days,
+                wf_val_days,
+                wf_test_days,
+                wf_step_days,
+                wf_max_windows,
+            )
         walk_forward_runner(
             ticker_list=wf_tickers,
             instrument_df=instrument_df,
@@ -3695,13 +6491,44 @@ if __name__ == "__main__":
             max_drawdown=MAX_DRAWDOWN,
             annual_trading_days=ANNUAL_TRADING_DAYS,
             interval=TICKINT,
-            history_days=max(TRAIN_HISTORY_DAYS, 1095),
-            train_days=730,
-            val_days=90,
-            test_days=30,
-            step_days=30,
-            train_timesteps=50000
+            history_days=wf_history_days,
+            train_days=wf_train_days,
+            val_days=wf_val_days,
+            test_days=wf_test_days,
+            step_days=wf_step_days,
+            train_timesteps=50000,
+            window_offset=wf_window_offset,
+            max_windows_per_ticker=wf_max_windows,
+            output_subdir=wf_output_subdir,
+            slice_mode=wf_slice_mode,
+            baseline_policy_name=wf_baseline_policy,
+            save_eval_histories=wf_save_histories,
         )
+        if run_mode == "walk_forward_focus_timeseries":
+            walk_forward_runner(
+                ticker_list=wf_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=wf_history_days,
+                train_days=wf_train_days,
+                val_days=wf_val_days,
+                test_days=wf_test_days,
+                step_days=wf_step_days,
+                train_timesteps=50000,
+                window_offset=0,
+                max_windows_per_ticker=wf_max_windows,
+                output_subdir="walk_forward_timeseries_expanding",
+                slice_mode="expanding",
+                baseline_policy_name=wf_baseline_policy,
+                save_eval_histories=True,
+            )
         raise SystemExit(0)
 
     storage = optuna.storages.RDBStorage(
@@ -3809,7 +6636,10 @@ if __name__ == "__main__":
                 'momentum_threshold_max': best_params.get('momentum_threshold_max', 70),
                 # New hyperparameters for penalty weights:
                 'forced_stop_penalty_weight': best_params.get('forced_stop_penalty_weight', 1.0),
-                'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0)
+                'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0),
+                'signal_gate_enabled': True,
+                'signal_gate_entry_threshold': 0.68,
+                'signal_gate_reduce_threshold': 0.60,
             },
             max_episode_steps=len(df_train),
             mode="train",  # Training mode
@@ -3909,7 +6739,10 @@ if __name__ == "__main__":
                 'momentum_threshold_max': best_params.get('momentum_threshold_max', 70),
                 # New hyperparameters for penalty weights:
                 'forced_stop_penalty_weight': best_params.get('forced_stop_penalty_weight', 1.0),
-                'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0)
+                'forced_tp_penalty_weight': best_params.get('forced_tp_penalty_weight', 1.0),
+                'signal_gate_enabled': True,
+                'signal_gate_entry_threshold': 0.68,
+                'signal_gate_reduce_threshold': 0.60,
             },
             max_episode_steps=len(test_df),
             mode="test",
