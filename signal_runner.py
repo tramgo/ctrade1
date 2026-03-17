@@ -92,9 +92,25 @@ def get_target_column(experiment: ExperimentDef) -> Tuple[str, str]:
         return f"y_t3_opp_{horizon}", f"opp_score_{horizon}"
 
     if experiment.target_id == "T4":
+        if experiment.label_type == "binary":
+            return f"y_t4_upfirst_{horizon}", f"net_fwd_ret_{horizon}"
         return f"y_t4_tb_{horizon}", f"net_fwd_ret_{horizon}"
 
+    if experiment.target_id == "T6":
+        return f"xs_rel_fwd_ret_{horizon}", f"xs_rel_fwd_ret_{horizon}"
+
     raise ValueError(f"Unknown target_id: {experiment.target_id}")
+
+
+def ensure_experiment_targets(df: pd.DataFrame, experiment: ExperimentDef) -> pd.DataFrame:
+    out = df.copy()
+    if experiment.target_id == "T4" and experiment.label_type == "binary":
+        source_col = f"y_t4_tb_{experiment.horizon}"
+        target_col = f"y_t4_upfirst_{experiment.horizon}"
+        if source_col in out.columns and target_col not in out.columns:
+            source = pd.to_numeric(out[source_col], errors="coerce")
+            out[target_col] = (source > 0).astype(int)
+    return out
 
 
 def prepare_xy(df: pd.DataFrame, feature_cols: List[str], y_col: str) -> Tuple[pd.DataFrame, pd.Series]:
@@ -186,6 +202,7 @@ def run_experiment(
     shuffled: bool = False,
 ) -> pd.DataFrame:
     data = build_targets(df.copy(), horizon=experiment.horizon)
+    data = ensure_experiment_targets(data, experiment)
     data = apply_regime_filter(data, experiment.regime_filter)
 
     feature_cols = [col for col in get_feature_columns(experiment.feature_families) if col in data.columns]
@@ -251,6 +268,7 @@ def run_experiment_predictions(
     test_window_ids: List[int],
 ) -> pd.DataFrame:
     data = build_targets(df.copy(), horizon=experiment.horizon)
+    data = ensure_experiment_targets(data, experiment)
     data = apply_regime_filter(data, experiment.regime_filter)
 
     feature_cols = [col for col in get_feature_columns(experiment.feature_families) if col in data.columns]

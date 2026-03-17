@@ -2863,6 +2863,12 @@ def run_signal_research_workflow(
             "[SIGNAL RESEARCH] Multi-scale 60m discovery enabled. "
             "Testing multi-timescale context on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
         )
+    elif experiment_set == "portfolio_rank_60m":
+        output_dir_name = "outputs_portfolio_rank_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Portfolio-rank 60m discovery enabled. "
+            "Testing universe-level cross-sectional ranking on the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
     elif experiment_set == "e302_sweep":
         output_dir_name = "outputs_e302"
         main_logger.info("[SIGNAL RESEARCH] E302 standalone evaluation mode enabled. RL integration for E302 is intentionally disabled for this phase.")
@@ -4148,6 +4154,20 @@ def load_multiscale_promoted_ids() -> List[str]:
     return ids
 
 
+def load_portfolio_rank_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest" / "portfolio_rank_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[PORTFOLIO-RANK] failed to read promoted IDs: {exc}")
+        return []
+    return ids
+
+
 def build_cross_sectional_scoreboard(summary_df: pd.DataFrame, policy_summary: pd.DataFrame) -> pd.DataFrame:
     if summary_df.empty or policy_summary.empty:
         return pd.DataFrame()
@@ -4936,6 +4956,213 @@ def run_signal_baseline_suite(
     else:
         main_logger.warning("[BASELINE] no baseline rows were produced.")
         print("[BASELINE] no baseline rows were produced.")
+    return summary_df
+
+
+def run_portfolio_rank_baseline(
+    promoted_ids: List[str],
+    top_k: int = 3,
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    summary_csv = baseline_dir / "portfolio_rank_60m_portfolio_baseline_summary.csv"
+    history_csv = baseline_dir / "portfolio_rank_60m_portfolio_rebalance_history.csv"
+    contrib_csv = baseline_dir / "portfolio_rank_60m_portfolio_ticker_contributions.csv"
+
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        main_logger.warning("[PORTFOLIO-RANK] missing predictions or dataset; no baseline rows were produced.")
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        main_logger.warning("[PORTFOLIO-RANK] empty predictions or dataset; no baseline rows were produced.")
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(data_df[merge_cols].drop_duplicates(["Ticker", "Date"]), on=["Ticker", "Date"], how="left")
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+
+    benchmark_return = 0.0
+    benchmark_summary_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+    if benchmark_summary_csv.exists():
+        try:
+            bench_df = pd.read_csv(benchmark_summary_csv)
+            bench_row = bench_df.loc[bench_df["policy"] == benchmark_policy]
+            if not bench_row.empty:
+                benchmark_return = float(pd.to_numeric(bench_row.iloc[0]["test_return"], errors="coerce"))
+        except Exception as exc:
+            main_logger.warning(f"[PORTFOLIO-RANK] failed to read benchmark summary: {exc}")
+
+    rows = []
+    history_rows = []
+    contribution_rows = []
+
+    for experiment_id in promoted_ids:
+        exp_df = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+        if exp_df.empty:
+            continue
+        exp_df = exp_df.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+        if exp_df.empty:
+            continue
+        open_times = (
+            exp_df.groupby("TradeDate")["Date"]
+            .min()
+            .dropna()
+            .sort_values()
+            .tolist()
+        )
+        prev_weights: Dict[str, float] = {}
+        event_returns: List[float] = []
+        event_turnovers: List[float] = []
+        event_longs: List[float] = []
+        event_shorts: List[float] = []
+        ticker_contrib: Dict[str, float] = {}
+
+        for idx in range(len(open_times) - 1):
+            open_ts = open_times[idx]
+            next_open_ts = open_times[idx + 1]
+            current = exp_df.loc[exp_df["Date"] == open_ts].copy()
+            future = exp_df.loc[exp_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < 2 * top_k:
+                continue
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < 2 * top_k:
+                continue
+
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+            shorts = current.tail(top_k).copy()
+
+            weights: Dict[str, float] = {}
+            long_weight = 0.5 / top_k
+            short_weight = -0.5 / top_k
+
+            event_return = 0.0
+            long_return = 0.0
+            short_return = 0.0
+            for _, row in longs.iterrows():
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                contribution = long_weight * raw_ret - abs(long_weight) * float(row["est_cost"])
+                event_return += contribution
+                long_return += contribution
+                ticker = str(row["Ticker"])
+                weights[ticker] = long_weight
+                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+
+            for _, row in shorts.iterrows():
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                contribution = short_weight * raw_ret - abs(short_weight) * float(row["est_cost"])
+                event_return += contribution
+                short_return += contribution
+                ticker = str(row["Ticker"])
+                weights[ticker] = short_weight
+                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+
+            universe = set(prev_weights) | set(weights)
+            turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
+            prev_weights = weights
+
+            event_returns.append(event_return)
+            event_turnovers.append(turnover)
+            event_longs.append(long_return)
+            event_shorts.append(short_return)
+            history_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "rebalance_idx": idx + 1,
+                    "open_ts": open_ts,
+                    "next_open_ts": next_open_ts,
+                    "eligible_count": int(len(current)),
+                    "portfolio_return": event_return,
+                    "long_contribution": long_return,
+                    "short_contribution": short_return,
+                    "turnover": turnover,
+                    "long_names": ",".join(longs["Ticker"].astype(str).tolist()),
+                    "short_names": ",".join(shorts["Ticker"].astype(str).tolist()),
+                }
+            )
+
+        if not event_returns:
+            continue
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contrib_share = 0.0
+        if contrib_total_abs > 0:
+            top_contrib_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs
+
+        for ticker, contribution in sorted(ticker_contrib.items()):
+            contribution_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "ticker": ticker,
+                    "pnl_contribution": contribution,
+                }
+            )
+
+        mean_return = float(np.mean(event_returns))
+        row = {
+            "experiment_id": experiment_id,
+            "portfolio_style": "long_short",
+            "rebalance_rule": "session_open",
+            "top_k": top_k,
+            "rebalance_count": int(len(event_returns)),
+            "portfolio_mean_return": mean_return,
+            "portfolio_median_return": float(np.median(event_returns)),
+            "portfolio_std_return": float(np.std(event_returns)),
+            "portfolio_mean_turnover": float(np.mean(event_turnovers)) if event_turnovers else np.nan,
+            "portfolio_mean_long_contribution": float(np.mean(event_longs)) if event_longs else np.nan,
+            "portfolio_mean_short_contribution": float(np.mean(event_shorts)) if event_shorts else np.nan,
+            "positive_windows": int(sum(val > 0 for val in event_returns)),
+            "zero_windows": int(sum(np.isclose(val, 0.0) for val in event_returns)),
+            "negative_windows": int(sum(val < 0 for val in event_returns)),
+            "portfolio_win_rate": float(np.mean([val > 0 for val in event_returns])),
+            "top_contributor_share": top_contrib_share,
+            "benchmark_policy": benchmark_policy,
+            "benchmark_return": benchmark_return,
+            "excess_vs_benchmark": mean_return - benchmark_return,
+            "beats_flat": bool(mean_return > 0.0),
+            "beats_benchmark": bool(mean_return > benchmark_return),
+            "promotion_verdict": "baseline_promoted"
+            if (mean_return > 0.0 and mean_return > benchmark_return and top_contrib_share <= 0.60)
+            else "research_only",
+        }
+        rows.append(row)
+
+    summary_df = pd.DataFrame(rows)
+    history_df = pd.DataFrame(history_rows)
+    contrib_df = pd.DataFrame(contribution_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["portfolio_mean_return", "portfolio_mean_turnover", "rebalance_count"],
+            ascending=[False, True, False],
+        ).reset_index(drop=True)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    contrib_df.to_csv(contrib_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-RANK] summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-RANK] rebalance history saved: {history_csv}")
+    main_logger.info(f"[PORTFOLIO-RANK] ticker contributions saved: {contrib_csv}")
+    print(f"[PORTFOLIO-RANK] summary saved: {summary_csv}")
     return summary_df
 
 def train_rl_on_window(
@@ -5727,6 +5954,7 @@ if __name__ == "__main__":
             "signal_research_setup_regimes",
             "signal_research_market_state_60m",
             "signal_research_multiscale_60m",
+            "signal_research_portfolio_rank_60m",
             "signal_research_e302",
             "signal_research_two_track",
             "signal_baseline",
@@ -5738,6 +5966,7 @@ if __name__ == "__main__":
             "signal_baseline_setup_regimes",
             "signal_baseline_market_state_60m",
             "signal_baseline_multiscale_60m",
+            "signal_baseline_portfolio_rank_60m",
             "refresh_branch_registry",
             "refresh_setup_library_scoreboard",
             "experiment_suite",
@@ -5995,6 +6224,8 @@ if __name__ == "__main__":
             experiment_set = "market_state_60m"
         elif run_mode == "signal_research_multiscale_60m":
             experiment_set = "multiscale_60m"
+        elif run_mode == "signal_research_portfolio_rank_60m":
+            experiment_set = "portfolio_rank_60m"
         elif run_mode == "signal_research_e302":
             experiment_set = "e302_sweep"
         elif run_mode == "signal_research_two_track":
@@ -6087,7 +6318,7 @@ if __name__ == "__main__":
         print(f"[OPTUNA-MO] selected active trial: {PARETO_SELECTED_ACTIVE_FILE}")
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_portfolio_rank_60m", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -6393,6 +6624,22 @@ if __name__ == "__main__":
                 step_days=30,
                 max_windows_per_ticker=1,
                 policy_filter=multiscale_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m":
+            promoted_portfolio_ids = load_portfolio_rank_promoted_ids()
+            if not promoted_portfolio_ids:
+                promoted_portfolio_ids = ["E1001", "E1002", "E1003", "E1004", "E1005", "E1006"]
+            main_logger.info(
+                "Starting portfolio-rank 60m baseline evaluation. "
+                "Testing promoted universe-ranking survivors against SIGNAL_E211_BANDED_68 and FLAT only. "
+                f"Evaluating shortlist: {', '.join(promoted_portfolio_ids)}"
+            )
+            run_portfolio_rank_baseline(
+                promoted_ids=promoted_portfolio_ids,
+                top_k=3,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
             )
             raise SystemExit(0)
 

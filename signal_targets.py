@@ -118,10 +118,33 @@ def make_target_t4_triple_barrier(
     return out
 
 
+def make_target_t6_cross_sectional_relative_return(
+    df: pd.DataFrame,
+    horizon: int,
+) -> pd.DataFrame:
+    out = df.copy()
+    if "Ticker" not in out.columns or "Date" not in out.columns or "Close" not in out.columns:
+        out[f"xs_rel_fwd_ret_{horizon}"] = np.nan
+        return out
+
+    out = out.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    close = pd.to_numeric(out["Close"], errors="coerce")
+    ticker_groups = out.groupby("Ticker", sort=False)
+    raw_fwd = ticker_groups["Close"].shift(-horizon) / close - 1.0
+    out[f"raw_fwd_ret_xs_{horizon}"] = pd.to_numeric(raw_fwd, errors="coerce")
+    xs_mean = out.groupby("Date")[f"raw_fwd_ret_xs_{horizon}"].transform("mean")
+    out[f"xs_rel_fwd_ret_{horizon}"] = (
+        pd.to_numeric(out[f"raw_fwd_ret_xs_{horizon}"], errors="coerce")
+        - pd.to_numeric(xs_mean, errors="coerce")
+    )
+    return out
+
+
 def build_targets(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     out = df.copy()
     out = make_target_t1_cost_aware_return(out, horizon=horizon)
     out = make_target_t2_alpha_return(out, horizon=horizon)
     out = make_target_t3_opportunity(out, horizon=horizon)
     out = make_target_t4_triple_barrier(out, horizon=horizon)
+    out = make_target_t6_cross_sectional_relative_return(out, horizon=horizon)
     return out

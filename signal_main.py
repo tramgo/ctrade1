@@ -23,6 +23,7 @@ from signal_config import (
     GENERALIZATION_EXPERIMENTS,
     MARKET_STATE_60M_EXPERIMENTS,
     MULTISCALE_60M_EXPERIMENTS,
+    PORTFOLIO_RANK_60M_EXPERIMENTS,
     SETUP_REGIME_EXPERIMENTS,
     ExperimentDef,
 )
@@ -63,6 +64,7 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(SETUP_REGIME_EXPERIMENTS)
         + list(MARKET_STATE_60M_EXPERIMENTS)
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+        + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
         + list(GENERALIZATION_NEXT_EXPERIMENTS)
         + list(GENERALIZATION_WAVE2_EXPERIMENTS)
         + list(E302_SWEEP_EXPERIMENTS)
@@ -95,6 +97,8 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(MARKET_STATE_60M_EXPERIMENTS)
     if experiment_set == "multiscale_60m":
         return list(MULTISCALE_60M_EXPERIMENTS)
+    if experiment_set == "portfolio_rank_60m":
+        return list(PORTFOLIO_RANK_60M_EXPERIMENTS)
     if experiment_set == "generalization_next":
         return list(GENERALIZATION_NEXT_EXPERIMENTS)
     if experiment_set == "generalization_wave2":
@@ -657,6 +661,59 @@ def build_multiscale_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1001": "RelativeContinuation",
+        "E1002": "RelativeMeanReversion",
+        "E1003": "SectorRelative",
+        "E1004": "VolAdjMarketRelative",
+        "E1005": "LeadershipPersistence",
+        "E1006": "RegimeAwareRanking",
+    }
+    rank_ids = set(family_by_experiment)
+    rank_df = compare.loc[compare["ExperimentID"].isin(rank_ids)].copy()
+    if rank_df.empty:
+        return pd.DataFrame()
+    rank_df["Family"] = rank_df["ExperimentID"].map(family_by_experiment)
+    rank_df["Eligible"] = (
+        (pd.to_numeric(rank_df.get("Gap_IC_Spearman"), errors="coerce") > 0)
+        & (pd.to_numeric(rank_df.get("Gap_Spread_TopBottom"), errors="coerce") > 0)
+        & (pd.to_numeric(rank_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = rank_df.loc[rank_df["Eligible"]].copy()
+    if ranked.empty:
+        rank_df["FamilyRank"] = np.nan
+        rank_df["ShortlistRank"] = np.nan
+        rank_df["StandalonePromoted"] = False
+        return rank_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_IC_Spearman"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_Spread_TopBottom"), errors="coerce").fillna(0.0)
+        + 0.25 * pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["FamilyRank"] = ranked.groupby("Family").cumcount() + 1
+    ranked = ranked.loc[ranked["FamilyRank"] <= 1].copy()
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = rank_df.merge(
+        ranked[["ExperimentID", "FamilyRank", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_branch_comparison_rows_e102_deepdive(base_out_dir: Path, current_shortlist: pd.DataFrame) -> pd.DataFrame:
     rows = []
     sibling_dir = base_out_dir.parent
@@ -1002,6 +1059,34 @@ def run_signal_pipeline(
             "\n".join(promoted_multiscale),
             encoding="utf-8",
         )
+    portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
+    if not portfolio_rank_shortlist.empty:
+        portfolio_rank_shortlist.to_csv(run_out_dir / "portfolio_rank_60m_shortlist.csv", index=False)
+        portfolio_rank_summary = portfolio_rank_shortlist.sort_values(
+            ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+            ascending=[False, False, False],
+        ).reset_index(drop=True)
+        portfolio_rank_summary.to_csv(run_out_dir / "portfolio_rank_60m_summary.csv", index=False)
+        promoted_portfolio_rank = portfolio_rank_shortlist.loc[
+            portfolio_rank_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "portfolio_rank_60m_promoted_ids.txt").write_text(
+            "\n".join(promoted_portfolio_rank),
+            encoding="utf-8",
+        )
+        if not predictions_all.empty:
+            rank_history = predictions_all.loc[
+                predictions_all["ExperimentID"].isin(set(portfolio_rank_shortlist["ExperimentID"].tolist()))
+            ].copy()
+            if not rank_history.empty and "Prediction" in rank_history.columns and "Date" in rank_history.columns:
+                rank_history["Date"] = pd.to_datetime(rank_history["Date"], errors="coerce")
+                rank_history["RankPct"] = rank_history.groupby(["ExperimentID", "Date"])["Prediction"].rank(
+                    method="average", pct=True
+                )
+                rank_history["RankOrder"] = rank_history.groupby(["ExperimentID", "Date"])["Prediction"].rank(
+                    method="first", ascending=False
+                )
+                rank_history.to_csv(run_out_dir / "portfolio_rank_60m_rank_history.csv", index=False)
     ablation_grid_summary, ablation_best_by_target, ablation_best_by_family, ablation_shortlist = build_ablation_grid_views(compare)
     if not ablation_grid_summary.empty:
         ablation_grid_summary.to_csv(run_out_dir / "ablation_grid_summary.csv", index=False)
@@ -1032,7 +1117,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--experiment-set",
-        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
+        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
         default="default",
         help="Named experiment bundle to use before optional --experiments filtering.",
     )
