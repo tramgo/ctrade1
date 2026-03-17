@@ -1,4 +1,5 @@
 import os
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 import copy
 import gymnasium as gym
 from gymnasium import spaces
@@ -351,6 +352,132 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
         ],
         "Signal_E906",
     ),
+    "E1101": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1101",
+    ),
+    "E1102": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1102",
+    ),
+    "E1103": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1103",
+    ),
+    "E1104": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1104",
+    ),
+    "E1105": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1105",
+    ),
+    "E1106": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1106",
+    ),
+    "E1201": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1201",
+    ),
+    "E1202": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1202",
+    ),
+    "E1203": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1203",
+    ),
+    "E1204": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1204",
+    ),
+    "E1301": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1301",
+    ),
+    "E1302": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1302",
+    ),
+    "E1303": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1303",
+    ),
+    "E1304": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_breadth_context_60m" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1304",
+    ),
+    "E1401": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1401",
+    ),
+    "E1402": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1402",
+    ),
+    "E1403": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1403",
+    ),
+    "E1404": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_time_distribution_v2" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1404",
+    ),
 }
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
 _SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
@@ -536,15 +663,70 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E906_Pred", 0.5),
         ("Signal_E906_Edge", 0.0),
         ("Signal_E906_HighConf", 0.0),
+        ("Signal_E1101_Pred", 0.5),
+        ("Signal_E1101_Edge", 0.0),
+        ("Signal_E1101_HighConf", 0.0),
+        ("Signal_E1102_Pred", 0.5),
+        ("Signal_E1102_Edge", 0.0),
+        ("Signal_E1102_HighConf", 0.0),
+        ("Signal_E1103_Pred", 0.5),
+        ("Signal_E1103_Edge", 0.0),
+        ("Signal_E1103_HighConf", 0.0),
+        ("Signal_E1104_Pred", 0.5),
+        ("Signal_E1104_Edge", 0.0),
+        ("Signal_E1104_HighConf", 0.0),
+        ("Signal_E1105_Pred", 0.5),
+        ("Signal_E1105_Edge", 0.0),
+        ("Signal_E1105_HighConf", 0.0),
+        ("Signal_E1106_Pred", 0.5),
+        ("Signal_E1106_Edge", 0.0),
+        ("Signal_E1106_HighConf", 0.0),
+        ("Signal_E1201_Pred", 0.5),
+        ("Signal_E1201_Edge", 0.0),
+        ("Signal_E1201_HighConf", 0.0),
+        ("Signal_E1202_Pred", 0.5),
+        ("Signal_E1202_Edge", 0.0),
+        ("Signal_E1202_HighConf", 0.0),
+        ("Signal_E1203_Pred", 0.5),
+        ("Signal_E1203_Edge", 0.0),
+        ("Signal_E1203_HighConf", 0.0),
+        ("Signal_E1204_Pred", 0.5),
+        ("Signal_E1204_Edge", 0.0),
+        ("Signal_E1204_HighConf", 0.0),
+        ("Signal_E1301_Pred", 0.5),
+        ("Signal_E1301_Edge", 0.0),
+        ("Signal_E1301_HighConf", 0.0),
+        ("Signal_E1302_Pred", 0.5),
+        ("Signal_E1302_Edge", 0.0),
+        ("Signal_E1302_HighConf", 0.0),
+        ("Signal_E1303_Pred", 0.5),
+        ("Signal_E1303_Edge", 0.0),
+        ("Signal_E1303_HighConf", 0.0),
+        ("Signal_E1304_Pred", 0.5),
+        ("Signal_E1304_Edge", 0.0),
+        ("Signal_E1304_HighConf", 0.0),
+        ("Signal_E1401_Pred", 0.5),
+        ("Signal_E1401_Edge", 0.0),
+        ("Signal_E1401_HighConf", 0.0),
+        ("Signal_E1402_Pred", 0.5),
+        ("Signal_E1402_Edge", 0.0),
+        ("Signal_E1402_HighConf", 0.0),
+        ("Signal_E1403_Pred", 0.5),
+        ("Signal_E1403_Edge", 0.0),
+        ("Signal_E1403_HighConf", 0.0),
+        ("Signal_E1404_Pred", 0.5),
+        ("Signal_E1404_Edge", 0.0),
+        ("Signal_E1404_HighConf", 0.0),
     ]
+    default_map = dict(overlay_defaults)
     if not ticker or "Date" not in out.columns:
-        for col, default in overlay_defaults:
-            out[col] = default
-        return out
+        defaults_df = pd.DataFrame({col: np.full(len(out), default) for col, default in overlay_defaults}, index=out.index)
+        return pd.concat([out, defaults_df], axis=1)
 
     out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
     out = out.sort_values("Date").reset_index(drop=True)
 
+    overlay_frames = []
     for experiment_id in SIGNAL_OVERLAY_SOURCES.keys():
         pred_df = load_signal_overlay_predictions(experiment_id)
         signal_prefix = SIGNAL_OVERLAY_SOURCES[experiment_id][1]
@@ -552,28 +734,33 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         edge_col = f"{signal_prefix}_Edge"
         high_conf_col = f"{signal_prefix}_HighConf"
         if pred_df.empty:
-            out[pred_col] = 0.5
-            out[edge_col] = 0.0
-            out[high_conf_col] = 0.0
             continue
 
         ticker_preds = pred_df.loc[pred_df["Ticker"] == ticker].copy()
         if ticker_preds.empty:
-            out[pred_col] = 0.5
-            out[edge_col] = 0.0
-            out[high_conf_col] = 0.0
             continue
 
         ticker_preds["Date"] = pd.to_datetime(ticker_preds["Date"], errors="coerce")
         ticker_preds = ticker_preds[["Date", pred_col, edge_col, high_conf_col]].copy()
         ticker_preds = ticker_preds.sort_values("Date").drop_duplicates(["Date"], keep="last").reset_index(drop=True)
-        out = out.merge(ticker_preds, on="Date", how="left")
-        for col, default in [
-            (pred_col, 0.5),
-            (edge_col, 0.0),
-            (high_conf_col, 0.0),
-        ]:
-            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+        overlay_frames.append(ticker_preds)
+
+    if overlay_frames:
+        overlay_merged = overlay_frames[0]
+        for frame in overlay_frames[1:]:
+            overlay_merged = overlay_merged.merge(frame, on="Date", how="outer")
+        out = out.merge(overlay_merged, on="Date", how="left")
+
+    missing_defaults = {
+        col: np.full(len(out), default)
+        for col, default in overlay_defaults
+        if col not in out.columns
+    }
+    if missing_defaults:
+        out = pd.concat([out, pd.DataFrame(missing_defaults, index=out.index)], axis=1)
+    for col, default in overlay_defaults:
+        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(default)
+    out = out.copy()
     return out
 
 # --- Place these at the top of your script (after BASE_DIR is defined) ---
@@ -1330,13 +1517,6 @@ def build_rl_features(
     df["RegimeBear"] = (df["Trend_2h"] < 0).astype(float)
     df["ADX_strong"] = (trend.ADXIndicator(high, low, close, window=win_30m).adx() >= 25).astype(float)
     df["ADX_weak"] = 1.0 - df["ADX_strong"]
-    df["MarketStateBullCalm"] = ((df["RegimeBull"] > 0.5) & (df["MktVolRank"] <= 0.60)).astype(float)
-    df["MarketStateBullStress"] = ((df["RegimeBull"] > 0.5) & (df["MktVolRank"] > 0.60)).astype(float)
-    df["MarketStateBearCalm"] = ((df["RegimeBear"] > 0.5) & (df["MktVolRank"] <= 0.60)).astype(float)
-    df["MarketStateBearStress"] = ((df["RegimeBear"] > 0.5) & (df["MktVolRank"] > 0.60)).astype(float)
-    df["MarketStateTransition"] = ((df["ADX_weak"] > 0.5) | (df["Trend_30"].abs() <= 0.0015)).astype(float)
-    df["MarketStateTrendScore"] = (df["Trend_30"] + 0.5 * df["Trend_2h"]).clip(-1.0, 1.0).fillna(0.0)
-    df["MarketStateVolPressure"] = ((pd.to_numeric(df["MktVolRank"], errors="coerce").fillna(0.5) - 0.5) * 2.0).clip(-1.0, 1.0)
     ret_3h = close.pct_change(3).replace([np.inf, -np.inf], 0.0).fillna(0.0)
     ret_6h = close.pct_change(6).replace([np.inf, -np.inf], 0.0).fillna(0.0)
     ret_12h = close.pct_change(12).replace([np.inf, -np.inf], 0.0).fillna(0.0)
@@ -1352,9 +1532,17 @@ def build_rl_features(
     df["MultiScaleVolRatio_3v20"] = (vol_3 / (vol_20 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
     df["MultiScaleRangeCompression_3v12"] = (range_mean_3 / (range_mean_12 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
     df["MultiScaleBodyPressure_3"] = df["BodyToRange"].rolling(3).mean().fillna(0.0).clip(-1.0, 1.0)
+    df = _contextualize_with_market(df, benchmark_df=benchmark_df, sector_df=sector_df)
+    mkt_vol_rank = pd.to_numeric(df.get("MktVolRank", 0.5), errors="coerce").fillna(0.5)
+    df["MarketStateBullCalm"] = ((df["RegimeBull"] > 0.5) & (mkt_vol_rank <= 0.60)).astype(float)
+    df["MarketStateBullStress"] = ((df["RegimeBull"] > 0.5) & (mkt_vol_rank > 0.60)).astype(float)
+    df["MarketStateBearCalm"] = ((df["RegimeBear"] > 0.5) & (mkt_vol_rank <= 0.60)).astype(float)
+    df["MarketStateBearStress"] = ((df["RegimeBear"] > 0.5) & (mkt_vol_rank > 0.60)).astype(float)
+    df["MarketStateTransition"] = ((df["ADX_weak"] > 0.5) | (df["Trend_30"].abs() <= 0.0015)).astype(float)
+    df["MarketStateTrendScore"] = (df["Trend_30"] + 0.5 * df["Trend_2h"]).clip(-1.0, 1.0).fillna(0.0)
+    df["MarketStateVolPressure"] = ((mkt_vol_rank - 0.5) * 2.0).clip(-1.0, 1.0)
     df["MultiScaleBreakoutPressure_3"] = df["Breakout_3bar"].rolling(3).mean().fillna(0.0).clip(-1.0, 1.0)
 
-    df = _contextualize_with_market(df, benchmark_df=benchmark_df, sector_df=sector_df)
     df = merge_signal_overlay_features(df, ticker=ticker)
 
     numeric_cols = [c for c in df.columns if c != "Date"]
@@ -1385,7 +1573,13 @@ def get_data_kite(
 
     # Determine ticker string from instrument token.
     tickerval = get_ticker_from_token(instrument_token, instrument_df)
-    csv_path = RESULTS_DIR / f"data_fetched_{tickerval}.csv"
+    interval_key = str(interval).lower().strip()
+    interval_safe = interval_key.replace("minute", "m").replace(" ", "")
+    csv_path = (
+        RESULTS_DIR / f"data_fetched_{tickerval}.csv"
+        if interval_key == "60minute"
+        else RESULTS_DIR / f"data_fetched_{tickerval}_{interval_safe}.csv"
+    )
     
     # Check if cached data exists.
     if csv_path.exists():
@@ -2756,9 +2950,233 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     out["XS_LaggardPersist_6"] = bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(6, min_periods=1).sum()).fillna(0.0)
     out["XS_Rank_Change_3"] = out.groupby("Ticker")["XS_Rank_StockMinusMkt_3"].diff(3).fillna(0.0)
 
+    mkt_ret_1 = pd.to_numeric(out.get("MktRet_1"), errors="coerce").fillna(0.0)
+    lag_ret_1 = pd.to_numeric(out.get("LagRet_1"), errors="coerce").fillna(0.0)
+    stock_minus_mkt_1 = pd.to_numeric(out.get("StockMinusMkt_1"), errors="coerce").fillna(0.0)
+    stock_minus_mkt_3 = pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
+    relative_volume = pd.to_numeric(out.get("RelativeVolumeTime"), errors="coerce").fillna(0.0)
+    sign_stock = np.sign(lag_ret_1)
+    sign_mkt = np.sign(mkt_ret_1)
+    participation = np.where(sign_mkt == 0.0, 0.5, (sign_stock == sign_mkt).astype(float))
+
+    out["_BreadthAdv1"] = (stock_minus_mkt_1 > 0.0).astype(float)
+    out["_BreadthRelAdv3"] = (stock_minus_mkt_3 > 0.0).astype(float)
+    out["_BreadthLeader"] = (out["XS_Rank_StockMinusMkt_3"] >= 0.80).astype(float)
+    out["_BreadthLaggard"] = (out["XS_Rank_StockMinusMkt_3"] <= 0.20).astype(float)
+    out["_BreadthParticipation"] = participation
+
+    breadth_df = (
+        out.groupby("Date", as_index=False)
+        .agg(
+            BreadthAdvFrac_1=("_BreadthAdv1", "mean"),
+            BreadthRelAdvFrac_3=("_BreadthRelAdv3", "mean"),
+            BreadthLeaderFrac=("_BreadthLeader", "mean"),
+            BreadthLaggardFrac=("_BreadthLaggard", "mean"),
+            BreadthDispersion_3=("StockMinusMkt_3", "std"),
+            BreadthVolumePressure=("RelativeVolumeTime", "mean"),
+            BreadthParticipation=("_BreadthParticipation", "mean"),
+        )
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+    breadth_df["BreadthTrendPressure"] = (2.0 * breadth_df["BreadthAdvFrac_1"] - 1.0).clip(-1.0, 1.0)
+    breadth_df["BreadthLeaderSpread"] = (
+        breadth_df["BreadthLeaderFrac"] - breadth_df["BreadthLaggardFrac"]
+    ).clip(-1.0, 1.0)
+    breadth_df["BreadthExpansion_3"] = breadth_df["BreadthTrendPressure"].diff(3).fillna(0.0).clip(-1.0, 1.0)
+    breadth_df["BreadthDispersion_3"] = (
+        pd.to_numeric(breadth_df["BreadthDispersion_3"], errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0.0)
+        .clip(0.0, 5.0)
+    )
+    breadth_df["BreadthVolumePressure"] = (
+        pd.to_numeric(breadth_df["BreadthVolumePressure"], errors="coerce")
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0.0)
+        .clip(-5.0, 5.0)
+    )
+    out = out.merge(breadth_df, on="Date", how="left")
+    out.drop(
+        columns=["_BreadthAdv1", "_BreadthRelAdv3", "_BreadthLeader", "_BreadthLaggard", "_BreadthParticipation"],
+        inplace=True,
+        errors="ignore",
+    )
+
     numeric_cols = [col for col in out.columns if col not in {"Ticker", "Date"}]
     out[numeric_cols] = out[numeric_cols].apply(pd.to_numeric, errors="coerce")
     out.fillna(0.0, inplace=True)
+    return out
+
+
+def _bucket_end_60m_from_15m(ts: pd.Series) -> pd.Series:
+    ts = pd.to_datetime(ts, errors="coerce")
+    return (ts - pd.Timedelta(minutes=15)).dt.floor("60min") + pd.Timedelta(minutes=15)
+
+
+def _build_second_timeframe_aggregates(df_15m: pd.DataFrame) -> pd.DataFrame:
+    if df_15m.empty or "Date" not in df_15m.columns:
+        return pd.DataFrame()
+
+    work = df_15m.copy()
+    work["Date"] = pd.to_datetime(work["Date"], errors="coerce")
+    work = work.sort_values("Date").reset_index(drop=True)
+    work["BucketEnd60m"] = _bucket_end_60m_from_15m(work["Date"])
+    work["_ret1"] = pd.to_numeric(work.get("Close"), errors="coerce").pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    rows = []
+    eps = 1e-9
+    for bucket_end, grp in work.groupby("BucketEnd60m", sort=True):
+        grp = grp.sort_values("Date")
+        first_open = float(pd.to_numeric(grp["Open"], errors="coerce").iloc[0]) if len(grp) else 0.0
+        last_close = float(pd.to_numeric(grp["Close"], errors="coerce").iloc[-1]) if len(grp) else 0.0
+        bucket_high = float(pd.to_numeric(grp["High"], errors="coerce").max()) if len(grp) else 0.0
+        bucket_low = float(pd.to_numeric(grp["Low"], errors="coerce").min()) if len(grp) else 0.0
+        bucket_high_idx = int(pd.to_numeric(grp["High"], errors="coerce").idxmax()) if len(grp) else -1
+        bucket_low_idx = int(pd.to_numeric(grp["Low"], errors="coerce").idxmin()) if len(grp) else -1
+        intrahour_ret = (last_close / max(first_open, eps)) - 1.0 if first_open > 0 else 0.0
+        path_abs = float(pd.to_numeric(grp["_ret1"], errors="coerce").abs().sum())
+        ret_sign = np.sign(pd.to_numeric(grp["_ret1"], errors="coerce").fillna(0.0))
+        nonzero_sign = ret_sign[ret_sign != 0]
+        sign_flip_count = int((nonzero_sign.diff().fillna(0).abs() > 0).sum()) if len(nonzero_sign) else 0
+        positive_share = float((ret_sign > 0).mean()) if len(ret_sign) else 0.0
+        negative_share = float((ret_sign < 0).mean()) if len(ret_sign) else 0.0
+        half = max(1, len(grp) // 2)
+        first_half = grp.iloc[:half]
+        second_half = grp.iloc[half:]
+        first_half_ret = (
+            float(pd.to_numeric(first_half["Close"], errors="coerce").iloc[-1]) / max(first_open, eps) - 1.0
+            if len(first_half) and first_open > 0
+            else 0.0
+        )
+        second_half_open = float(pd.to_numeric(second_half["Open"], errors="coerce").iloc[0]) if len(second_half) else last_close
+        second_half_ret = (
+            last_close / max(second_half_open, eps) - 1.0
+            if len(second_half) and second_half_open > 0
+            else 0.0
+        )
+        last_quarter = grp.iloc[-1:] if len(grp) else grp
+        last_quarter_open = float(pd.to_numeric(last_quarter["Open"], errors="coerce").iloc[0]) if len(last_quarter) else last_close
+        last_quarter_ret = (
+            last_close / max(last_quarter_open, eps) - 1.0
+            if len(last_quarter) and last_quarter_open > 0
+            else 0.0
+        )
+        late_strength_share = second_half_ret / max(abs(intrahour_ret), eps)
+        last_quarter_share = last_quarter_ret / max(abs(intrahour_ret), eps)
+        running_low = float(pd.to_numeric(grp["Low"], errors="coerce").min()) if len(grp) else first_open
+        running_high = float(pd.to_numeric(grp["High"], errors="coerce").max()) if len(grp) else first_open
+        max_adverse_excursion = (
+            max(0.0, (first_open - running_low) / max(first_open, eps))
+            if intrahour_ret >= 0
+            else max(0.0, (running_high - first_open) / max(first_open, eps))
+        )
+        high_before_low = float(bucket_high_idx < bucket_low_idx) if bucket_high_idx >= 0 and bucket_low_idx >= 0 else 0.0
+        low_before_high = float(bucket_low_idx < bucket_high_idx) if bucket_high_idx >= 0 and bucket_low_idx >= 0 else 0.0
+        intrahour_rejection = (
+            ((bucket_high - last_close) - (last_close - bucket_low)) / max(bucket_high - bucket_low, eps)
+            if bucket_high > bucket_low
+            else 0.0
+        )
+        early_vol = float(pd.to_numeric(first_half["_ret1"], errors="coerce").std(ddof=0)) if len(first_half) else 0.0
+        late_vol = float(pd.to_numeric(second_half["_ret1"], errors="coerce").std(ddof=0)) if len(second_half) else 0.0
+        time_imbalance = (
+            (second_half_ret - first_half_ret) / max(abs(intrahour_ret), eps)
+            if abs(intrahour_ret) > 0
+            else 0.0
+        )
+        early_exhaustion_score = (
+            first_half_ret - second_half_ret
+            if np.sign(first_half_ret) == np.sign(intrahour_ret)
+            else first_half_ret + second_half_ret
+        )
+        rows.append(
+            {
+                "Date": bucket_end,
+                "STF15_IntrahourRet": intrahour_ret,
+                "STF15_PathEfficiency": intrahour_ret / max(path_abs, eps),
+                "STF15_FirstHalfRet": first_half_ret,
+                "STF15_SecondHalfRet": second_half_ret,
+                "STF15_FirstHalfShare": first_half_ret / max(abs(intrahour_ret), eps),
+                "STF15_VolBurst": float(pd.to_numeric(grp["_ret1"], errors="coerce").std(ddof=0)),
+                "STF15_RangeToOpen": (bucket_high - bucket_low) / max(first_open, eps) if first_open > 0 else 0.0,
+                "STF15_FailedBreakoutScore": ((bucket_high - last_close) - (last_close - bucket_low)) / max(first_open, eps) if first_open > 0 else 0.0,
+                "STF15_CloseLocation": (last_close - bucket_low) / max(bucket_high - bucket_low, eps),
+                "STF15_RelVolumeMean": float(pd.to_numeric(grp.get("RelativeVolumeTime"), errors="coerce").fillna(0.0).mean()),
+                "STF15_WickPressure": float((pd.to_numeric(grp.get("LowerWickRatio"), errors="coerce").fillna(0.0) - pd.to_numeric(grp.get("UpperWickRatio"), errors="coerce").fillna(0.0)).mean()),
+                "STF15_BodyPressure": float((np.sign(pd.to_numeric(grp["Close"], errors="coerce") - pd.to_numeric(grp["Open"], errors="coerce")).fillna(0.0) * pd.to_numeric(grp.get("BodyToRange"), errors="coerce").fillna(0.0)).mean()),
+                "STF15_BreakoutPressure": float(pd.to_numeric(grp.get("Breakout_3bar"), errors="coerce").fillna(0.0).mean()),
+                "STF15_PositiveShare": positive_share,
+                "STF15_NegativeShare": negative_share,
+                "STF15_SignFlipRate": sign_flip_count / max(len(grp) - 1, 1),
+                "STF15_LateStrengthShare": late_strength_share,
+                "STF15_TimeImbalance": time_imbalance,
+                "STF15_EarlyVol": early_vol,
+                "STF15_LateVol": late_vol,
+                "STF15_MaxAdverseExcursion": max_adverse_excursion,
+                "STF15_HighBeforeLow": high_before_low,
+                "STF15_LowBeforeHigh": low_before_high,
+                "STF15_RejectionScore": intrahour_rejection,
+                "STF15_LastQuarterRet": last_quarter_ret,
+                "STF15_LastQuarterShare": last_quarter_share,
+                "STF15_EarlyExhaustionScore": early_exhaustion_score,
+                "STF15_CloseQuarterDominance": (last_quarter_ret - first_half_ret) / max(abs(intrahour_ret), eps),
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out = out.sort_values("Date").reset_index(drop=True)
+    vol_base = pd.to_numeric(out["STF15_VolBurst"], errors="coerce").rolling(20, min_periods=5).mean().replace(0.0, np.nan)
+    out["STF15_VolBurstRatio"] = (
+        pd.to_numeric(out["STF15_VolBurst"], errors="coerce") / vol_base
+    ).replace([np.inf, -np.inf], np.nan).fillna(1.0).clip(0.0, 10.0)
+    out["STF15_LateVolRatio"] = (
+        pd.to_numeric(out["STF15_LateVol"], errors="coerce")
+        / pd.to_numeric(out["STF15_EarlyVol"], errors="coerce").replace(0.0, np.nan)
+    ).replace([np.inf, -np.inf], np.nan).fillna(1.0).clip(0.0, 10.0)
+    out.fillna(0.0, inplace=True)
+    return out
+
+
+def add_second_timeframe_context(
+    df_60m: pd.DataFrame,
+    instrument_token: int,
+    history_days: int,
+) -> pd.DataFrame:
+    if df_60m.empty or "Date" not in df_60m.columns:
+        return df_60m
+
+    df_15m = get_data_kite(
+        kite,
+        instrument_token=instrument_token,
+        days=history_days,
+        interval="15minute",
+        include_relative_context=True,
+    )
+    agg_15m = _build_second_timeframe_aggregates(df_15m)
+    out = df_60m.copy()
+    out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
+    if agg_15m.empty:
+        for col in [
+            "STF15_IntrahourRet", "STF15_PathEfficiency", "STF15_FirstHalfRet", "STF15_SecondHalfRet",
+            "STF15_FirstHalfShare", "STF15_VolBurst", "STF15_VolBurstRatio", "STF15_RangeToOpen",
+            "STF15_FailedBreakoutScore", "STF15_CloseLocation", "STF15_RelVolumeMean", "STF15_WickPressure",
+            "STF15_BodyPressure", "STF15_BreakoutPressure", "STF15_PositiveShare", "STF15_NegativeShare",
+            "STF15_SignFlipRate", "STF15_LateStrengthShare", "STF15_MaxAdverseExcursion",
+            "STF15_HighBeforeLow", "STF15_LowBeforeHigh", "STF15_RejectionScore",
+            "STF15_TimeImbalance", "STF15_EarlyVol", "STF15_LateVol", "STF15_LateVolRatio",
+            "STF15_LastQuarterRet", "STF15_LastQuarterShare", "STF15_EarlyExhaustionScore",
+            "STF15_CloseQuarterDominance",
+        ]:
+            out[col] = 0.0
+        return out
+
+    agg_15m["Date"] = pd.to_datetime(agg_15m["Date"], errors="coerce")
+    out = pd.merge_asof(out.sort_values("Date"), agg_15m.sort_values("Date"), on="Date", direction="backward")
+    stf_cols = [col for col in agg_15m.columns if col != "Date"]
+    out[stf_cols] = out[stf_cols].apply(pd.to_numeric, errors="coerce").fillna(0.0)
     return out
 
 
@@ -2782,6 +3200,12 @@ def build_signal_research_dataset(
             main_logger.warning(f"[SIGNAL DATASET] no data for {ticker}, skipping.")
             continue
 
+        if interval == "60minute":
+            df_ticker = add_second_timeframe_context(
+                df_ticker,
+                instrument_token=token,
+                history_days=history_days,
+            )
         df_ticker = assign_research_window_ids(df_ticker, interval=interval, window_days=window_days)
         df_ticker["Ticker"] = ticker
         frames.append(df_ticker)
@@ -2868,6 +3292,30 @@ def run_signal_research_workflow(
         main_logger.info(
             "[SIGNAL RESEARCH] Portfolio-rank 60m discovery enabled. "
             "Testing universe-level cross-sectional ranking on the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "second_timeframe_60m":
+        output_dir_name = "outputs_second_timeframe_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Second-timeframe 60m discovery enabled. "
+            "Testing true 15m context on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "intrahour_path_v1":
+        output_dir_name = "outputs_intrahour_path_v1"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Intrahour path v1 enabled. "
+            "Testing true 15m path-structure information on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "breadth_context_60m":
+        output_dir_name = "outputs_breadth_context_60m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Breadth-context 60m discovery enabled. "
+            "Testing universe breadth and internal market participation context on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "time_distribution_v2":
+        output_dir_name = "outputs_time_distribution_v2"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Time-distribution v2 enabled. "
+            "Testing early-vs-late intrahour information distribution on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
         )
     elif experiment_set == "e302_sweep":
         output_dir_name = "outputs_e302"
@@ -4126,6 +4574,48 @@ def load_setup_regime_promoted_ids() -> List[str]:
     return ids
 
 
+def load_intrahour_path_v1_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_intrahour_path_v1" / "latest" / "intrahour_path_v1_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read intrahour-path promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_breadth_context_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_breadth_context_60m" / "latest" / "breadth_context_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read breadth-context promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_time_distribution_v2_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_time_distribution_v2" / "latest" / "time_distribution_v2_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read time-distribution promoted IDs: {exc}")
+        return []
+    return ids
+
+
 def load_market_state_promoted_ids() -> List[str]:
     promoted_path = (
         RESULTS_DIR / "signal_research" / "outputs_market_state_60m" / "latest" / "market_state_60m_promoted_ids.txt"
@@ -4164,6 +4654,20 @@ def load_portfolio_rank_promoted_ids() -> List[str]:
         ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     except Exception as exc:
         main_logger.warning(f"[PORTFOLIO-RANK] failed to read promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_second_timeframe_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_second_timeframe_60m" / "latest" / "second_timeframe_60m_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read second-timeframe promoted IDs: {exc}")
         return []
     return ids
 
@@ -4675,6 +5179,14 @@ def run_signal_baseline_suite(
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E903", "E904", "E905", "E906"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1101", "E1102", "E1103", "E1104", "E1105", "E1106"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1201", "E1202", "E1203", "E1204"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1301", "E1302", "E1303", "E1304"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1401", "E1402", "E1403", "E1404"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
     if policy_filter:
         wanted = {policy.strip() for policy in policy_filter if policy and policy.strip()}
         policy_names = [policy for policy in policy_names if policy in wanted]
@@ -4927,6 +5439,54 @@ def run_signal_baseline_suite(
         )
         multiscale_policy_csv = baseline_dir / "multiscale_60m_policy_summary.csv"
         multiscale_policy_summary.to_csv(multiscale_policy_csv, index=False)
+        second_timeframe_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E11")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        second_timeframe_policy_csv = baseline_dir / "second_timeframe_60m_policy_summary.csv"
+        second_timeframe_policy_summary.to_csv(second_timeframe_policy_csv, index=False)
+        intrahour_path_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E12")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        intrahour_path_policy_csv = baseline_dir / "intrahour_path_v1_policy_summary.csv"
+        intrahour_path_policy_summary.to_csv(intrahour_path_policy_csv, index=False)
+        breadth_context_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E13")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        breadth_context_policy_csv = baseline_dir / "breadth_context_60m_policy_summary.csv"
+        breadth_context_policy_summary.to_csv(breadth_context_policy_csv, index=False)
+        time_distribution_policy_summary = (
+            policy_summary.loc[
+                policy_summary["policy"].isin(
+                    ["FLAT", "SIGNAL_E211_BANDED_68"]
+                    + [policy for policy in policy_summary["policy"].tolist() if isinstance(policy, str) and policy.startswith("SIGNAL_E14")]
+                )
+            ]
+            .sort_values(["test_return", "test_turnover", "test_trades"], ascending=[False, True, True])
+            .reset_index(drop=True)
+        )
+        time_distribution_policy_csv = baseline_dir / "time_distribution_v2_policy_summary.csv"
+        time_distribution_policy_summary.to_csv(time_distribution_policy_csv, index=False)
         main_logger.info(f"[BASELINE] summary saved: {summary_csv}")
         main_logger.info(f"[BASELINE] signal coverage saved: {coverage_csv}")
         main_logger.info(f"[BASELINE] policy summary saved: {policy_csv}")
@@ -4940,6 +5500,10 @@ def run_signal_baseline_suite(
         main_logger.info(f"[BASELINE] setup-regime policy summary saved: {setup_regime_policy_csv}")
         main_logger.info(f"[BASELINE] market-state policy summary saved: {market_state_policy_csv}")
         main_logger.info(f"[BASELINE] multiscale policy summary saved: {multiscale_policy_csv}")
+        main_logger.info(f"[BASELINE] second-timeframe policy summary saved: {second_timeframe_policy_csv}")
+        main_logger.info(f"[BASELINE] intrahour-path policy summary saved: {intrahour_path_policy_csv}")
+        main_logger.info(f"[BASELINE] breadth-context policy summary saved: {breadth_context_policy_csv}")
+        main_logger.info(f"[BASELINE] time-distribution policy summary saved: {time_distribution_policy_csv}")
         print(f"[BASELINE] summary saved: {summary_csv}")
         print(f"[BASELINE] signal coverage saved: {coverage_csv}")
         print(f"[BASELINE] policy summary saved: {policy_csv}")
@@ -4953,10 +5517,268 @@ def run_signal_baseline_suite(
         print(f"[BASELINE] setup-regime policy summary saved: {setup_regime_policy_csv}")
         print(f"[BASELINE] market-state policy summary saved: {market_state_policy_csv}")
         print(f"[BASELINE] multiscale policy summary saved: {multiscale_policy_csv}")
+        print(f"[BASELINE] second-timeframe policy summary saved: {second_timeframe_policy_csv}")
+        print(f"[BASELINE] intrahour-path policy summary saved: {intrahour_path_policy_csv}")
+        print(f"[BASELINE] breadth-context policy summary saved: {breadth_context_policy_csv}")
+        print(f"[BASELINE] time-distribution policy summary saved: {time_distribution_policy_csv}")
     else:
         main_logger.warning("[BASELINE] no baseline rows were produced.")
         print("[BASELINE] no baseline rows were produced.")
     return summary_df
+
+
+def run_signal_cost_sensitivity_audit(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str = "60minute",
+    history_days: int = 1095,
+    train_days: int = 730,
+    val_days: int = 90,
+    test_days: int = 30,
+    step_days: int = 30,
+    max_windows_per_ticker: int = 1,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    policies = [
+        "SIGNAL_E211_BANDED_68",
+        "SIGNAL_E801_BANDED_70",
+        "SIGNAL_E1102_BANDED_70",
+        "FLAT",
+    ]
+    friction_profiles = [
+        {"FrictionProfile": "realistic", "slippage_rate": 0.0010, "disable_costs": False},
+        {"FrictionProfile": "half_slippage", "slippage_rate": 0.0005, "disable_costs": False},
+        {"FrictionProfile": "fees_only", "slippage_rate": 0.0, "disable_costs": False},
+        {"FrictionProfile": "frictionless", "slippage_rate": 0.0, "disable_costs": True},
+    ]
+
+    rows = []
+    total_tickers = len(ticker_list)
+
+    base_env_kwargs = {
+        "stop_loss": best_params.get("stop_loss", stop_loss),
+        "take_profit": best_params.get("take_profit", take_profit),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
+        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+        "hold_threshold": best_params.get("hold_threshold", 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+    }
+
+    for ticker_idx, ticker in enumerate(ticker_list, start=1):
+        print(f"[COST AUDIT] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.warning(f"[COST AUDIT:{ticker}] token missing, skipping.")
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            main_logger.warning(f"[COST AUDIT:{ticker}] no data, skipping.")
+            continue
+
+        windows = make_walk_forward_slices(
+            df_full,
+            interval=interval,
+            train_days=train_days,
+            val_days=val_days,
+            test_days=test_days,
+            step_days=step_days,
+        )
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
+        if not windows:
+            main_logger.warning(f"[COST AUDIT:{ticker}] no walk-forward windows, skipping.")
+            continue
+
+        for cycle_idx, (s, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if test_df.empty:
+                continue
+            for profile in friction_profiles:
+                env_kwargs = dict(base_env_kwargs)
+                env_kwargs["slippage_rate"] = profile["slippage_rate"]
+                env_kwargs["disable_costs"] = profile["disable_costs"]
+                for policy_name in policies:
+                    res = run_baseline_backtest(
+                        test_df,
+                        ticker,
+                        initial_balance,
+                        env_kwargs,
+                        policy_name,
+                        seed=RANDOM_SEED + 2000 + cycle_idx,
+                    )
+                    metrics = res["metrics"]
+                    rows.append(
+                        {
+                            "ticker": ticker,
+                            "cycle": cycle_idx,
+                            "policy": policy_name,
+                            "friction_profile": profile["FrictionProfile"],
+                            "slippage_rate": profile["slippage_rate"],
+                            "disable_costs": profile["disable_costs"],
+                            "test_return": metrics["total_return"],
+                            "test_drawdown": metrics["max_drawdown"],
+                            "test_sharpe": metrics["sharpe"],
+                            "test_turnover": metrics["turnover"],
+                            "test_trades": metrics["trade_count"],
+                        }
+                    )
+
+    detail_df = pd.DataFrame(rows)
+    detail_csv = baseline_dir / "cost_sensitivity_detail.csv"
+    detail_df.to_csv(detail_csv, index=False)
+
+    if detail_df.empty:
+        summary_df = pd.DataFrame()
+    else:
+        summary_df = (
+            detail_df.groupby(["friction_profile", "policy"])[
+                ["test_return", "test_drawdown", "test_sharpe", "test_turnover", "test_trades"]
+            ]
+            .mean()
+            .reset_index()
+            .sort_values(["friction_profile", "test_return"], ascending=[True, False])
+        )
+        benchmark_rows = summary_df.loc[summary_df["policy"] == "SIGNAL_E211_BANDED_68", ["friction_profile", "test_return"]].rename(
+            columns={"test_return": "benchmark_return"}
+        )
+        summary_df = summary_df.merge(benchmark_rows, on="friction_profile", how="left")
+        summary_df["excess_vs_e211"] = pd.to_numeric(summary_df["test_return"], errors="coerce") - pd.to_numeric(summary_df["benchmark_return"], errors="coerce")
+
+    summary_csv = baseline_dir / "cost_sensitivity_summary.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    main_logger.info(f"[COST AUDIT] detail saved: {detail_csv}")
+    main_logger.info(f"[COST AUDIT] summary saved: {summary_csv}")
+    print(f"[COST AUDIT] detail saved: {detail_csv}")
+    print(f"[COST AUDIT] summary saved: {summary_csv}")
+    return detail_df, summary_df
+
+
+def run_signal_bucket_quality_diagnostic() -> tuple[pd.DataFrame, pd.DataFrame]:
+    signal_research_dir = RESULTS_DIR / "signal_research"
+    diagnostic_sources = [
+        {
+            "branch": "E211_Incumbent",
+            "experiment_id": "E211",
+            "source_csv": signal_research_dir / "outputs_e102_deepdive" / "latest" / "promoted_predictions_oos.csv",
+        },
+        {
+            "branch": "MarketState60m",
+            "experiment_id": "E801",
+            "source_csv": signal_research_dir / "outputs_market_state_60m" / "latest" / "promoted_predictions_oos.csv",
+        },
+    ]
+
+    detail_rows = []
+    summary_rows = []
+
+    for src in diagnostic_sources:
+        path = src["source_csv"]
+        if not path.exists():
+            main_logger.warning(f"[BUCKET DIAG] missing source file for {src['experiment_id']}: {path}")
+            continue
+        try:
+            df = pd.read_csv(path, usecols=["ExperimentID", "Prediction", "RealizedReturn"])
+        except Exception as exc:
+            main_logger.warning(f"[BUCKET DIAG] failed to read {path}: {exc}")
+            continue
+
+        df = df.loc[df["ExperimentID"].astype(str) == src["experiment_id"]].copy()
+        if df.empty:
+            main_logger.warning(f"[BUCKET DIAG] no rows found for {src['experiment_id']} in {path}")
+            continue
+
+        df["Prediction"] = pd.to_numeric(df["Prediction"], errors="coerce")
+        df["RealizedReturn"] = pd.to_numeric(df["RealizedReturn"], errors="coerce")
+        df = df.dropna(subset=["Prediction", "RealizedReturn"]).copy()
+        if len(df) < 50:
+            main_logger.warning(f"[BUCKET DIAG] too few valid rows for {src['experiment_id']}: {len(df)}")
+            continue
+
+        df["rank_pct"] = df["Prediction"].rank(method="average", pct=True)
+        df["bucket"] = np.minimum(10, np.maximum(1, np.ceil(df["rank_pct"] * 10).astype(int)))
+
+        bucket_df = (
+            df.groupby("bucket")
+            .agg(
+                row_count=("RealizedReturn", "size"),
+                mean_prediction=("Prediction", "mean"),
+                min_prediction=("Prediction", "min"),
+                max_prediction=("Prediction", "max"),
+                avg_realized_return=("RealizedReturn", "mean"),
+                median_realized_return=("RealizedReturn", "median"),
+                positive_rate=("RealizedReturn", lambda s: float((s > 0).mean()) if len(s) else np.nan),
+            )
+            .reset_index()
+            .sort_values("bucket")
+        )
+
+        top_ret = float(bucket_df.loc[bucket_df["bucket"] == 10, "avg_realized_return"].iloc[0]) if (bucket_df["bucket"] == 10).any() else np.nan
+        bottom_ret = float(bucket_df.loc[bucket_df["bucket"] == 1, "avg_realized_return"].iloc[0]) if (bucket_df["bucket"] == 1).any() else np.nan
+        spread = top_ret - bottom_ret if np.isfinite(top_ret) and np.isfinite(bottom_ret) else np.nan
+        monotonic_corr = float(bucket_df["bucket"].corr(bucket_df["avg_realized_return"], method="spearman")) if len(bucket_df) >= 3 else np.nan
+
+        summary_rows.append(
+            {
+                "Branch": src["branch"],
+                "ExperimentID": src["experiment_id"],
+                "RowCount": int(len(df)),
+                "TopDecileAvgReturn": top_ret,
+                "BottomDecileAvgReturn": bottom_ret,
+                "SpreadTopMinusBottom": spread,
+                "BucketReturnSpearman": monotonic_corr,
+                "OverallMeanPrediction": float(df["Prediction"].mean()),
+                "OverallMeanRealizedReturn": float(df["RealizedReturn"].mean()),
+            }
+        )
+
+        for _, row in bucket_df.iterrows():
+            detail_rows.append(
+                {
+                    "Branch": src["branch"],
+                    "ExperimentID": src["experiment_id"],
+                    "Bucket": int(row["bucket"]),
+                    "RowCount": int(row["row_count"]),
+                    "MeanPrediction": float(row["mean_prediction"]),
+                    "MinPrediction": float(row["min_prediction"]),
+                    "MaxPrediction": float(row["max_prediction"]),
+                    "AvgRealizedReturn": float(row["avg_realized_return"]),
+                    "MedianRealizedReturn": float(row["median_realized_return"]),
+                    "PositiveRate": float(row["positive_rate"]),
+                }
+            )
+
+    detail_df = pd.DataFrame(detail_rows)
+    summary_df = pd.DataFrame(summary_rows)
+
+    detail_csv = signal_research_dir / "signal_bucket_quality_detail.csv"
+    summary_csv = signal_research_dir / "signal_bucket_quality_summary.csv"
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    main_logger.info(f"[BUCKET DIAG] detail saved: {detail_csv}")
+    main_logger.info(f"[BUCKET DIAG] summary saved: {summary_csv}")
+    print(f"[BUCKET DIAG] detail saved: {detail_csv}")
+    print(f"[BUCKET DIAG] summary saved: {summary_csv}")
+    return detail_df, summary_df
 
 
 def run_portfolio_rank_baseline(
@@ -5954,6 +6776,10 @@ if __name__ == "__main__":
             "signal_research_setup_regimes",
             "signal_research_market_state_60m",
             "signal_research_multiscale_60m",
+            "signal_research_second_timeframe_60m",
+            "signal_research_intrahour_path_v1",
+            "signal_research_breadth_context_60m",
+            "signal_research_time_distribution_v2",
             "signal_research_portfolio_rank_60m",
             "signal_research_e302",
             "signal_research_two_track",
@@ -5966,7 +6792,14 @@ if __name__ == "__main__":
             "signal_baseline_setup_regimes",
             "signal_baseline_market_state_60m",
             "signal_baseline_multiscale_60m",
+            "signal_baseline_second_timeframe_60m",
+            "signal_baseline_intrahour_path_v1",
+            "signal_baseline_breadth_context_60m",
+            "signal_baseline_time_distribution_v2",
+            "signal_baseline_time_distribution_v2_top",
             "signal_baseline_portfolio_rank_60m",
+            "signal_baseline_cost_sensitivity",
+            "signal_diagnostic_bucket_quality",
             "refresh_branch_registry",
             "refresh_setup_library_scoreboard",
             "experiment_suite",
@@ -6224,6 +7057,14 @@ if __name__ == "__main__":
             experiment_set = "market_state_60m"
         elif run_mode == "signal_research_multiscale_60m":
             experiment_set = "multiscale_60m"
+        elif run_mode == "signal_research_second_timeframe_60m":
+            experiment_set = "second_timeframe_60m"
+        elif run_mode == "signal_research_intrahour_path_v1":
+            experiment_set = "intrahour_path_v1"
+        elif run_mode == "signal_research_breadth_context_60m":
+            experiment_set = "breadth_context_60m"
+        elif run_mode == "signal_research_time_distribution_v2":
+            experiment_set = "time_distribution_v2"
         elif run_mode == "signal_research_portfolio_rank_60m":
             experiment_set = "portfolio_rank_60m"
         elif run_mode == "signal_research_e302":
@@ -6318,7 +7159,15 @@ if __name__ == "__main__":
         print(f"[OPTUNA-MO] selected active trial: {PARETO_SELECTED_ACTIVE_FILE}")
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_portfolio_rank_60m", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode == "signal_diagnostic_bucket_quality":
+        main_logger.info(
+            "Starting bucket-quality diagnostic for E211 and E801. "
+            "This is a research-only signal-quality check, not a new trading branch."
+        )
+        run_signal_bucket_quality_diagnostic()
+        raise SystemExit(0)
+
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -6327,6 +7176,32 @@ if __name__ == "__main__":
             main_logger.info("Starting signal-only baseline walk-forward evaluation.")
             baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
             run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_cost_sensitivity":
+            main_logger.info(
+                "Starting cost-sensitivity audit for the incumbent and strongest challengers. "
+                "Comparing realistic costs, half slippage, fees-only, and frictionless settings."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_cost_sensitivity_audit(
                 ticker_list=baseline_tickers,
                 instrument_df=instrument_df,
                 best_params=best_params,
@@ -6625,6 +7500,186 @@ if __name__ == "__main__":
                 max_windows_per_ticker=1,
                 policy_filter=multiscale_policy_filter,
             )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_second_timeframe_60m":
+            promoted_second_tf_ids = load_second_timeframe_promoted_ids()
+            if not promoted_second_tf_ids:
+                promoted_second_tf_ids = ["E1101", "E1102", "E1103", "E1104", "E1105", "E1106"]
+            second_tf_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_second_tf_ids:
+                second_tf_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting second-timeframe 60m baseline evaluation. "
+                "Testing promoted 15m-context survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_second_tf_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=second_tf_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_intrahour_path_v1":
+            promoted_intrahour_ids = load_intrahour_path_v1_promoted_ids()
+            if not promoted_intrahour_ids:
+                promoted_intrahour_ids = ["E1201", "E1202", "E1203", "E1204"]
+            intrahour_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_intrahour_ids:
+                intrahour_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting intrahour-path v1 baseline evaluation. "
+                "Testing promoted intrahour path survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_intrahour_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=intrahour_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_breadth_context_60m":
+            promoted_breadth_ids = load_breadth_context_promoted_ids()
+            if not promoted_breadth_ids:
+                promoted_breadth_ids = ["E1301", "E1302", "E1303", "E1304"]
+            breadth_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_breadth_ids:
+                breadth_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting breadth-context 60m baseline evaluation. "
+                "Testing promoted breadth-context survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_breadth_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=breadth_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_time_distribution_v2":
+            promoted_time_distribution_ids = load_time_distribution_v2_promoted_ids()
+            if not promoted_time_distribution_ids:
+                promoted_time_distribution_ids = ["E1401", "E1402", "E1403", "E1404"]
+            time_distribution_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_time_distribution_ids:
+                time_distribution_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting time-distribution v2 baseline evaluation. "
+                "Testing promoted time-distribution survivors against SIGNAL_E211_BANDED_68 only. "
+                f"Evaluating shortlist: {', '.join(promoted_time_distribution_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=time_distribution_policy_filter,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_time_distribution_v2_top":
+            promoted_time_distribution_ids = ["E1401"]
+            time_distribution_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_time_distribution_ids:
+                time_distribution_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting narrow time-distribution v2 baseline evaluation. "
+                "Testing only the top candidate E1401 against SIGNAL_E211_BANDED_68 and FLAT."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=time_distribution_policy_filter,
+            )
+            top_policy_csv = RESULTS_DIR / "signal_baseline" / "time_distribution_v2_top_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "time_distribution_v2_policy_summary.csv"
+                if policy_csv.exists():
+                    top_df = pd.read_csv(policy_csv)
+                    top_df = top_df.loc[
+                        top_df["policy"].isin(["FLAT", "SIGNAL_E211_BANDED_68"] + build_signal_policy_family("E1401"))
+                    ].copy()
+                    top_df.to_csv(top_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] narrow time-distribution policy summary saved: {top_policy_csv}")
+                    print(f"[BASELINE] narrow time-distribution policy summary saved: {top_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save narrow time-distribution summary: {exc}")
             raise SystemExit(0)
 
         if run_mode == "signal_baseline_portfolio_rank_60m":

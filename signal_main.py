@@ -23,7 +23,11 @@ from signal_config import (
     GENERALIZATION_EXPERIMENTS,
     MARKET_STATE_60M_EXPERIMENTS,
     MULTISCALE_60M_EXPERIMENTS,
+    BREADTH_CONTEXT_60M_EXPERIMENTS,
+    TIME_DISTRIBUTION_V2_EXPERIMENTS,
+    INTRAHOUR_PATH_V1_EXPERIMENTS,
     PORTFOLIO_RANK_60M_EXPERIMENTS,
+    SECOND_TIMEFRAME_60M_EXPERIMENTS,
     SETUP_REGIME_EXPERIMENTS,
     ExperimentDef,
 )
@@ -65,6 +69,10 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(MARKET_STATE_60M_EXPERIMENTS)
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
         + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
+        + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+        + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
+        + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
+        + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
         + list(GENERALIZATION_NEXT_EXPERIMENTS)
         + list(GENERALIZATION_WAVE2_EXPERIMENTS)
         + list(E302_SWEEP_EXPERIMENTS)
@@ -97,8 +105,16 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(MARKET_STATE_60M_EXPERIMENTS)
     if experiment_set == "multiscale_60m":
         return list(MULTISCALE_60M_EXPERIMENTS)
+    if experiment_set == "breadth_context_60m":
+        return list(BREADTH_CONTEXT_60M_EXPERIMENTS)
+    if experiment_set == "time_distribution_v2":
+        return list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
     if experiment_set == "portfolio_rank_60m":
         return list(PORTFOLIO_RANK_60M_EXPERIMENTS)
+    if experiment_set == "second_timeframe_60m":
+        return list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+    if experiment_set == "intrahour_path_v1":
+        return list(INTRAHOUR_PATH_V1_EXPERIMENTS)
     if experiment_set == "generalization_next":
         return list(GENERALIZATION_NEXT_EXPERIMENTS)
     if experiment_set == "generalization_wave2":
@@ -120,6 +136,10 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(SETUP_REGIME_EXPERIMENTS)
             + list(MARKET_STATE_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+            + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
+            + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
+            + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+            + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
             + list(GENERALIZATION_NEXT_EXPERIMENTS)
             + list(GENERALIZATION_WAVE2_EXPERIMENTS)
             + list(E302_SWEEP_EXPERIMENTS)
@@ -661,6 +681,188 @@ def build_multiscale_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def build_second_timeframe_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1101": "PathQuality",
+        "E1102": "FailedBreakoutConfirm",
+        "E1103": "StateVolContext",
+        "E1104": "ExhaustionContext",
+        "E1105": "ContinuationQuality",
+        "E1106": "EntryEfficiency",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_intrahour_path_v1_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1201": "ContinuationPathQuality",
+        "E1202": "BreakoutPersistencePath",
+        "E1203": "FailedBreakoutRejection",
+        "E1204": "StateAwarePath",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_breadth_context_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1301": "BreadthParticipation",
+        "E1302": "BreadthExhaustion",
+        "E1303": "BreadthDispersion",
+        "E1304": "BreadthStateConfirmation",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_time_distribution_v2_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1401": "EarlyLateContinuation",
+        "E1402": "LateConfirmationCandle",
+        "E1403": "StateAwareTiming",
+        "E1404": "RelativeTimingQuality",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1059,6 +1261,46 @@ def run_signal_pipeline(
             "\n".join(promoted_multiscale),
             encoding="utf-8",
         )
+    second_timeframe_shortlist = build_second_timeframe_60m_shortlist(compare)
+    if not second_timeframe_shortlist.empty:
+        second_timeframe_shortlist.to_csv(run_out_dir / "second_timeframe_60m_shortlist_summary.csv", index=False)
+        promoted_second_tf = second_timeframe_shortlist.loc[
+            second_timeframe_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "second_timeframe_60m_promoted_ids.txt").write_text(
+            "\n".join(promoted_second_tf),
+            encoding="utf-8",
+        )
+    intrahour_path_shortlist = build_intrahour_path_v1_shortlist(compare)
+    if not intrahour_path_shortlist.empty:
+        intrahour_path_shortlist.to_csv(run_out_dir / "intrahour_path_v1_shortlist_summary.csv", index=False)
+        promoted_intrahour = intrahour_path_shortlist.loc[
+            intrahour_path_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "intrahour_path_v1_promoted_ids.txt").write_text(
+            "\n".join(promoted_intrahour),
+            encoding="utf-8",
+        )
+    breadth_context_shortlist = build_breadth_context_60m_shortlist(compare)
+    if not breadth_context_shortlist.empty:
+        breadth_context_shortlist.to_csv(run_out_dir / "breadth_context_60m_shortlist_summary.csv", index=False)
+        promoted_breadth = breadth_context_shortlist.loc[
+            breadth_context_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "breadth_context_60m_promoted_ids.txt").write_text(
+            "\n".join(promoted_breadth),
+            encoding="utf-8",
+        )
+    time_distribution_shortlist = build_time_distribution_v2_shortlist(compare)
+    if not time_distribution_shortlist.empty:
+        time_distribution_shortlist.to_csv(run_out_dir / "time_distribution_v2_shortlist_summary.csv", index=False)
+        promoted_time_distribution = time_distribution_shortlist.loc[
+            time_distribution_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "time_distribution_v2_promoted_ids.txt").write_text(
+            "\n".join(promoted_time_distribution),
+            encoding="utf-8",
+        )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
     if not portfolio_rank_shortlist.empty:
         portfolio_rank_shortlist.to_csv(run_out_dir / "portfolio_rank_60m_shortlist.csv", index=False)
@@ -1117,7 +1359,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--experiment-set",
-        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
+        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
         default="default",
         help="Named experiment bundle to use before optional --experiments filtering.",
     )

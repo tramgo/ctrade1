@@ -39,6 +39,12 @@ Branch summary:
 - `Multiscale60m`
   - best baseline: `SIGNAL_E906_LONGONLY`
   - return: `-0.0001367`
+- `SecondTimeframe60m`
+  - best baseline: `SIGNAL_E1102_BANDED_70`
+  - return: `-0.0029406`
+- `IntrahourPathV1`
+  - best baseline: `SIGNAL_E1201_BANDED_70`
+  - return: `-0.0032871`
 - `PortfolioRank60m`
   - best baseline: `E1006_PORTFOLIO_TOP3_BOTTOM3`
   - return: `-0.0021876`
@@ -52,6 +58,14 @@ Branch summary:
 ### Practical conclusion
 
 This means the current `60m` OHLCV-derived research layer is productive for understanding signal structure, but not for generating a stronger executable post-cost branch than `E211`.
+
+The `intrahour_path_v1` branch strengthened that conclusion rather than weakening it:
+
+- research quality was strong and all four `E120x` candidates survived shortlist review
+- best academic candidates were `E1203` and `E1204`
+- best executable candidate was `SIGNAL_E1201_BANDED_70`
+- baseline result remained materially below `E211` at `-0.0032871`
+- turnover and trade count were both substantially higher than the incumbent benchmark
 
 ### Fresh incumbent revalidation
 
@@ -69,6 +83,29 @@ This confirms:
 - `E211` remains the top executable baseline in the current suite
 - the benchmark is reproducible on the current code and cached data
 - the layer is still not strong enough to treat as deployable alpha
+
+### Raw signal-quality check: `E211` vs `E801`
+
+We also ran a bucketed signal-quality diagnostic on the out-of-sample predictions for `E211` and `E801`.
+
+- `E211`
+  - top decile average realized return: `0.01310`
+  - bottom decile average realized return: `0.00229`
+  - top-minus-bottom spread: `0.01080`
+  - bucket monotonicity: `1.00`
+- `E801`
+  - top decile average realized return: `0.01145`
+  - bottom decile average realized return: `0.00276`
+  - top-minus-bottom spread: `0.00869`
+  - bucket monotonicity: `0.915`
+
+This matters because it shows `E211` is not only the better executable baseline. It also has the cleaner raw ranking profile versus the strongest challenger.
+
+So the current conclusion is stronger:
+
+- `E211` remains the best benchmark on execution
+- `E211` also remains the stronger raw signal among the top surviving challengers
+- `E801` is still a real signal, but not a superior one
 
 ### Allowed next moves
 
