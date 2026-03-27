@@ -23,6 +23,10 @@ from signal_config import (
     GENERALIZATION_EXPERIMENTS,
     MARKET_STATE_60M_EXPERIMENTS,
     MULTISCALE_60M_EXPERIMENTS,
+    NATIVE_15M_EXECUTION_EXPERIMENTS,
+    NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS,
+    NATIVE_15M_OPEN_DRIVE_EXPERIMENTS,
+    NATIVE_15M_SESSION_PHASE_EXPERIMENTS,
     BREADTH_CONTEXT_60M_EXPERIMENTS,
     TIME_DISTRIBUTION_V2_EXPERIMENTS,
     INTRAHOUR_PATH_V1_EXPERIMENTS,
@@ -70,6 +74,10 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
         + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
         + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+        + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
+        + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+        + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+        + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
         + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
         + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
         + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
@@ -105,6 +113,14 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(MARKET_STATE_60M_EXPERIMENTS)
     if experiment_set == "multiscale_60m":
         return list(MULTISCALE_60M_EXPERIMENTS)
+    if experiment_set == "native_15m_execution":
+        return list(NATIVE_15M_EXECUTION_EXPERIMENTS)
+    if experiment_set == "native_15m_failed_breakout":
+        return list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+    if experiment_set == "native_15m_open_drive":
+        return list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+    if experiment_set == "native_15m_session_phase":
+        return list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
     if experiment_set == "breadth_context_60m":
         return list(BREADTH_CONTEXT_60M_EXPERIMENTS)
     if experiment_set == "time_distribution_v2":
@@ -115,6 +131,28 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
     if experiment_set == "intrahour_path_v1":
         return list(INTRAHOUR_PATH_V1_EXPERIMENTS)
+    if experiment_set == "all_15m":
+        return (
+            list(DEFAULT_EXPERIMENTS)
+            + list(E004_SWEEP_EXPERIMENTS)
+            + list(E102_DEEPDIVE_EXPERIMENTS)
+            + list(ABLATION_GRID_EXPERIMENTS)
+            + list(SETUP_REGIME_EXPERIMENTS)
+            + list(MARKET_STATE_60M_EXPERIMENTS)
+            + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+            + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
+            + list(MULTISCALE_60M_EXPERIMENTS)
+            + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
+            + list(GENERALIZATION_NEXT_EXPERIMENTS)
+            + list(GENERALIZATION_WAVE2_EXPERIMENTS)
+            + list(E302_SWEEP_EXPERIMENTS)
+            + list(E102_REGIME_EXPERIMENTS)
+            + list(GENERALIZATION_EXPERIMENTS)
+            + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
+            + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+            + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+            + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
+        )
     if experiment_set == "generalization_next":
         return list(GENERALIZATION_NEXT_EXPERIMENTS)
     if experiment_set == "generalization_wave2":
@@ -139,6 +177,10 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
             + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+            + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
+            + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+            + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+            + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
             + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
             + list(GENERALIZATION_NEXT_EXPERIMENTS)
             + list(GENERALIZATION_WAVE2_EXPERIMENTS)
@@ -863,6 +905,186 @@ def build_time_distribution_v2_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def build_native_15m_execution_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1501": "Direct15mContinuation",
+        "E1502": "Direct15mCandlePath",
+        "E1503": "Direct15mRelativeBarrier",
+        "E1504": "Direct15mStateAwareBarrier",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_native_15m_failed_breakout_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1601": "FailedUpsideBreakout",
+        "E1602": "SessionAwareBreakoutFailure",
+        "E1603": "RelativeFailedBreakout",
+        "E1604": "StateAwareBreakoutFailure",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_native_15m_open_drive_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1701": "OpeningDriveCore",
+        "E1702": "OpeningRangePersistence",
+        "E1703": "RelativeOpenDrive",
+        "E1704": "StateAwareOpenDrive",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_native_15m_session_phase_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1801": "EarlySessionDriveQuality",
+        "E1802": "MidSessionContinuationVsFade",
+        "E1803": "RelativeSessionPressure",
+        "E1804": "LateSessionRepricing",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1299,6 +1521,55 @@ def run_signal_pipeline(
         ].tolist()
         (run_out_dir / "time_distribution_v2_promoted_ids.txt").write_text(
             "\n".join(promoted_time_distribution),
+            encoding="utf-8",
+        )
+    native_15m_shortlist = build_native_15m_execution_shortlist(compare)
+    if not native_15m_shortlist.empty:
+        native_15m_shortlist.to_csv(run_out_dir / "native_15m_execution_shortlist_summary.csv", index=False)
+        promoted_native_15m = native_15m_shortlist.loc[
+            native_15m_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_execution_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m),
+            encoding="utf-8",
+        )
+    native_15m_failed_breakout_shortlist = build_native_15m_failed_breakout_shortlist(compare)
+    if not native_15m_failed_breakout_shortlist.empty:
+        native_15m_failed_breakout_shortlist.to_csv(
+            run_out_dir / "native_15m_failed_breakout_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_failed_breakout = native_15m_failed_breakout_shortlist.loc[
+            native_15m_failed_breakout_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_failed_breakout_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_failed_breakout),
+            encoding="utf-8",
+        )
+    native_15m_open_drive_shortlist = build_native_15m_open_drive_shortlist(compare)
+    if not native_15m_open_drive_shortlist.empty:
+        native_15m_open_drive_shortlist.to_csv(
+            run_out_dir / "native_15m_open_drive_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_open_drive = native_15m_open_drive_shortlist.loc[
+            native_15m_open_drive_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_open_drive_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_open_drive),
+            encoding="utf-8",
+        )
+    native_15m_session_phase_shortlist = build_native_15m_session_phase_shortlist(compare)
+    if not native_15m_session_phase_shortlist.empty:
+        native_15m_session_phase_shortlist.to_csv(
+            run_out_dir / "native_15m_session_phase_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_session_phase = native_15m_session_phase_shortlist.loc[
+            native_15m_session_phase_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_session_phase_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_session_phase),
             encoding="utf-8",
         )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)

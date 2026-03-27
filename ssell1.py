@@ -478,6 +478,118 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
         ],
         "Signal_E1404",
     ),
+    "E1501": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1501",
+    ),
+    "E1502": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1502",
+    ),
+    "E1503": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1503",
+    ),
+    "E1504": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_execution" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1504",
+    ),
+    "E1601": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1601",
+    ),
+    "E1602": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1602",
+    ),
+    "E1603": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1603",
+    ),
+    "E1604": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1604",
+    ),
+    "E1701": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1701",
+    ),
+    "E1702": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1702",
+    ),
+    "E1703": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1703",
+    ),
+    "E1704": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1704",
+    ),
+    "E1801": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1801",
+    ),
+    "E1802": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1802",
+    ),
+    "E1803": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1803",
+    ),
+    "E1804": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1804",
+    ),
 }
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
 _SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
@@ -717,6 +829,54 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E1404_Pred", 0.5),
         ("Signal_E1404_Edge", 0.0),
         ("Signal_E1404_HighConf", 0.0),
+        ("Signal_E1501_Pred", 0.5),
+        ("Signal_E1501_Edge", 0.0),
+        ("Signal_E1501_HighConf", 0.0),
+        ("Signal_E1502_Pred", 0.5),
+        ("Signal_E1502_Edge", 0.0),
+        ("Signal_E1502_HighConf", 0.0),
+        ("Signal_E1503_Pred", 0.5),
+        ("Signal_E1503_Edge", 0.0),
+        ("Signal_E1503_HighConf", 0.0),
+        ("Signal_E1504_Pred", 0.5),
+        ("Signal_E1504_Edge", 0.0),
+        ("Signal_E1504_HighConf", 0.0),
+        ("Signal_E1601_Pred", 0.5),
+        ("Signal_E1601_Edge", 0.0),
+        ("Signal_E1601_HighConf", 0.0),
+        ("Signal_E1602_Pred", 0.5),
+        ("Signal_E1602_Edge", 0.0),
+        ("Signal_E1602_HighConf", 0.0),
+        ("Signal_E1603_Pred", 0.5),
+        ("Signal_E1603_Edge", 0.0),
+        ("Signal_E1603_HighConf", 0.0),
+        ("Signal_E1604_Pred", 0.5),
+        ("Signal_E1604_Edge", 0.0),
+        ("Signal_E1604_HighConf", 0.0),
+        ("Signal_E1701_Pred", 0.5),
+        ("Signal_E1701_Edge", 0.0),
+        ("Signal_E1701_HighConf", 0.0),
+        ("Signal_E1702_Pred", 0.5),
+        ("Signal_E1702_Edge", 0.0),
+        ("Signal_E1702_HighConf", 0.0),
+        ("Signal_E1703_Pred", 0.5),
+        ("Signal_E1703_Edge", 0.0),
+        ("Signal_E1703_HighConf", 0.0),
+        ("Signal_E1704_Pred", 0.5),
+        ("Signal_E1704_Edge", 0.0),
+        ("Signal_E1704_HighConf", 0.0),
+        ("Signal_E1801_Pred", 0.5),
+        ("Signal_E1801_Edge", 0.0),
+        ("Signal_E1801_HighConf", 0.0),
+        ("Signal_E1802_Pred", 0.5),
+        ("Signal_E1802_Edge", 0.0),
+        ("Signal_E1802_HighConf", 0.0),
+        ("Signal_E1803_Pred", 0.5),
+        ("Signal_E1803_Edge", 0.0),
+        ("Signal_E1803_HighConf", 0.0),
+        ("Signal_E1804_Pred", 0.5),
+        ("Signal_E1804_Edge", 0.0),
+        ("Signal_E1804_HighConf", 0.0),
     ]
     default_map = dict(overlay_defaults)
     if not ticker or "Date" not in out.columns:
@@ -1532,6 +1692,32 @@ def build_rl_features(
     df["MultiScaleVolRatio_3v20"] = (vol_3 / (vol_20 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
     df["MultiScaleRangeCompression_3v12"] = (range_mean_3 / (range_mean_12 + eps)).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 5.0)
     df["MultiScaleBodyPressure_3"] = df["BodyToRange"].rolling(3).mean().fillna(0.0).clip(-1.0, 1.0)
+    ret_1 = close.pct_change().replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    ret_4 = close.pct_change(4).replace([np.inf, -np.inf], 0.0).fillna(0.0)
+    abs_ret_sum_4 = ret_1.abs().rolling(4, min_periods=1).sum()
+    sign_1 = np.sign(ret_1).fillna(0.0)
+    sign_flip = ((sign_1 != sign_1.shift(1)) & (sign_1 != 0) & (sign_1.shift(1) != 0)).astype(float)
+    first_two_ret = ret_1.shift(2).rolling(2, min_periods=2).sum()
+    last_two_ret = ret_1.rolling(2, min_periods=2).sum()
+    high_4 = high.rolling(4, min_periods=1).max()
+    low_4 = low.rolling(4, min_periods=1).min()
+    df["M15_Ret_4"] = ret_4.clip(-0.2, 0.2)
+    df["M15_PathEfficiency_4"] = (ret_4 / (abs_ret_sum_4 + eps)).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-1.0, 1.0)
+    df["M15_PositiveShare_4"] = (ret_1 > 0).astype(float).rolling(4, min_periods=1).mean().fillna(0.0)
+    df["M15_SignFlipRate_4"] = sign_flip.rolling(4, min_periods=1).mean().fillna(0.0).clip(0.0, 1.0)
+    df["M15_TimeImbalance_4"] = (
+        (last_two_ret - first_two_ret) / ret_4.abs().replace(0.0, np.nan)
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-5.0, 5.0)
+    df["M15_EarlyExhaustion_4"] = (first_two_ret - last_two_ret).fillna(0.0).clip(-0.2, 0.2)
+    df["M15_RejectionScore_4"] = (
+        ((high_4 - close) - (close - low_4)) / (high_4 - low_4 + eps)
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-1.0, 1.0)
+    df["M15_CloseLocation_4"] = ((close - low_4) / (high_4 - low_4 + eps)).fillna(0.5).clip(0.0, 1.0)
+    df["M15_BreakoutPressure_4"] = df["Breakout_3bar"].rolling(4, min_periods=1).mean().fillna(0.0).clip(-1.0, 1.0)
+    df["M15_BodyPressure_4"] = df["BodyToRange"].rolling(4, min_periods=1).mean().fillna(0.0).clip(-1.0, 1.0)
+    df["M15_VolRatio_2v8"] = (
+        ret_1.rolling(2, min_periods=2).std() / ret_1.rolling(8, min_periods=4).std().replace(0.0, np.nan)
+    ).replace([np.inf, -np.inf], 1.0).fillna(1.0).clip(0.0, 10.0)
     df = _contextualize_with_market(df, benchmark_df=benchmark_df, sector_df=sector_df)
     mkt_vol_rank = pd.to_numeric(df.get("MktVolRank", 0.5), errors="coerce").fillna(0.5)
     df["MarketStateBullCalm"] = ((df["RegimeBull"] > 0.5) & (mkt_vol_rank <= 0.60)).astype(float)
@@ -3004,8 +3190,10 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     )
 
     numeric_cols = [col for col in out.columns if col not in {"Ticker", "Date"}]
-    out[numeric_cols] = out[numeric_cols].apply(pd.to_numeric, errors="coerce")
-    out.fillna(0.0, inplace=True)
+    for col in numeric_cols:
+        if not pd.api.types.is_numeric_dtype(out[col]):
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+        out[col] = out[col].fillna(0.0)
     return out
 
 
@@ -3316,6 +3504,36 @@ def run_signal_research_workflow(
         main_logger.info(
             "[SIGNAL RESEARCH] Time-distribution v2 enabled. "
             "Testing early-vs-late intrahour information distribution on top of the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "native_15m_execution":
+        output_dir_name = "outputs_native_15m_execution"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m execution enabled. "
+            "Testing direct 15m signal discovery with 15m execution timing instead of compressing fast information back into the 60m decision layer."
+        )
+    elif experiment_set == "native_15m_failed_breakout":
+        output_dir_name = "outputs_native_15m_failed_breakout"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m failed-breakout events enabled. "
+            "Testing event-driven rejection and breakout-failure structures directly on 15m bars instead of another continuously scored continuation family."
+        )
+    elif experiment_set == "native_15m_open_drive":
+        output_dir_name = "outputs_native_15m_open_drive"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m open-drive events enabled. "
+            "Testing opening-range and open-drive event structures directly on 15m bars instead of another ported ranking family."
+        )
+    elif experiment_set == "native_15m_session_phase":
+        output_dir_name = "outputs_native_15m_session_phase"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m session-phase events enabled. "
+            "Testing early, mid, and late-session event structures directly on 15m bars instead of another ported ranking family."
+        )
+    elif experiment_set == "all_15m":
+        output_dir_name = "outputs_all_15m"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Broad 15m sweep enabled. "
+            "Testing the main experiment library directly on native 15m bars while excluding the 60m-only second-timeframe families."
         )
     elif experiment_set == "e302_sweep":
         output_dir_name = "outputs_e302"
@@ -4384,6 +4602,23 @@ def _signal_policy_action(
         return 0
     return None
 
+
+def _intrahour_veto_active(row: pd.Series) -> bool:
+    rejection = float(row.get("STF15_RejectionScore", 0.0))
+    sign_flip = float(row.get("STF15_SignFlipRate", 0.0))
+    path_eff = float(row.get("STF15_PathEfficiency", 0.0))
+    late_strength = float(row.get("STF15_LateStrengthShare", 0.0))
+    early_exhaustion = float(row.get("STF15_EarlyExhaustionScore", 0.0))
+    time_imbalance = float(row.get("STF15_TimeImbalance", 0.0))
+    veto_votes = 0
+    veto_votes += int(rejection <= -0.20)
+    veto_votes += int(sign_flip >= 0.60)
+    veto_votes += int(path_eff <= 0.15)
+    veto_votes += int(late_strength <= -0.15)
+    veto_votes += int(early_exhaustion >= 0.003)
+    veto_votes += int(time_imbalance <= -0.20)
+    return veto_votes >= 2
+
 def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator) -> int:
     if policy_name == "FLAT":
         return 0
@@ -4414,6 +4649,17 @@ def _baseline_action(policy_name: str, row: pd.Series, rng: np.random.Generator)
         if pred_e102 >= entry_e102 and pred_e302 >= entry_e302 and direction < 0:
             return 2
         if max(pred_e102, pred_e302) < reduce_threshold:
+            return 3
+        return 0
+    if policy_name == "SIGNAL_E211_VETO_INTRAHOUR":
+        pred = float(row.get("Signal_E211_Pred", 0.5))
+        direction = _signal_rule_direction(row)
+        veto_active = _intrahour_veto_active(row)
+        if pred >= 0.68 and direction > 0 and not veto_active:
+            return 1
+        if pred >= 0.68 and direction < 0 and not veto_active:
+            return 2
+        if pred < 0.60 or veto_active:
             return 3
         return 0
     for _, (_, signal_prefix) in SIGNAL_OVERLAY_SOURCES.items():
@@ -4464,6 +4710,269 @@ def run_baseline_backtest(
     metrics = compute_history_metrics(hist, initial_balance, interval_to_bars_per_day(TICKINT))
     dirm = compute_directional_edge(hist)
     return {"history": hist, "metrics": metrics, "directional": dirm}
+
+
+def _extract_e211_entry_records(
+    history_df: pd.DataFrame,
+    ticker: str,
+    cycle_idx: int,
+    split_name: str,
+    initial_balance: float,
+) -> List[Dict[str, object]]:
+    if history_df.empty:
+        return []
+    h = history_df.copy().reset_index(drop=True)
+    position = pd.to_numeric(h.get("Position", pd.Series(dtype=float)), errors="coerce").fillna(0.0)
+    net_worth = pd.to_numeric(h.get("Full Worth", h.get("Net Worth", pd.Series(dtype=float))), errors="coerce").fillna(method="ffill")
+    close = pd.to_numeric(h.get("Close", pd.Series(dtype=float)), errors="coerce")
+    prev_position = position.shift(1, fill_value=0.0)
+    prev_sign = np.sign(prev_position)
+    curr_sign = np.sign(position)
+    entry_mask = (
+        (prev_sign == 0) & (curr_sign != 0)
+    ) | (
+        (prev_sign != 0) & (curr_sign != 0) & (prev_sign != curr_sign)
+    )
+    entry_indices = [int(idx) for idx in np.flatnonzero(entry_mask.to_numpy())]
+    records: List[Dict[str, object]] = []
+    feature_cols = [
+        "Signal_E211_Pred",
+        "Trend_30",
+        "Trend_2h",
+        "StockMinusMkt_1",
+        "StockMinusMkt_3",
+        "STF15_PathEfficiency",
+        "STF15_SignFlipRate",
+        "STF15_RejectionScore",
+        "STF15_LateStrengthShare",
+        "STF15_EarlyExhaustionScore",
+        "STF15_TimeImbalance",
+        "STF15_FailedBreakoutScore",
+        "STF15_MaxAdverseExcursion",
+        "STF15_HighBeforeLow",
+        "STF15_LowBeforeHigh",
+        "STF15_LastQuarterShare",
+    ]
+    for entry_idx in entry_indices:
+        direction = int(np.sign(position.iloc[entry_idx]))
+        if direction == 0:
+            continue
+        exit_idx = len(h) - 1
+        for look_ahead in range(entry_idx + 1, len(h)):
+            next_sign = int(np.sign(position.iloc[look_ahead]))
+            if next_sign == 0 or next_sign != direction:
+                exit_idx = look_ahead
+                break
+        entry_close = float(close.iloc[entry_idx]) if pd.notna(close.iloc[entry_idx]) else np.nan
+        exit_close = float(close.iloc[exit_idx]) if pd.notna(close.iloc[exit_idx]) else np.nan
+        entry_worth = float(net_worth.iloc[entry_idx]) if pd.notna(net_worth.iloc[entry_idx]) else np.nan
+        exit_worth = float(net_worth.iloc[exit_idx]) if pd.notna(net_worth.iloc[exit_idx]) else np.nan
+        pnl_abs = exit_worth - entry_worth
+        price_move = np.nan
+        if pd.notna(entry_close) and entry_close != 0 and pd.notna(exit_close):
+            price_move = direction * (exit_close / entry_close - 1.0)
+        row = h.iloc[entry_idx]
+        record: Dict[str, object] = {
+            "ticker": ticker,
+            "cycle": cycle_idx,
+            "split": split_name,
+            "entry_idx": entry_idx,
+            "exit_idx": exit_idx,
+            "entry_date": row.get("Date"),
+            "exit_date": h.iloc[exit_idx].get("Date"),
+            "direction": "long" if direction > 0 else "short",
+            "entry_action": row.get("ActionName", ""),
+            "hold_bars": int(exit_idx - entry_idx),
+            "entry_close": entry_close,
+            "exit_close": exit_close,
+            "entry_net_worth": entry_worth,
+            "exit_net_worth": exit_worth,
+            "trade_pnl_abs": pnl_abs,
+            "trade_pnl_pct_initial": float(pnl_abs / initial_balance) if initial_balance else np.nan,
+            "trade_price_move": price_move,
+            "outcome": "win" if pnl_abs > 0 else ("loss" if pnl_abs < 0 else "flat"),
+            "intrahour_veto_v1_active": _intrahour_veto_active(row),
+        }
+        for col in feature_cols:
+            record[col] = float(pd.to_numeric(pd.Series([row.get(col, np.nan)]), errors="coerce").iloc[0]) if pd.notna(row.get(col, np.nan)) else np.nan
+        records.append(record)
+    return records
+
+
+def run_e211_entry_audit(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str,
+    history_days: int = 1095,
+    train_days: int = 730,
+    val_days: int = 90,
+    test_days: int = 30,
+    step_days: int = 30,
+    max_windows_per_ticker: int = 1,
+) -> Dict[str, pd.DataFrame]:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    env_kwargs = {
+        "stop_loss": best_params.get("stop_loss", stop_loss),
+        "take_profit": best_params.get("take_profit", take_profit),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
+        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+        "hold_threshold": best_params.get("hold_threshold", 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+    }
+    entry_rows: List[Dict[str, object]] = []
+    cycle_rows: List[Dict[str, object]] = []
+    total_tickers = len(ticker_list)
+    for ticker_idx, ticker in enumerate(ticker_list, start=1):
+        print(f"[E211 AUDIT] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            continue
+        windows = make_walk_forward_slices(
+            df_full,
+            interval=interval,
+            train_days=train_days,
+            val_days=val_days,
+            test_days=test_days,
+            step_days=step_days,
+        )
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
+        for cycle_idx, (_, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if test_df.empty:
+                continue
+            test_res = run_baseline_backtest(
+                test_df,
+                ticker,
+                initial_balance,
+                env_kwargs,
+                "SIGNAL_E211_BANDED_68",
+                seed=RANDOM_SEED + 1000 + cycle_idx,
+            )
+            history = test_res["history"]
+            entries = _extract_e211_entry_records(
+                history_df=history,
+                ticker=ticker,
+                cycle_idx=cycle_idx,
+                split_name="test",
+                initial_balance=initial_balance,
+            )
+            entry_rows.extend(entries)
+            cycle_rows.append(
+                {
+                    "ticker": ticker,
+                    "cycle": cycle_idx,
+                    "entries": len(entries),
+                    "wins": int(sum(1 for row in entries if row["outcome"] == "win")),
+                    "losses": int(sum(1 for row in entries if row["outcome"] == "loss")),
+                    "flats": int(sum(1 for row in entries if row["outcome"] == "flat")),
+                    "veto_hits": int(sum(1 for row in entries if bool(row["intrahour_veto_v1_active"]))),
+                    "mean_trade_pnl_pct_initial": float(np.mean([row["trade_pnl_pct_initial"] for row in entries])) if entries else 0.0,
+                    "mean_hold_bars": float(np.mean([row["hold_bars"] for row in entries])) if entries else 0.0,
+                }
+            )
+            print(
+                f"[E211 AUDIT] {ticker} cycle {cycle_idx}/{len(windows)} - "
+                f"entries {len(entries)}, wins {cycle_rows[-1]['wins']}, losses {cycle_rows[-1]['losses']}, veto_hits {cycle_rows[-1]['veto_hits']}"
+            )
+
+    detail_df = pd.DataFrame(entry_rows)
+    cycle_df = pd.DataFrame(cycle_rows)
+    summary_rows: List[Dict[str, object]] = []
+    feature_diff_rows: List[Dict[str, object]] = []
+    if not detail_df.empty:
+        numeric_feature_cols = [
+            "Signal_E211_Pred",
+            "Trend_30",
+            "Trend_2h",
+            "StockMinusMkt_1",
+            "StockMinusMkt_3",
+            "STF15_PathEfficiency",
+            "STF15_SignFlipRate",
+            "STF15_RejectionScore",
+            "STF15_LateStrengthShare",
+            "STF15_EarlyExhaustionScore",
+            "STF15_TimeImbalance",
+            "STF15_FailedBreakoutScore",
+            "STF15_MaxAdverseExcursion",
+            "STF15_HighBeforeLow",
+            "STF15_LowBeforeHigh",
+            "STF15_LastQuarterShare",
+        ]
+        total_entries = int(len(detail_df))
+        wins = int((detail_df["outcome"] == "win").sum())
+        losses = int((detail_df["outcome"] == "loss").sum())
+        flats = int((detail_df["outcome"] == "flat").sum())
+        summary_rows.append(
+            {
+                "policy": "SIGNAL_E211_BANDED_68",
+                "entries": total_entries,
+                "wins": wins,
+                "losses": losses,
+                "flats": flats,
+                "win_rate": float(wins / total_entries) if total_entries else 0.0,
+                "loss_rate": float(losses / total_entries) if total_entries else 0.0,
+                "flat_rate": float(flats / total_entries) if total_entries else 0.0,
+                "mean_trade_pnl_pct_initial": float(pd.to_numeric(detail_df["trade_pnl_pct_initial"], errors="coerce").mean()),
+                "median_trade_pnl_pct_initial": float(pd.to_numeric(detail_df["trade_pnl_pct_initial"], errors="coerce").median()),
+                "mean_hold_bars": float(pd.to_numeric(detail_df["hold_bars"], errors="coerce").mean()),
+                "median_hold_bars": float(pd.to_numeric(detail_df["hold_bars"], errors="coerce").median()),
+                "veto_hit_rate": float(pd.to_numeric(detail_df["intrahour_veto_v1_active"], errors="coerce").fillna(0.0).mean()),
+            }
+        )
+        win_df = detail_df.loc[detail_df["outcome"] == "win"].copy()
+        loss_df = detail_df.loc[detail_df["outcome"] == "loss"].copy()
+        for feature_col in numeric_feature_cols:
+            win_mean = float(pd.to_numeric(win_df.get(feature_col, pd.Series(dtype=float)), errors="coerce").mean()) if not win_df.empty else np.nan
+            loss_mean = float(pd.to_numeric(loss_df.get(feature_col, pd.Series(dtype=float)), errors="coerce").mean()) if not loss_df.empty else np.nan
+            feature_diff_rows.append(
+                {
+                    "feature": feature_col,
+                    "winner_mean": win_mean,
+                    "loser_mean": loss_mean,
+                    "delta_win_minus_loss": win_mean - loss_mean if pd.notna(win_mean) and pd.notna(loss_mean) else np.nan,
+                    "winner_median": float(pd.to_numeric(win_df.get(feature_col, pd.Series(dtype=float)), errors="coerce").median()) if not win_df.empty else np.nan,
+                    "loser_median": float(pd.to_numeric(loss_df.get(feature_col, pd.Series(dtype=float)), errors="coerce").median()) if not loss_df.empty else np.nan,
+                }
+            )
+    summary_df = pd.DataFrame(summary_rows)
+    feature_diff_df = pd.DataFrame(feature_diff_rows)
+    detail_csv = baseline_dir / "e211_entry_audit_detail.csv"
+    cycle_csv = baseline_dir / "e211_entry_audit_cycle_summary.csv"
+    summary_csv = baseline_dir / "e211_entry_audit_summary.csv"
+    feature_diff_csv = baseline_dir / "e211_entry_feature_separation.csv"
+    detail_df.to_csv(detail_csv, index=False)
+    cycle_df.to_csv(cycle_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    feature_diff_df.to_csv(feature_diff_csv, index=False)
+    return {
+        "detail": detail_df,
+        "cycle_summary": cycle_df,
+        "summary": summary_df,
+        "feature_separation": feature_diff_df,
+    }
 
 def summarize_signal_slice_coverage(
     df_slice: pd.DataFrame,
@@ -4614,6 +5123,78 @@ def load_time_distribution_v2_promoted_ids() -> List[str]:
         main_logger.warning(f"[BASELINE] failed to read time-distribution promoted IDs: {exc}")
         return []
     return ids
+
+
+def load_native_15m_execution_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_execution" / "latest" / "native_15m_execution_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_native_15m_failed_breakout_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_failed_breakout" / "latest" / "native_15m_failed_breakout_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m failed-breakout promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_native_15m_open_drive_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_open_drive" / "latest" / "native_15m_open_drive_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m open-drive promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_native_15m_session_phase_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "native_15m_session_phase_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m session-phase promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def ensure_signal_overlay_predictions_available(experiment_ids: List[str], mode_label: str) -> None:
+    missing_ids: List[str] = []
+    for experiment_id in experiment_ids:
+        pred_df = load_signal_overlay_predictions(experiment_id)
+        if pred_df.empty:
+            missing_ids.append(experiment_id)
+    if missing_ids:
+        joined = ", ".join(missing_ids)
+        message = (
+            f"[BASELINE] {mode_label} has no usable overlay predictions for: {joined}. "
+            "Run the corresponding signal research mode first, or fix the empty research export before baseline."
+        )
+        main_logger.error(message)
+        raise RuntimeError(message)
 
 
 def load_market_state_promoted_ids() -> List[str]:
@@ -4853,6 +5434,42 @@ def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
             "policy_prefixes": ["SIGNAL_E5"],
             "benchmark_policy": "SIGNAL_E211_BANDED_68",
             "candidate_ids": [f"E50{i}" for i in range(1, 9)],
+        },
+        {
+            "branch": "Native15mExecution",
+            "research_summary": signal_research_dir / "outputs_native_15m_execution" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_execution" / "latest" / "native_15m_execution_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_execution_validate_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E150"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E1501", "E1502", "E1503", "E1504"],
+        },
+        {
+            "branch": "Native15mFailedBreakout",
+            "research_summary": signal_research_dir / "outputs_native_15m_failed_breakout" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_failed_breakout" / "latest" / "native_15m_failed_breakout_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_failed_breakout_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E160"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E1601", "E1602", "E1603", "E1604"],
+        },
+        {
+            "branch": "Native15mOpenDrive",
+            "research_summary": signal_research_dir / "outputs_native_15m_open_drive" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_open_drive" / "latest" / "native_15m_open_drive_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_open_drive_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E170"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E1701", "E1702", "E1703", "E1704"],
+        },
+        {
+            "branch": "Native15mSessionPhase",
+            "research_summary": signal_research_dir / "outputs_native_15m_session_phase" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_session_phase" / "latest" / "native_15m_session_phase_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_session_phase_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E180"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E1801", "E1802", "E1803", "E1804"],
         },
     ]
 
@@ -5162,6 +5779,7 @@ def run_signal_baseline_suite(
         "SIGNAL_E211_BANDED_66",
         "SIGNAL_E211_BANDED_68",
         "SIGNAL_E211_BANDED_70",
+        "SIGNAL_E211_VETO_INTRAHOUR",
         "SIGNAL_COMBO_E102_E302_BANDED",
         "SIGNAL_COMBO_E102_E302_BANDED_70",
         "SIGNAL_COMBO_E102_E302_BANDED_72",
@@ -5186,6 +5804,14 @@ def run_signal_baseline_suite(
     for experiment_id in ["E1301", "E1302", "E1303", "E1304"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E1401", "E1402", "E1403", "E1404"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1501", "E1502", "E1503", "E1504"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1601", "E1602", "E1603", "E1604"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1701", "E1702", "E1703", "E1704"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1801", "E1802", "E1803", "E1804"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
     if policy_filter:
         wanted = {policy.strip() for policy in policy_filter if policy and policy.strip()}
@@ -6780,6 +7406,11 @@ if __name__ == "__main__":
             "signal_research_intrahour_path_v1",
             "signal_research_breadth_context_60m",
             "signal_research_time_distribution_v2",
+            "signal_research_native_15m_execution",
+            "signal_research_native_15m_failed_breakout",
+            "signal_research_native_15m_open_drive",
+            "signal_research_native_15m_session_phase",
+            "signal_research_all_15m",
             "signal_research_portfolio_rank_60m",
             "signal_research_e302",
             "signal_research_two_track",
@@ -6797,6 +7428,15 @@ if __name__ == "__main__":
             "signal_baseline_breadth_context_60m",
             "signal_baseline_time_distribution_v2",
             "signal_baseline_time_distribution_v2_top",
+            "signal_baseline_native_15m_execution",
+            "signal_baseline_native_15m_execution_validate",
+            "signal_baseline_native_15m_execution_top_compare",
+            "signal_baseline_native_15m_failed_breakout",
+            "signal_baseline_native_15m_open_drive",
+            "signal_baseline_native_15m_session_phase",
+            "signal_baseline_all_15m_top2",
+            "signal_baseline_e211_intrahour_veto",
+            "signal_baseline_e211_entry_audit",
             "signal_baseline_portfolio_rank_60m",
             "signal_baseline_cost_sensitivity",
             "signal_diagnostic_bucket_quality",
@@ -7065,6 +7705,16 @@ if __name__ == "__main__":
             experiment_set = "breadth_context_60m"
         elif run_mode == "signal_research_time_distribution_v2":
             experiment_set = "time_distribution_v2"
+        elif run_mode == "signal_research_native_15m_execution":
+            experiment_set = "native_15m_execution"
+        elif run_mode == "signal_research_native_15m_failed_breakout":
+            experiment_set = "native_15m_failed_breakout"
+        elif run_mode == "signal_research_native_15m_open_drive":
+            experiment_set = "native_15m_open_drive"
+        elif run_mode == "signal_research_native_15m_session_phase":
+            experiment_set = "native_15m_session_phase"
+        elif run_mode == "signal_research_all_15m":
+            experiment_set = "all_15m"
         elif run_mode == "signal_research_portfolio_rank_60m":
             experiment_set = "portfolio_rank_60m"
         elif run_mode == "signal_research_e302":
@@ -7074,12 +7724,16 @@ if __name__ == "__main__":
         run_signal_research_workflow(
             ticker_list=ticker_list,
             instrument_df=instrument_df,
-            interval=TICKINT,
-            history_days=max(TRAIN_HISTORY_DAYS, 1095),
-            window_days=20,
+            interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else TICKINT,
+            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
+            window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else 20,
             experiment_ids=experiment_ids,
             experiment_set=experiment_set,
-            max_window_pairs=max_window_pairs,
+            max_window_pairs=(
+                max_window_pairs
+                if run_mode != "signal_research_all_15m"
+                else (6 if max_window_pairs is None else min(max_window_pairs, 6))
+            ),
         )
         raise SystemExit(0)
 
@@ -7167,7 +7821,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -7638,6 +8292,338 @@ if __name__ == "__main__":
             )
             raise SystemExit(0)
 
+        if run_mode == "signal_baseline_native_15m_execution":
+            promoted_native_15m_ids = load_native_15m_execution_promoted_ids()
+            if not promoted_native_15m_ids:
+                promoted_native_15m_ids = ["E1501", "E1502"]
+            promoted_native_15m_ids = [exp_id for exp_id in promoted_native_15m_ids if exp_id in {"E1501", "E1502"}]
+            if not promoted_native_15m_ids:
+                promoted_native_15m_ids = ["E1501", "E1502"]
+            native_15m_policy_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_ids:
+                native_15m_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m baseline evaluation. "
+                "Testing promoted direct-15m survivors with true 15m decision timing against FLAT. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=max(TRAIN_HISTORY_DAYS, 365),
+                train_days=365,
+                val_days=45,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=1,
+                policy_filter=native_15m_policy_filter,
+            )
+            native_15m_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_execution_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    native_df = pd.read_csv(policy_csv)
+                    native_df = native_df.loc[
+                        native_df["policy"].isin(native_15m_policy_filter)
+                    ].copy()
+                    native_df.to_csv(native_15m_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m policy summary saved: {native_15m_policy_csv}")
+                    print(f"[BASELINE] native 15m policy summary saved: {native_15m_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_execution_validate":
+            native_15m_policy_filter = ["FLAT", "SIGNAL_E1502_BANDED_66", "SIGNAL_E1502_BANDED_64"]
+            main_logger.info(
+                "Starting native 15m validation baseline. "
+                "Re-testing the sparse native-15m survivor over broader walk-forward coverage to check whether E1502 generalizes beyond one ticker/window."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_policy_filter,
+            )
+            validate_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_execution_validate_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    validate_df = pd.read_csv(policy_csv)
+                    validate_df = validate_df.loc[
+                        validate_df["policy"].isin(native_15m_policy_filter)
+                    ].copy()
+                    validate_df.to_csv(validate_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m validation summary saved: {validate_policy_csv}")
+                    print(f"[BASELINE] native 15m validation summary saved: {validate_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m validation summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_execution_top_compare":
+            native_15m_policy_filter = [
+                "FLAT",
+                "SIGNAL_E211_BANDED_68",
+                "SIGNAL_E211_BANDED_66",
+                "SIGNAL_E1501_BANDED_70",
+                "SIGNAL_E1501_BANDED_68",
+                "SIGNAL_E1501_BANDED_66",
+            ]
+            main_logger.info(
+                "Starting native 15m top comparison baseline. "
+                "Comparing native-15m E1501 against native-15m E211 under the same broader validation frame."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_policy_filter,
+            )
+            compare_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_execution_top_compare_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    compare_df = pd.read_csv(policy_csv)
+                    compare_df = compare_df.loc[
+                        compare_df["policy"].isin(native_15m_policy_filter)
+                    ].copy()
+                    compare_df.to_csv(compare_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m top comparison summary saved: {compare_policy_csv}")
+                    print(f"[BASELINE] native 15m top comparison summary saved: {compare_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m top comparison summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_failed_breakout":
+            promoted_native_15m_failed_breakout_ids = load_native_15m_failed_breakout_promoted_ids()
+            if not promoted_native_15m_failed_breakout_ids:
+                promoted_native_15m_failed_breakout_ids = ["E1601", "E1602", "E1603", "E1604"]
+            native_15m_failed_breakout_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_failed_breakout_ids:
+                native_15m_failed_breakout_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m failed-breakout baseline evaluation. "
+                "Testing promoted event-driven rejection and breakout-failure survivors against FLAT on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_failed_breakout_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_failed_breakout_filter,
+            )
+            failed_breakout_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_failed_breakout_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    failed_breakout_df = pd.read_csv(policy_csv)
+                    failed_breakout_df = failed_breakout_df.loc[
+                        failed_breakout_df["policy"].isin(native_15m_failed_breakout_filter)
+                    ].copy()
+                    failed_breakout_df.to_csv(failed_breakout_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m failed-breakout summary saved: {failed_breakout_policy_csv}")
+                    print(f"[BASELINE] native 15m failed-breakout summary saved: {failed_breakout_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m failed-breakout summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_open_drive":
+            promoted_native_15m_open_drive_ids = load_native_15m_open_drive_promoted_ids()
+            if not promoted_native_15m_open_drive_ids:
+                promoted_native_15m_open_drive_ids = ["E1701", "E1702", "E1703", "E1704"]
+            ensure_signal_overlay_predictions_available(
+                promoted_native_15m_open_drive_ids,
+                "native-15m open-drive baseline",
+            )
+            native_15m_open_drive_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_open_drive_ids:
+                native_15m_open_drive_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m open-drive baseline evaluation. "
+                "Testing promoted opening-range and open-drive event survivors against FLAT on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_open_drive_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_open_drive_filter,
+            )
+            open_drive_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_open_drive_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    open_drive_df = pd.read_csv(policy_csv)
+                    open_drive_df = open_drive_df.loc[
+                        open_drive_df["policy"].isin(native_15m_open_drive_filter)
+                    ].copy()
+                    open_drive_df.to_csv(open_drive_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m open-drive summary saved: {open_drive_policy_csv}")
+                    print(f"[BASELINE] native 15m open-drive summary saved: {open_drive_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m open-drive summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_session_phase":
+            promoted_native_15m_session_phase_ids = load_native_15m_session_phase_promoted_ids()
+            if not promoted_native_15m_session_phase_ids:
+                promoted_native_15m_session_phase_ids = ["E1801", "E1802", "E1803", "E1804"]
+            ensure_signal_overlay_predictions_available(
+                promoted_native_15m_session_phase_ids,
+                "native-15m session-phase baseline",
+            )
+            native_15m_session_phase_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_session_phase_ids:
+                native_15m_session_phase_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m session-phase baseline evaluation. "
+                "Testing promoted early, mid, and late-session event survivors against FLAT on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_session_phase_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_session_phase_filter,
+            )
+            session_phase_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_session_phase_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    session_phase_df = pd.read_csv(policy_csv)
+                    session_phase_df = session_phase_df.loc[
+                        session_phase_df["policy"].isin(native_15m_session_phase_filter)
+                    ].copy()
+                    session_phase_df.to_csv(session_phase_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m session-phase summary saved: {session_phase_policy_csv}")
+                    print(f"[BASELINE] native 15m session-phase summary saved: {session_phase_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m session-phase summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_all_15m_top2":
+            top_15m_experiment_ids = ["E1301", "E102"]
+            native_15m_policy_filter = ["FLAT"]
+            for experiment_id in top_15m_experiment_ids:
+                native_15m_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m shortlist baseline evaluation. "
+                "Testing the strongest remaining broad-sweep survivors E1301 and E102 against FLAT on the wider native-15m validation frame."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_policy_filter,
+            )
+            shortlist_policy_csv = RESULTS_DIR / "signal_baseline" / "all_15m_top2_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    shortlist_df = pd.read_csv(policy_csv)
+                    shortlist_df = shortlist_df.loc[
+                        shortlist_df["policy"].isin(native_15m_policy_filter)
+                    ].copy()
+                    shortlist_df.to_csv(shortlist_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m shortlist summary saved: {shortlist_policy_csv}")
+                    print(f"[BASELINE] native 15m shortlist summary saved: {shortlist_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m shortlist summary: {exc}")
+            raise SystemExit(0)
+
         if run_mode == "signal_baseline_time_distribution_v2_top":
             promoted_time_distribution_ids = ["E1401"]
             time_distribution_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
@@ -7680,6 +8666,85 @@ if __name__ == "__main__":
                     print(f"[BASELINE] narrow time-distribution policy summary saved: {top_policy_csv}")
             except Exception as exc:
                 main_logger.warning(f"[BASELINE] failed to save narrow time-distribution summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_e211_intrahour_veto":
+            veto_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68", "SIGNAL_E211_VETO_INTRAHOUR"]
+            main_logger.info(
+                "Starting E211 intrahour-veto baseline evaluation. "
+                "Testing whether intrahour path and timing signals can improve the incumbent by vetoing weak E211 entries."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=veto_policy_filter,
+            )
+            veto_policy_csv = RESULTS_DIR / "signal_baseline" / "e211_intrahour_veto_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    veto_df = pd.read_csv(policy_csv)
+                    veto_df = veto_df.loc[
+                        veto_df["policy"].isin(veto_policy_filter)
+                    ].copy()
+                    veto_df.to_csv(veto_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] E211 intrahour-veto summary saved: {veto_policy_csv}")
+                    print(f"[BASELINE] E211 intrahour-veto summary saved: {veto_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save E211 intrahour-veto summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_e211_entry_audit":
+            main_logger.info(
+                "Starting E211 entry-bar audit. "
+                "Replaying SIGNAL_E211_BANDED_68 and extracting realized entry trades to compare winner vs loser intrahour features."
+            )
+            audit_tickers = NSE_LIQUID_UNIVERSE.copy()
+            audit_outputs = run_e211_entry_audit(
+                ticker_list=audit_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+            )
+            try:
+                main_logger.info(
+                    "[BASELINE] E211 entry audit saved: summary=%s, detail_rows=%s, feature_rows=%s",
+                    RESULTS_DIR / "signal_baseline" / "e211_entry_audit_summary.csv",
+                    len(audit_outputs.get("detail", pd.DataFrame())),
+                    len(audit_outputs.get("feature_separation", pd.DataFrame())),
+                )
+                print(f"[BASELINE] E211 entry audit summary saved: {RESULTS_DIR / 'signal_baseline' / 'e211_entry_audit_summary.csv'}")
+                print(f"[BASELINE] E211 entry audit detail saved: {RESULTS_DIR / 'signal_baseline' / 'e211_entry_audit_detail.csv'}")
+                print(f"[BASELINE] E211 feature separation saved: {RESULTS_DIR / 'signal_baseline' / 'e211_entry_feature_separation.csv'}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to log E211 entry audit outputs: {exc}")
             raise SystemExit(0)
 
         if run_mode == "signal_baseline_portfolio_rank_60m":
