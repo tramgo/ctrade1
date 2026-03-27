@@ -14,3 +14,7 @@
 - Recorded `Native15mOpenDrive` executable verdict: branch closed as `research_only`
 - Implemented next native-`15m` thesis: `Native15mSessionPhase`
 - Tightened the written plan to make the new rule explicit: strong ranking is insufficient unless it sits inside a regime with positive absolute economics
+- Recorded `Native15mSessionPhase` executable verdict: branch closed as `research_only`
+- Implemented next native-`15m` thesis: `Native15mHoldingHorizon`
+- Recorded `Native15mHoldingHorizon` executable verdict: branch closed as `research_only`
+- Implemented next native-`15m` thesis: `Native15mTopKEventRank`

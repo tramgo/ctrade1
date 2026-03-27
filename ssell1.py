@@ -590,6 +590,62 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
         ],
         "Signal_E1804",
     ),
+    "E1901": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1901",
+    ),
+    "E1902": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1902",
+    ),
+    "E1903": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1903",
+    ),
+    "E1904": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E1904",
+    ),
+    "E2001": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2001",
+    ),
+    "E2002": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2002",
+    ),
+    "E2003": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2003",
+    ),
+    "E2004": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2004",
+    ),
 }
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
 _SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
@@ -877,6 +933,30 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E1804_Pred", 0.5),
         ("Signal_E1804_Edge", 0.0),
         ("Signal_E1804_HighConf", 0.0),
+        ("Signal_E1901_Pred", 0.5),
+        ("Signal_E1901_Edge", 0.0),
+        ("Signal_E1901_HighConf", 0.0),
+        ("Signal_E1902_Pred", 0.5),
+        ("Signal_E1902_Edge", 0.0),
+        ("Signal_E1902_HighConf", 0.0),
+        ("Signal_E1903_Pred", 0.5),
+        ("Signal_E1903_Edge", 0.0),
+        ("Signal_E1903_HighConf", 0.0),
+        ("Signal_E1904_Pred", 0.5),
+        ("Signal_E1904_Edge", 0.0),
+        ("Signal_E1904_HighConf", 0.0),
+        ("Signal_E2001_Pred", 0.5),
+        ("Signal_E2001_Edge", 0.0),
+        ("Signal_E2001_HighConf", 0.0),
+        ("Signal_E2002_Pred", 0.5),
+        ("Signal_E2002_Edge", 0.0),
+        ("Signal_E2002_HighConf", 0.0),
+        ("Signal_E2003_Pred", 0.5),
+        ("Signal_E2003_Edge", 0.0),
+        ("Signal_E2003_HighConf", 0.0),
+        ("Signal_E2004_Pred", 0.5),
+        ("Signal_E2004_Edge", 0.0),
+        ("Signal_E2004_HighConf", 0.0),
     ]
     default_map = dict(overlay_defaults)
     if not ticker or "Date" not in out.columns:
@@ -3529,6 +3609,18 @@ def run_signal_research_workflow(
             "[SIGNAL RESEARCH] Native 15m session-phase events enabled. "
             "Testing early, mid, and late-session event structures directly on 15m bars instead of another ported ranking family."
         )
+    elif experiment_set == "native_15m_holding_horizon":
+        output_dir_name = "outputs_native_15m_holding_horizon"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m holding-horizon experiments enabled. "
+            "Testing whether the same 15m event quality only monetizes when matched to the correct forward holding horizon."
+        )
+    elif experiment_set == "native_15m_topk_event_rank":
+        output_dir_name = "outputs_native_15m_topk_event_rank"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Native 15m top-k event rank enabled. "
+            "Testing whether ranking only within strict favorable event slices improves absolute economics versus broad thresholding."
+        )
     elif experiment_set == "all_15m":
         output_dir_name = "outputs_all_15m"
         main_logger.info(
@@ -5181,6 +5273,34 @@ def load_native_15m_session_phase_promoted_ids() -> List[str]:
     return ids
 
 
+def load_native_15m_holding_horizon_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_holding_horizon" / "latest" / "native_15m_holding_horizon_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m holding-horizon promoted IDs: {exc}")
+        return []
+    return ids
+
+
+def load_native_15m_topk_event_rank_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_native_15m_topk_event_rank" / "latest" / "native_15m_topk_event_rank_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read native-15m top-k event-rank promoted IDs: {exc}")
+        return []
+    return ids
+
+
 def ensure_signal_overlay_predictions_available(experiment_ids: List[str], mode_label: str) -> None:
     missing_ids: List[str] = []
     for experiment_id in experiment_ids:
@@ -5470,6 +5590,24 @@ def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
             "policy_prefixes": ["SIGNAL_E180"],
             "benchmark_policy": "SIGNAL_E211_BANDED_68",
             "candidate_ids": ["E1801", "E1802", "E1803", "E1804"],
+        },
+        {
+            "branch": "Native15mHoldingHorizon",
+            "research_summary": signal_research_dir / "outputs_native_15m_holding_horizon" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_holding_horizon" / "latest" / "native_15m_holding_horizon_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_holding_horizon_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E190"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E1901", "E1902", "E1903", "E1904"],
+        },
+        {
+            "branch": "Native15mTopKEventRank",
+            "research_summary": signal_research_dir / "outputs_native_15m_topk_event_rank" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_native_15m_topk_event_rank" / "latest" / "native_15m_topk_event_rank_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "native_15m_topk_event_rank_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E200"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E2001", "E2002", "E2003", "E2004"],
         },
     ]
 
@@ -5812,6 +5950,10 @@ def run_signal_baseline_suite(
     for experiment_id in ["E1701", "E1702", "E1703", "E1704"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E1801", "E1802", "E1803", "E1804"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E1901", "E1902", "E1903", "E1904"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E2001", "E2002", "E2003", "E2004"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
     if policy_filter:
         wanted = {policy.strip() for policy in policy_filter if policy and policy.strip()}
@@ -7410,6 +7552,8 @@ if __name__ == "__main__":
             "signal_research_native_15m_failed_breakout",
             "signal_research_native_15m_open_drive",
             "signal_research_native_15m_session_phase",
+            "signal_research_native_15m_holding_horizon",
+            "signal_research_native_15m_topk_event_rank",
             "signal_research_all_15m",
             "signal_research_portfolio_rank_60m",
             "signal_research_e302",
@@ -7434,6 +7578,8 @@ if __name__ == "__main__":
             "signal_baseline_native_15m_failed_breakout",
             "signal_baseline_native_15m_open_drive",
             "signal_baseline_native_15m_session_phase",
+            "signal_baseline_native_15m_holding_horizon",
+            "signal_baseline_native_15m_topk_event_rank",
             "signal_baseline_all_15m_top2",
             "signal_baseline_e211_intrahour_veto",
             "signal_baseline_e211_entry_audit",
@@ -7713,6 +7859,10 @@ if __name__ == "__main__":
             experiment_set = "native_15m_open_drive"
         elif run_mode == "signal_research_native_15m_session_phase":
             experiment_set = "native_15m_session_phase"
+        elif run_mode == "signal_research_native_15m_holding_horizon":
+            experiment_set = "native_15m_holding_horizon"
+        elif run_mode == "signal_research_native_15m_topk_event_rank":
+            experiment_set = "native_15m_topk_event_rank"
         elif run_mode == "signal_research_all_15m":
             experiment_set = "all_15m"
         elif run_mode == "signal_research_portfolio_rank_60m":
@@ -7724,9 +7874,9 @@ if __name__ == "__main__":
         run_signal_research_workflow(
             ticker_list=ticker_list,
             instrument_df=instrument_df,
-            interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else TICKINT,
-            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
-            window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_all_15m"} else 20,
+            interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_all_15m"} else TICKINT,
+            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
+            window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_all_15m"} else 20,
             experiment_ids=experiment_ids,
             experiment_set=experiment_set,
             max_window_pairs=(
@@ -7821,7 +7971,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -8578,6 +8728,108 @@ if __name__ == "__main__":
                     print(f"[BASELINE] native 15m session-phase summary saved: {session_phase_policy_csv}")
             except Exception as exc:
                 main_logger.warning(f"[BASELINE] failed to save native 15m session-phase summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_holding_horizon":
+            promoted_native_15m_holding_horizon_ids = load_native_15m_holding_horizon_promoted_ids()
+            if not promoted_native_15m_holding_horizon_ids:
+                promoted_native_15m_holding_horizon_ids = ["E1901", "E1902", "E1903", "E1904"]
+            ensure_signal_overlay_predictions_available(
+                promoted_native_15m_holding_horizon_ids,
+                "native-15m holding-horizon baseline",
+            )
+            native_15m_holding_horizon_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_holding_horizon_ids:
+                native_15m_holding_horizon_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m holding-horizon baseline evaluation. "
+                "Testing promoted horizon-specific event survivors against FLAT on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_holding_horizon_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_holding_horizon_filter,
+            )
+            holding_horizon_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_holding_horizon_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    holding_horizon_df = pd.read_csv(policy_csv)
+                    holding_horizon_df = holding_horizon_df.loc[
+                        holding_horizon_df["policy"].isin(native_15m_holding_horizon_filter)
+                    ].copy()
+                    holding_horizon_df.to_csv(holding_horizon_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m holding-horizon summary saved: {holding_horizon_policy_csv}")
+                    print(f"[BASELINE] native 15m holding-horizon summary saved: {holding_horizon_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m holding-horizon summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_native_15m_topk_event_rank":
+            promoted_native_15m_topk_event_rank_ids = load_native_15m_topk_event_rank_promoted_ids()
+            if not promoted_native_15m_topk_event_rank_ids:
+                promoted_native_15m_topk_event_rank_ids = ["E2001", "E2002", "E2003", "E2004"]
+            ensure_signal_overlay_predictions_available(
+                promoted_native_15m_topk_event_rank_ids,
+                "native-15m top-k event-rank baseline",
+            )
+            native_15m_topk_event_rank_filter = ["FLAT"]
+            for experiment_id in promoted_native_15m_topk_event_rank_ids:
+                native_15m_topk_event_rank_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting native 15m top-k event-rank baseline evaluation. "
+                "Testing promoted favorable-slice ranking survivors against FLAT on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_native_15m_topk_event_rank_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=native_15m_topk_event_rank_filter,
+            )
+            topk_event_rank_policy_csv = RESULTS_DIR / "signal_baseline" / "native_15m_topk_event_rank_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    topk_event_rank_df = pd.read_csv(policy_csv)
+                    topk_event_rank_df = topk_event_rank_df.loc[
+                        topk_event_rank_df["policy"].isin(native_15m_topk_event_rank_filter)
+                    ].copy()
+                    topk_event_rank_df.to_csv(topk_event_rank_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] native 15m top-k event-rank summary saved: {topk_event_rank_policy_csv}")
+                    print(f"[BASELINE] native 15m top-k event-rank summary saved: {topk_event_rank_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save native 15m top-k event-rank summary: {exc}")
             raise SystemExit(0)
 
         if run_mode == "signal_baseline_all_15m_top2":

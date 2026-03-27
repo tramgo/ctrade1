@@ -150,10 +150,29 @@ So the native-`15m` event path remains interesting, but not yet executable:
 - `Native15mFailedBreakout` was research-alive but baseline-negative
 - `Native15mOpenDrive` was research-alive and executable-active, but still baseline-negative
 
+We then tested a hold-duration correction thesis:
+
+- `native_15m_holding_horizon`
+  - best research candidate: `E1903`
+  - research profile:
+    - AUC: `0.6071`
+    - balanced accuracy: `0.5832`
+    - spread: `0.0008443`
+  - best executable baseline:
+    - `SIGNAL_E1902_BANDED_70`
+    - return: `-0.0016108`
+    - turnover: `0.7236`
+    - trades: `3.3827`
+  - practical read:
+    - `E1902` was the least-bad executable version and the branch was broad enough to be meaningful
+    - explicit hold-duration matching still did not produce a positive post-cost baseline
+  - verdict:
+    - `research_only`
+
 We therefore move to the next native-`15m` thesis:
 
-- `native_15m_session_phase`
-  - session-aware event system
+- `native_15m_topk_event_rank`
+  - cross-sectional event ranking inside strict favorable slices
   - implementation complete
   - research and baseline results pending
 

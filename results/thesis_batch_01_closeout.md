@@ -38,14 +38,46 @@ Reason:
 - `E1702` and `E1701` both produced real research signal and real executable activity.
 - The branch was not a fake no-trade artifact after the filter fix, but the best executable policy still stayed net negative after costs.
 
+### `TB01_T03` Native15mSessionPhase
+- Research verdict: alive
+- Best research candidate: `E1803`
+- Best research profile:
+  - AUC `0.6341835397008408`
+  - balanced accuracy `0.6081429351342786`
+  - spread `0.0008386969864369726`
+- Baseline verdict: failed
+- Best executable policy: `SIGNAL_E1802_BANDED_70`
+- Best executable return: `-0.0001341339035688`
+- Decision: `research_only`
+
+Reason:
+- `E1803` was a very strong classifier in research terms, but still sat in a weak economic slice.
+- `E1802` was the least-bad executable candidate, but it still failed to beat `FLAT`.
+
+### `TB01_T04` Native15mHoldingHorizon
+- Research verdict: alive
+- Best research candidate: `E1903`
+- Best research profile:
+  - AUC `0.6070648832522949`
+  - balanced accuracy `0.5832163359768442`
+  - spread `0.0008443445213692815`
+- Baseline verdict: failed
+- Best executable policy: `SIGNAL_E1902_BANDED_70`
+- Best executable return: `-0.0016108139104049`
+- Decision: `research_only`
+
+Reason:
+- Explicit hold-duration matching did change the research profile and `E1902` was the least-bad executable version.
+- But horizon selection alone did not repair the economics; the branch traded broadly enough to be meaningful and still stayed clearly below `FLAT`.
+
 ## Current Next Action
 
-### `TB01_T03` Native15mSessionPhase
+### `TB01_T05` Native15mTopKEventRank
 - Status: implemented
-- Next step: run research, inspect shortlist, baseline only survivors if research is alive
+- Next step: run research, inspect shortlist, baseline only survivors if the favorable-slice ranking thesis is alive
 
 ## Batch Status
 
-- Closed theses: `2 / 10`
+- Closed theses: `4 / 10`
 - Active theses: `1`
-- Backlog theses: `7`
+- Backlog theses: `5`

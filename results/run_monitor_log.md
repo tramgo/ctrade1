@@ -17,6 +17,15 @@
 - `afternoon` Open-drive baseline completed cleanly; best executable policy was `SIGNAL_E1701_BANDED_70` at `-0.0006190150485907`
 - `afternoon` Decision recorded: `Native15mOpenDrive -> research_only`
 - `afternoon` Began implementation of next thesis: `Native15mSessionPhase`
+- `midday` Session-phase research completed; `E1803` led classification while `E1801` and `E1802` looked cleaner in raw executable terms
+- `midday` Session-phase baseline completed cleanly; best executable policy was `SIGNAL_E1802_BANDED_70` at `-0.0001341339035688`
+- `midday` Decision recorded: `Native15mSessionPhase -> research_only`
+- `midday` Began implementation of next thesis: `Native15mHoldingHorizon`
+- `afternoon` Holding-horizon research completed; `E1903` led classification while `E1902` looked cleaner in raw executable terms
+- `late afternoon` Holding-horizon baseline required two wiring fixes before the branch-specific policies evaluated correctly
+- `late afternoon` Holding-horizon baseline completed cleanly; best executable policy was `SIGNAL_E1902_BANDED_70` at `-0.0016108139104049`
+- `late afternoon` Decision recorded: `Native15mHoldingHorizon -> research_only`
+- `late afternoon` Began implementation of next thesis: `Native15mTopKEventRank`
 
 Notes:
 - Monitoring followed the runtime/integrity-only early-stop rule.

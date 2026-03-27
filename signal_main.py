@@ -25,8 +25,10 @@ from signal_config import (
     MULTISCALE_60M_EXPERIMENTS,
     NATIVE_15M_EXECUTION_EXPERIMENTS,
     NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS,
+    NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS,
     NATIVE_15M_OPEN_DRIVE_EXPERIMENTS,
     NATIVE_15M_SESSION_PHASE_EXPERIMENTS,
+    NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS,
     BREADTH_CONTEXT_60M_EXPERIMENTS,
     TIME_DISTRIBUTION_V2_EXPERIMENTS,
     INTRAHOUR_PATH_V1_EXPERIMENTS,
@@ -76,8 +78,10 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
         + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
         + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+        + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
         + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
         + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
+        + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
         + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
         + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
         + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
@@ -117,10 +121,14 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(NATIVE_15M_EXECUTION_EXPERIMENTS)
     if experiment_set == "native_15m_failed_breakout":
         return list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+    if experiment_set == "native_15m_holding_horizon":
+        return list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
     if experiment_set == "native_15m_open_drive":
         return list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
     if experiment_set == "native_15m_session_phase":
         return list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
+    if experiment_set == "native_15m_topk_event_rank":
+        return list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
     if experiment_set == "breadth_context_60m":
         return list(BREADTH_CONTEXT_60M_EXPERIMENTS)
     if experiment_set == "time_distribution_v2":
@@ -150,8 +158,10 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(GENERALIZATION_EXPERIMENTS)
             + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
             + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+            + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
             + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
             + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
+            + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
         )
     if experiment_set == "generalization_next":
         return list(GENERALIZATION_NEXT_EXPERIMENTS)
@@ -179,8 +189,10 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
             + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
             + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+            + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
             + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
             + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
+            + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
             + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
             + list(GENERALIZATION_NEXT_EXPERIMENTS)
             + list(GENERALIZATION_WAVE2_EXPERIMENTS)
@@ -1085,6 +1097,96 @@ def build_native_15m_session_phase_shortlist(compare: pd.DataFrame) -> pd.DataFr
     return out
 
 
+def build_native_15m_holding_horizon_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E1901": "Hold1Bar",
+        "E1902": "Hold2Bars",
+        "E1903": "Hold4Bars",
+        "E1904": "Hold8Bars",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_native_15m_topk_event_rank_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2001": "EarlyLeaderTopK",
+        "E2002": "PersistentLeaderTopK",
+        "E2003": "SectorLeaderCarryTopK",
+        "E2004": "CalmLeaderTopK",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1570,6 +1672,32 @@ def run_signal_pipeline(
         ].tolist()
         (run_out_dir / "native_15m_session_phase_promoted_ids.txt").write_text(
             "\n".join(promoted_native_15m_session_phase),
+            encoding="utf-8",
+        )
+    native_15m_holding_horizon_shortlist = build_native_15m_holding_horizon_shortlist(compare)
+    if not native_15m_holding_horizon_shortlist.empty:
+        native_15m_holding_horizon_shortlist.to_csv(
+            run_out_dir / "native_15m_holding_horizon_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_holding_horizon = native_15m_holding_horizon_shortlist.loc[
+            native_15m_holding_horizon_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_holding_horizon_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_holding_horizon),
+            encoding="utf-8",
+        )
+    native_15m_topk_event_rank_shortlist = build_native_15m_topk_event_rank_shortlist(compare)
+    if not native_15m_topk_event_rank_shortlist.empty:
+        native_15m_topk_event_rank_shortlist.to_csv(
+            run_out_dir / "native_15m_topk_event_rank_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_topk_event_rank = native_15m_topk_event_rank_shortlist.loc[
+            native_15m_topk_event_rank_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_topk_event_rank_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_topk_event_rank),
             encoding="utf-8",
         )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
