@@ -37,3 +37,4 @@
 - Recorded `EventConditionedSizingVeto` executable verdict: branch closed as `research_only` after `E2403` improved drawdown and turnover but failed to beat incumbent return
 - Reconciled Batch 01 tracker CSVs after `T07-T09` completion and marked `TB01_T10` as not opened because no concrete new local data axis was found
 - Opened Batch 02 planning artifacts with `TB02_T01 CrossSectionalCommonalityResidual` as the next design candidate
+- Implemented `TB02_T01 CrossSectionalCommonalityResidual` research and baseline wiring with `E2501-E2504`

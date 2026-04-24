@@ -730,6 +730,34 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
         ],
         "Signal_E2304",
     ),
+    "E2501": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2501",
+    ),
+    "E2502": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2502",
+    ),
+    "E2503": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2503",
+    ),
+    "E2504": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2504",
+    ),
 }
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
 _SIGNAL_OVERLAY_CACHE: Dict[str, pd.DataFrame] = {}
@@ -1116,6 +1144,18 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E2304_Pred", 0.5),
         ("Signal_E2304_Edge", 0.0),
         ("Signal_E2304_HighConf", 0.0),
+        ("Signal_E2501_Pred", 0.5),
+        ("Signal_E2501_Edge", 0.0),
+        ("Signal_E2501_HighConf", 0.0),
+        ("Signal_E2502_Pred", 0.5),
+        ("Signal_E2502_Edge", 0.0),
+        ("Signal_E2502_HighConf", 0.0),
+        ("Signal_E2503_Pred", 0.5),
+        ("Signal_E2503_Edge", 0.0),
+        ("Signal_E2503_HighConf", 0.0),
+        ("Signal_E2504_Pred", 0.5),
+        ("Signal_E2504_Edge", 0.0),
+        ("Signal_E2504_HighConf", 0.0),
     ]
     default_map = dict(overlay_defaults)
     if not ticker or "Date" not in out.columns:
@@ -1282,6 +1322,9 @@ FEATURES_TO_SCALE = [
     "XS_LeaderSpread_3", "XS_LeaderTop20", "XS_LaggardBottom20",
     "XS_LeaderPersist_3", "XS_LaggardPersist_3", "XS_LeaderPersist_6",
     "XS_LaggardPersist_6", "XS_Rank_Change_3", "XS_VolumeLeaderSpread",
+    "SectorResidual_3", "VolAdjSectorResidual_3", "XS_Rank_SectorResidual_3",
+    "XS_CommonalityResidual_3", "XS_IdiosyncraticLeader_3", "XS_IdiosyncraticLaggard_3",
+    "ResidualLeaderPersist_3", "ResidualLaggardPersist_3",
 ]
 
 
@@ -3489,10 +3532,32 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     out["XS_LaggardPersist_6"] = bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(6, min_periods=1).sum()).fillna(0.0)
     out["XS_Rank_Change_3"] = out.groupby("Ticker")["XS_Rank_StockMinusMkt_3"].diff(3).fillna(0.0)
 
+    stock_minus_mkt_3 = pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
+    sector_minus_mkt_3 = pd.to_numeric(out.get("SectorMinusMkt_3"), errors="coerce").fillna(0.0)
+    out["SectorResidual_3"] = stock_minus_mkt_3 - sector_minus_mkt_3
+    out["VolAdjSectorResidual_3"] = (
+        out["SectorResidual_3"] / real_vol
+    ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-10.0, 10.0)
+    out["XS_Rank_SectorResidual_3"] = (
+        pd.to_numeric(out["SectorResidual_3"], errors="coerce")
+        .groupby(out["Date"])
+        .rank(method="average", pct=True)
+        .fillna(0.5)
+    )
+    centered_stock_rank = pd.to_numeric(out["XS_Rank_StockMinusMkt_3"], errors="coerce").fillna(0.5) - 0.5
+    centered_sector_rank = pd.to_numeric(out["XS_Rank_SectorMinusMkt_3"], errors="coerce").fillna(0.5) - 0.5
+    centered_residual_rank = pd.to_numeric(out["XS_Rank_SectorResidual_3"], errors="coerce").fillna(0.5) - 0.5
+    out["XS_CommonalityResidual_3"] = (centered_stock_rank - centered_sector_rank).clip(-1.0, 1.0)
+    out["XS_IdiosyncraticLeader_3"] = (centered_residual_rank - centered_sector_rank.abs()).clip(-1.0, 1.0)
+    out["XS_IdiosyncraticLaggard_3"] = ((-centered_residual_rank) - centered_sector_rank.abs()).clip(-1.0, 1.0)
+    residual_top20 = (out["XS_Rank_SectorResidual_3"] >= 0.80).astype(float)
+    residual_bottom20 = (out["XS_Rank_SectorResidual_3"] <= 0.20).astype(float)
+    out["ResidualLeaderPersist_3"] = residual_top20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
+    out["ResidualLaggardPersist_3"] = residual_bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
+
     mkt_ret_1 = pd.to_numeric(out.get("MktRet_1"), errors="coerce").fillna(0.0)
     lag_ret_1 = pd.to_numeric(out.get("LagRet_1"), errors="coerce").fillna(0.0)
     stock_minus_mkt_1 = pd.to_numeric(out.get("StockMinusMkt_1"), errors="coerce").fillna(0.0)
-    stock_minus_mkt_3 = pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
     relative_volume = pd.to_numeric(out.get("RelativeVolumeTime"), errors="coerce").fillna(0.0)
     sign_stock = np.sign(lag_ret_1)
     sign_mkt = np.sign(mkt_ret_1)
@@ -3948,6 +4013,12 @@ def run_signal_research_workflow(
         main_logger.info(
             "[SIGNAL RESEARCH] 60m plus daily-context thesis enabled. "
             "Testing whether explicit previous-session context improves 60m executable quality beyond the current intraday-only families."
+        )
+    elif experiment_set == "cross_sectional_commonality_residual":
+        output_dir_name = "outputs_cross_sectional_commonality_residual"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Cross-sectional commonality-residual thesis enabled. "
+            "Testing whether stock-specific residual leadership after market and sector context defines a tradable 60m slice."
         )
     elif experiment_set == "all_15m":
         output_dir_name = "outputs_all_15m"
@@ -5907,6 +5978,20 @@ def load_sixty_minute_daily_context_promoted_ids() -> List[str]:
     return ids
 
 
+def load_cross_sectional_commonality_residual_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "cross_sectional_commonality_residual_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read cross-sectional commonality-residual promoted IDs: {exc}")
+        return []
+    return ids[:2]
+
+
 def load_event_conditioned_sizing_veto_promoted_ids() -> List[str]:
     shortlist_path = (
         RESULTS_DIR
@@ -6274,6 +6359,15 @@ def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
             "policy_prefixes": ["SIGNAL_E220"],
             "benchmark_policy": "SIGNAL_E211_BANDED_68",
             "candidate_ids": ["E2201", "E2202", "E2203", "E2204"],
+        },
+        {
+            "branch": "CrossSectionalCommonalityResidual",
+            "research_summary": signal_research_dir / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_cross_sectional_commonality_residual" / "latest" / "cross_sectional_commonality_residual_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "cross_sectional_commonality_residual_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E250"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E2501", "E2502", "E2503", "E2504"],
         },
     ]
 
@@ -8249,6 +8343,7 @@ if __name__ == "__main__":
             "signal_research_native_15m_breadth_event",
             "signal_research_native_15m_mean_reversion_exhaustion",
             "signal_research_sixty_minute_daily_context",
+            "signal_research_cross_sectional_commonality_residual",
             "signal_research_event_conditioned_sizing_veto",
             "signal_research_all_15m",
             "signal_research_portfolio_rank_60m",
@@ -8281,6 +8376,7 @@ if __name__ == "__main__":
             "signal_baseline_native_15m_mean_reversion_exhaustion_compare",
             "signal_baseline_native_15m_mean_reversion_exhaustion_validate",
             "signal_baseline_sixty_minute_daily_context",
+            "signal_baseline_cross_sectional_commonality_residual",
             "signal_baseline_event_conditioned_sizing_veto",
             "signal_baseline_all_15m_top2",
             "signal_baseline_e211_intrahour_veto",
@@ -8598,6 +8694,8 @@ if __name__ == "__main__":
             experiment_set = "native_15m_mean_reversion_exhaustion"
         elif run_mode == "signal_research_sixty_minute_daily_context":
             experiment_set = "sixty_minute_daily_context"
+        elif run_mode == "signal_research_cross_sectional_commonality_residual":
+            experiment_set = "cross_sectional_commonality_residual"
         elif run_mode == "signal_research_all_15m":
             experiment_set = "all_15m"
         elif run_mode == "signal_research_portfolio_rank_60m":
@@ -8706,7 +8804,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -9868,6 +9966,57 @@ if __name__ == "__main__":
                     print(f"[BASELINE] 60m daily-context summary saved: {daily_context_policy_csv}")
             except Exception as exc:
                 main_logger.warning(f"[BASELINE] failed to save 60m daily-context summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_cross_sectional_commonality_residual":
+            promoted_residual_ids = load_cross_sectional_commonality_residual_promoted_ids()
+            if not promoted_residual_ids:
+                promoted_residual_ids = ["E2501", "E2502", "E2503", "E2504"]
+            ensure_signal_overlay_predictions_available(
+                promoted_residual_ids,
+                "cross-sectional commonality-residual baseline",
+            )
+            residual_policy_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_residual_ids:
+                residual_policy_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting CrossSectionalCommonalityResidual baseline evaluation. "
+                "Testing residual market/sector-adjusted 60m survivors against SIGNAL_E211_BANDED_68. "
+                f"Evaluating shortlist: {', '.join(promoted_residual_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=residual_policy_filter,
+            )
+            residual_policy_csv = RESULTS_DIR / "signal_baseline" / "cross_sectional_commonality_residual_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    residual_df = pd.read_csv(policy_csv)
+                    residual_df = residual_df.loc[
+                        residual_df["policy"].isin(residual_policy_filter)
+                    ].copy()
+                    residual_df.to_csv(residual_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] cross-sectional commonality-residual summary saved: {residual_policy_csv}")
+                    print(f"[BASELINE] cross-sectional commonality-residual summary saved: {residual_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save cross-sectional commonality-residual summary: {exc}")
             raise SystemExit(0)
 
         if run_mode == "signal_baseline_all_15m_top2":

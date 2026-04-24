@@ -14,6 +14,7 @@ logger = logging.getLogger("main")
 
 from signal_config import (
     ABLATION_GRID_EXPERIMENTS,
+    CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS,
     CROSS_SECTIONAL_60M_EXPERIMENTS,
     DEFAULT_EXPERIMENTS,
     E004_SWEEP_EXPERIMENTS,
@@ -80,6 +81,7 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(SETUP_REGIME_EXPERIMENTS)
         + list(MARKET_STATE_60M_EXPERIMENTS)
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+        + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
         + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
         + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
         + list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
@@ -118,6 +120,8 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(E102_DEEPDIVE_EXPERIMENTS)
     if experiment_set == "cross_sectional_60m":
         return list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+    if experiment_set == "cross_sectional_commonality_residual":
+        return list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
     if experiment_set == "ablation_grid":
         return list(ABLATION_GRID_EXPERIMENTS)
     if experiment_set == "setup_regimes":
@@ -163,6 +167,7 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(SETUP_REGIME_EXPERIMENTS)
             + list(MARKET_STATE_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+            + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(MULTISCALE_60M_EXPERIMENTS)
             + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
@@ -202,6 +207,7 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(SETUP_REGIME_EXPERIMENTS)
             + list(MARKET_STATE_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
+            + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
             + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
@@ -1343,6 +1349,51 @@ def build_sixty_minute_daily_context_shortlist(compare: pd.DataFrame) -> pd.Data
     return out
 
 
+def build_cross_sectional_commonality_residual_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2501": "ResidualLeaderCarry",
+        "E2502": "IdiosyncraticLeaderPersistence",
+        "E2503": "ResidualLaggardSnapback",
+        "E2504": "StateAwareResidualLeader",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(3, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1938,6 +1989,19 @@ def run_signal_pipeline(
             "\n".join(promoted_sixty_minute_daily_context),
             encoding="utf-8",
         )
+    cross_sectional_commonality_residual_shortlist = build_cross_sectional_commonality_residual_shortlist(compare)
+    if not cross_sectional_commonality_residual_shortlist.empty:
+        cross_sectional_commonality_residual_shortlist.to_csv(
+            run_out_dir / "cross_sectional_commonality_residual_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_cross_sectional_commonality_residual = cross_sectional_commonality_residual_shortlist.loc[
+            cross_sectional_commonality_residual_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "cross_sectional_commonality_residual_promoted_ids.txt").write_text(
+            "\n".join(promoted_cross_sectional_commonality_residual),
+            encoding="utf-8",
+        )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
     if not portfolio_rank_shortlist.empty:
         portfolio_rank_shortlist.to_csv(run_out_dir / "portfolio_rank_60m_shortlist.csv", index=False)
@@ -1996,7 +2060,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--experiment-set",
-        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "native_15m_execution", "native_15m_failed_breakout", "native_15m_open_drive", "native_15m_session_phase", "native_15m_holding_horizon", "native_15m_topk_event_rank", "native_15m_mean_reversion_exhaustion", "sixty_minute_daily_context", "all_15m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
+        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "cross_sectional_commonality_residual", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "native_15m_execution", "native_15m_failed_breakout", "native_15m_open_drive", "native_15m_session_phase", "native_15m_holding_horizon", "native_15m_topk_event_rank", "native_15m_mean_reversion_exhaustion", "sixty_minute_daily_context", "all_15m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
         default="default",
         help="Named experiment bundle to use before optional --experiments filtering.",
     )

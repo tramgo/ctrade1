@@ -4,8 +4,8 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB02",
-  "active_thesis": null,
-  "active_stage": "idle",
+  "active_thesis": "TB02_T01_CrossSectionalCommonalityResidual",
+  "active_stage": "research_ready",
   "last_completed_thesis": "TB01_T10_NewDataAxisIfAvailable",
   "last_completed_verdict": "not_opened_no_new_data",
   "next_thesis": "TB02_T01_CrossSectionalCommonalityResidual",
@@ -38,5 +38,5 @@
     "Do not start a new thesis while run_lock.json is locked.",
     "Use E211 as incumbent benchmark until displaced by executable validation."
   ],
-  "last_updated_by": "codex_batch02_plan_2026-04-24"
+  "last_updated_by": "codex_tb02_t01_wiring_2026-04-24"
 }

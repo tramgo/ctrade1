@@ -56,6 +56,7 @@
 - `2026-04-24 14:50` Lock released and next thesis set to `NewDataAxisIfAvailable`
 - `2026-04-24 afternoon` Batch 01 reconciliation completed; `T07-T09` tracker state corrected and `T10` held because no concrete new local data axis was found
 - `2026-04-24 afternoon` Batch 02 planning opened; next design candidate set to `TB02_T01 CrossSectionalCommonalityResidual`
+- `2026-04-24 afternoon` `TB02_T01 CrossSectionalCommonalityResidual` implementation completed; next action is research mode `signal_research_cross_sectional_commonality_residual`
 
 Notes:
 - Monitoring followed the runtime/integrity-only early-stop rule.

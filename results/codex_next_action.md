@@ -12,7 +12,7 @@
 
 ## Immediate Required Action
 
-Design and implement `TB02_T01 CrossSectionalCommonalityResidual`.
+Run `TB02_T01 CrossSectionalCommonalityResidual` research.
 
 Do this as a slice-first thesis:
 
@@ -23,10 +23,16 @@ Do this as a slice-first thesis:
 
 ## Required Preflight
 
-- Confirm the needed market and sector context fields already exist in `build_rl_features`
-- Avoid creating a broad generic classifier
-- Keep the experiment family small, ideally `3-4` experiments
+- Research mode is wired as `signal_research_cross_sectional_commonality_residual`
+- Baseline mode is wired as `signal_baseline_cross_sectional_commonality_residual`
+- Experiment family is `E2501-E2504`
 - Baseline only the strongest `1-2` research survivors
+
+## Next Command
+
+```powershell
+run_mode.bat signal_research_cross_sectional_commonality_residual
+```
 
 ## Do Not Do
 
