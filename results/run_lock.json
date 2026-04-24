@@ -1,0 +1,14 @@
+{
+  "locked": false,
+  "locked_by": "Codex",
+  "thesis": "TB02_T01_CrossSectionalCommonalityResidual",
+  "stage": "planning",
+  "started_at": "2026-04-24T14:06:59+05:30",
+  "expected_outputs": [
+    "results/signal_research/outputs_event_conditioned_sizing_veto/latest/event_conditioned_sizing_veto_shortlist_summary.csv",
+    "results/signal_research/outputs_event_conditioned_sizing_veto/latest/event_conditioned_sizing_veto_promoted_ids.txt",
+    "results/signal_baseline/event_conditioned_sizing_veto_policy_summary.csv"
+  ],
+  "log_path": "results/log_runs/signal_baseline_event_conditioned_sizing_veto_20260424_142959.log",
+  "notes": "Batch 01 is closed through T09, and T10 was not opened because no concrete new local data axis was found. Batch 02 planning is open, with TB02_T01 as the next design candidate. Lock remains released."
+}

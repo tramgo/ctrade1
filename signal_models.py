@@ -52,6 +52,7 @@ def make_model(model_class: str) -> Any:
             max_depth=4,
             subsample=0.8,
             colsample_bytree=0.8,
+            verbose=-1,
             random_state=42,
         )
 
@@ -65,6 +66,7 @@ def make_model(model_class: str) -> Any:
             subsample=0.8,
             colsample_bytree=0.8,
             class_weight="balanced",
+            verbose=-1,
             random_state=42,
         )
 

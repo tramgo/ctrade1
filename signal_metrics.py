@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
 try:
-    from scipy.stats import spearmanr
+    from scipy.stats import ConstantInputWarning, spearmanr
 except ImportError:
+    ConstantInputWarning = Warning
     spearmanr = None
 
 
@@ -14,7 +17,9 @@ def safe_spearman(y_true: pd.Series, y_pred: pd.Series) -> float:
     if mask.sum() < 5:
         return np.nan
     if spearmanr is not None:
-        val, _ = spearmanr(y_true[mask], y_pred[mask])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConstantInputWarning)
+            val, _ = spearmanr(y_true[mask], y_pred[mask])
         return float(val) if np.isfinite(val) else np.nan
     ranked = pd.Series(y_true[mask]).rank().corr(pd.Series(y_pred[mask]).rank())
     return float(ranked) if ranked is not None and np.isfinite(ranked) else np.nan

@@ -38,6 +38,33 @@ A branch must not only separate better cases from worse cases. It must do so ins
 
 This is the main lesson added by the recent native `15m` work.
 
+### Explicit thesis template
+
+Going forward, new theses should be designed in this order:
+
+1. isolate a favorable economic slice
+2. use classification or ranking only inside that slice
+3. test simple execution before any advanced optimization
+
+Every new thesis should explicitly answer:
+
+- `Slice`
+  - what market condition, event state, or liquidity/participation regime is being isolated
+  - why that slice should have positive absolute economics after costs
+- `Selector`
+  - how the best opportunities are ranked or classified within that slice
+  - why this selector should improve concentration rather than just improve generic prediction metrics
+- `Execution`
+  - the simplest monetization rule to test first
+  - examples: fixed hold, top-k rebalance, one-entry-per-event, banded rule
+- `Failure condition`
+  - what result kills the thesis quickly
+  - examples: top slice still negative after costs, one-name concentration, collapse under broader validation
+
+In short:
+
+> design theses around favorable economic slices first, and only then use classification or ranking as a selector inside those slices.
+
 ## Strategic Direction
 
 ### Deprioritized
@@ -59,6 +86,7 @@ These are the better directions now:
 - holding-horizon-specific `15m` designs
 - top-k event selection
 - materially new context layers such as `60m + daily`
+- slice-first designs that begin from favorable liquidity, participation, cross-sectional leadership, or volatility states
 
 ## Program Structure
 
@@ -118,38 +146,48 @@ Each thesis ends as one of:
   - research alive
   - executable baseline active and broad enough to matter
   - still net negative after costs
-
-### Active thesis
-
 - `Native15mSessionPhase`
-  - implementation complete
-  - research completed and alive
-  - baseline pending
+  - research alive
+  - baseline failed
+- `Native15mHoldingHorizon`
+  - research alive
+  - baseline failed
+- `Native15mTopKEventRank`
+  - research alive
+  - live executable evidence failed
+- `Native15mMeanReversionExhaustion`
+  - research alive
+  - first direct compare positive
+  - broader validation failed
+
+### Current next thesis
+
+- `SixtyMinuteDailyContext`
+  - materially new context layer beyond the current `60m` families
+  - next thesis to implement after `Native15mMeanReversionExhaustion` failed broader validation
 
 ## Immediate Plan
 
-Run:
+Implement next:
 
-```powershell
-python ssell1.py --mode signal_baseline_native_15m_session_phase
-```
+- wire `SixtyMinuteDailyContext`
+- then run its research mode once implementation is complete
 
 Decision rule:
 
-- if positive and broad enough:
-  - run one broader validation pass immediately
-- if flat/negative:
-  - close `Native15mSessionPhase` as `research_only`
-  - move to the next ranked thesis
+- if research is alive:
+  - baseline only the strongest survivor or two
+- if research is weak:
+  - close quickly and move to the next ranked thesis
 
 ## Short-Term Queue
 
-If `Native15mSessionPhase` fails, continue in this order:
+Continue in this order:
 
-1. `Native15mHoldingHorizon`
-2. `Native15mTopKEventRank`
-3. `Native15mMeanReversionExhaustion`
-4. `SixtyMinuteDailyContext`
+1. `SixtyMinuteDailyContext`
+2. `Native15mBreadthEvent`
+3. `EventConditionedSizingVeto`
+4. `NewDataAxisIfAvailable`
 
 ## Source Of Truth
 
@@ -180,3 +218,39 @@ If `Native15mSessionPhase` fails, continue in this order:
 - [grand_plan_tracker.md](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/grand_plan_tracker.md)
 - [project_state_checkpoint_2026-03-17.md](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/project_state_checkpoint_2026-03-17.md)
 - [experiment_strategy_guide.md](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/experiment_strategy_guide.md)
+
+## Batch 02 Update
+
+Date: 2026-04-24
+
+Batch 01 is closed / held:
+
+- `T01-T09` reached research or baseline verdicts
+- all executable challengers remained `research_only`
+- `T10` was not opened because no concrete new local data axis was found
+- `SIGNAL_E211_BANDED_68` remains the incumbent
+- RL remains frozen
+
+Batch 02 is now the active planning batch.
+
+### Next branch
+
+Start with:
+
+- `TB02_T01 CrossSectionalCommonalityResidual`
+
+Rationale:
+
+- Batch 01 showed that single-name prediction quality is not enough
+- recent intraday evidence favors cross-sectional/commonality and liquidity-aware structure
+- the current repo already has market and sector context, so this is feasible without inventing a vague new data feed
+
+### Batch 02 artifact set
+
+- [thesis_batch_02.md](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/thesis_batch_02.md)
+- [thesis_batch_02_ranked.csv](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/thesis_batch_02_ranked.csv)
+- [thesis_batch_02_closeout.md](c:/Ramgo/Business/Trading/India2026/Gitrade1/ctrade1/results/thesis_batch_02_closeout.md)
+
+### Batch 02 rule
+
+Every branch must explain why its slice should have positive absolute economics before ranking or classification begins. If that slice cannot be stated plainly, the branch should not be opened.

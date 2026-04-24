@@ -173,8 +173,70 @@ We therefore move to the next native-`15m` thesis:
 
 - `native_15m_topk_event_rank`
   - cross-sectional event ranking inside strict favorable slices
-  - implementation complete
-  - research and baseline results pending
+  - research completed and alive
+  - best research candidate:
+    - `E2003`
+  - research profile:
+    - AUC: `0.6068`
+    - balanced accuracy: `0.5823`
+    - spread: `0.0010655`
+  - important practical read:
+    - classification quality improved meaningfully versus native-`15m` `E211`
+    - but the raw economic shape was still weaker than `E211`
+  - baseline read:
+    - live baseline output showed `E2003` and `E2004` broadly negative
+    - `E2002_BANDED_*` was mostly flat or negative
+    - only `E2002_LONGONLY` showed occasional isolated positive slices
+  - verdict:
+    - `research_only`
+
+We then tested the next slice-first native-`15m` thesis:
+
+- `native_15m_mean_reversion_exhaustion`
+  - research completed and alive
+  - best research candidates:
+    - `E2104`
+    - `E2102`
+  - research profile:
+    - `E2104`
+      - AUC: `0.6266`
+      - balanced accuracy: `0.5980`
+      - spread: `0.0006549`
+    - `E2102`
+      - AUC: `0.6214`
+      - balanced accuracy: `0.5885`
+      - spread: `0.0044532`
+  - best executable baseline:
+    - `SIGNAL_E2104_LONGONLY`
+    - return: `+0.0006684`
+    - turnover: `0.1552`
+    - trades: `6.2469`
+  - direct compare read:
+    - `SIGNAL_E2104_LONGONLY` beat `FLAT`
+    - `SIGNAL_E2104_LONGONLY` also beat native-`15m` `SIGNAL_E211_BANDED_68` in the direct comparison frame, where `E211` was inert
+    - breadth remained meaningful:
+      - positive rows `34`
+      - zero rows `6`
+      - negative rows `41`
+      - positive tickers `15`
+      - negative tickers `12`
+      - top positive share `0.4823`
+  - practical read:
+    - this is the first recent native-`15m` branch with a positive executable baseline and real breadth
+    - the result is still not strong enough to declare a new incumbent because the path remains noisy and the rest of the family is weak
+  - wider validation:
+    - `SIGNAL_E2104_LONGONLY` widened to `162` rows and turned negative at `-0.0004468`
+    - row breadth weakened to `52` positive, `15` zero, `95` negative
+    - ticker breadth weakened to `8` positive versus `19` negative
+    - native-`15m` `SIGNAL_E211_BANDED_68` remained inert in the same frame
+  - verdict:
+    - `research_only`
+
+This matters because it shows the process is working as intended:
+
+- the first positive baseline was not ignored
+- the branch earned a broader validation pass
+- broader coverage then rejected it before we mistook a promising lead for a durable engine
 
 ### Sharpened design rule
 
@@ -188,6 +250,11 @@ In practice this means:
 - positive relative separation is not enough if the top bucket is still economically weak
 - for native `15m`, event selection and regime selection now matter more than another broad continuous score port
 - future thesis ranking should prefer branches that first isolate favorable session or regime conditions, and only then rank opportunities inside them
+
+This also means:
+
+- even the cleaner slice-first `TopK` design was not enough by itself
+- the next thesis should isolate economic favorability even more directly rather than widening back into generic scoring
 
 ### Fresh incumbent revalidation
 
@@ -229,14 +296,97 @@ So the current conclusion is stronger:
 - `E211` also remains the stronger raw signal among the top surviving challengers
 - `E801` is still a real signal, but not a superior one
 
+### Daily-context result: still research-only
+
+We then tested the materially new higher-timeframe context thesis:
+
+- `SixtyMinuteDailyContext`
+  - research completed and was alive
+  - best research candidate:
+    - `E2201`
+  - research profile:
+    - AUC: `0.571551488124976`
+    - balanced accuracy: `0.5577539690068156`
+    - spread: `0.003482326754324493`
+    - shuffled AUC: `0.5009387106034251`
+    - shuffled balanced accuracy: `0.5003693764548243`
+  - shortlist read:
+    - `E2201` was the only eligible survivor with both positive real-vs-shuffled gaps and enough sample count
+    - `E2202-E2204` either lost separation, lost economics, or became too weak to justify executable promotion
+  - best executable baseline:
+    - `SIGNAL_E2201_BANDED_70`
+    - return: `-0.0018261473995522`
+    - drawdown: `0.0020396454407398`
+    - turnover: `0.6037986701253815`
+    - trades: `1.6296296296296295`
+  - breadth / concentration read:
+    - positive tickers `2`
+    - zero tickers `14`
+    - negative tickers `11`
+    - top positive share `0.917653928609168`
+  - verdict:
+    - `research_only`
+
+This matters because the thesis did satisfy the "materially new information layer" requirement, but it still failed the only test that matters here:
+
+- the research separation was real
+- the executable baseline was negative after costs
+- it did not beat `FLAT`
+- it did not come close to beating `SIGNAL_E211_BANDED_68`
+- the positive contribution profile was too narrow to justify rescue work
+
+So the conclusion becomes sharper again:
+
+- adding daily carry/context information was a valid thesis
+- it improved understanding of where signal structure exists
+- it still did not produce a better executable challenger than `E211`
+- the next thesis should return to native `15m` event gating, now using breadth as the favorable slice rather than another generic score family
+
+### Breadth-event result: still research-only
+
+We then tested the next native `15m` event-gating thesis:
+
+- `Native15mBreadthEvent`
+  - research completed and was alive
+  - best research candidate:
+    - `E2302`
+  - research profile:
+    - AUC: `0.5391964901260273`
+    - balanced accuracy: `0.5270546797374717`
+    - spread: `0.0007192402278572606`
+    - shuffled AUC: `0.49908554485027284`
+    - shuffled balanced accuracy: `0.4994444781878123`
+  - shortlist read:
+    - `E2302` was the clear breadth-event survivor
+    - `E2304` was weak enough to justify only a narrow executable check
+    - `E2301` missed the economics gate and `E2303` was research-alive but not strong enough to change the baseline plan
+  - best executable baseline:
+    - `SIGNAL_E2302_BANDED_70`
+    - return: `-0.00044532045311487247`
+    - drawdown: `0.000683371613682473`
+    - turnover: `0.2656089743301093`
+    - trades: `2.6`
+  - practical read:
+    - the breadth-positive slice was real enough to produce one credible research survivor
+    - but executable monetization still failed the only gate that matters here
+    - looser `E2302` bands and all tested `E2304` policies became more negative rather than improving concentration
+  - verdict:
+    - `research_only`
+
+This sharpens the native `15m` lesson again:
+
+- internal breadth can help isolate a cleaner research slice
+- that alone is still not enough to produce a post-cost executable challenger
+- the next thesis should therefore move one layer closer to execution control and test whether event-conditioned veto / sizing can improve `E211` rather than replacing it outright
+
 ### Allowed next moves
 
 Only reopen active discovery if the next thesis is materially different from the current layer. Preferred options:
 
-1. True second-timeframe input, not only derived multi-scale features.
-2. Richer regime/state engine with materially new information, not another variant of current labels.
-3. New data or portfolio context beyond the current `60m` OHLCV-derived layer.
-4. Native `15m` event systems that are structurally different from the ranking / continuation families already tested.
+1. Native `15m` event systems that isolate favorable breadth states before ranking entries.
+2. True second-timeframe input, not only derived multi-scale features.
+3. Richer regime/state engine with materially new information, not another variant of current labels.
+4. New data or portfolio context beyond the current price-derived layer.
 
 ### Not allowed next moves
 
@@ -252,3 +402,49 @@ Until a new branch beats `SIGNAL_E211_BANDED_68` in baseline execution:
 - keep `E211` as benchmark
 - keep challengers as research artifacts
 - keep RL out of scope
+
+### Event-conditioned veto overlay result: useful control, not a challenger
+
+We closed the incumbent-overlay thesis `EventConditionedSizingVeto` after a clean research-plus-baseline cycle.
+
+- research read:
+  - `E2403` was the strongest overlay survivor
+  - incumbent-entry audit spread: `0.001316191246583983`
+  - kept mean trade pnl: `0.0011981066685668035`
+  - vetoed mean trade pnl: `-0.00011808457801717949`
+- executable read:
+  - best policy: `SIGNAL_E2403_E211_EVENT_CONTEXT_VETO`
+  - return: `6.986428963125287e-05`
+  - drawdown: `9.031270134116682e-05`
+  - turnover: `0.370370370037037`
+  - trades: `0.4444444444444444`
+  - ticker breadth: `3` positive, `21` zero, `3` negative
+- incumbent compare:
+  - `SIGNAL_E211_BANDED_68` kept the better return at `0.0001012555869542`
+  - the overlay did improve drawdown and turnover, but not enough to justify replacing or advancing past the incumbent
+- verdict:
+  - `research_only`
+
+So the project lesson becomes more precise again:
+
+- prior failed standalone branches can still add value as execution-control overlays
+- that value is not enough unless it survives the executable benchmark gate
+- reduced drawdown alone does not promote a branch when return falls below the incumbent
+
+### Immediate next gate
+
+- `TB01_T10 NewDataAxisIfAvailable` was not opened because no concrete local new data source was found
+- Batch 01 is now closed / held with no promoted challenger
+- Batch 02 is opened for planning, with `TB02_T01 CrossSectionalCommonalityResidual` as the next design candidate
+- do not open `TB02_T10 NewExternalDataAxis` until a real local external data feed exists
+
+### Batch 02 direction
+
+Batch 02 should move away from nearby native-`15m` classifier variants and toward:
+
+- cross-sectional/commonality residual slices
+- volume and liquidity state filters
+- incumbent-aware veto or entry timing overlays
+- portfolio construction constraints that explicitly control turnover and concentration
+
+The first planned branch is `TB02_T01 CrossSectionalCommonalityResidual`, because it is both literature-aligned and feasible with the current price/market/sector feature stack.

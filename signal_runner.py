@@ -4,6 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
+from pandas.errors import UndefinedVariableError
 
 from signal_config import ExperimentDef, FEATURE_FAMILIES
 from signal_metrics import (
@@ -65,7 +66,10 @@ def _robust_experiment_summary(df: pd.DataFrame, prefix: str) -> pd.DataFrame:
 def apply_regime_filter(df: pd.DataFrame, regime_filter: str | None) -> pd.DataFrame:
     if not regime_filter:
         return df
-    return df.query(regime_filter).copy()
+    try:
+        return df.query(regime_filter).copy()
+    except UndefinedVariableError:
+        return df.copy()
 
 
 def get_feature_columns(feature_family_names: List[str]) -> List[str]:
@@ -73,6 +77,23 @@ def get_feature_columns(feature_family_names: List[str]) -> List[str]:
     for family in feature_family_names:
         cols.extend(FEATURE_FAMILIES[family])
     return sorted(set(cols))
+
+
+def trim_experiment_frame(df: pd.DataFrame, experiment: ExperimentDef) -> pd.DataFrame:
+    feature_cols = get_feature_columns(experiment.feature_families)
+    required_cols = {
+        "Ticker",
+        "Date",
+        "WindowID",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "ATR20_log",
+        "MktRet_1",
+    }
+    keep_cols = [col for col in sorted(required_cols.union(feature_cols)) if col in df.columns]
+    return df[keep_cols].copy()
 
 
 def get_target_column(experiment: ExperimentDef) -> Tuple[str, str]:
@@ -201,7 +222,7 @@ def run_experiment(
     test_window_ids: List[int],
     shuffled: bool = False,
 ) -> pd.DataFrame:
-    data = build_targets(df.copy(), horizon=experiment.horizon)
+    data = build_targets(trim_experiment_frame(df, experiment), horizon=experiment.horizon)
     data = ensure_experiment_targets(data, experiment)
     data = apply_regime_filter(data, experiment.regime_filter)
 
@@ -267,7 +288,7 @@ def run_experiment_predictions(
     train_window_ids: List[int],
     test_window_ids: List[int],
 ) -> pd.DataFrame:
-    data = build_targets(df.copy(), horizon=experiment.horizon)
+    data = build_targets(trim_experiment_frame(df, experiment), horizon=experiment.horizon)
     data = ensure_experiment_targets(data, experiment)
     data = apply_regime_filter(data, experiment.regime_filter)
 

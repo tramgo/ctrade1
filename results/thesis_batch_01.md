@@ -4,6 +4,27 @@ Date: 2026-03-25
 
 This batch is the first disciplined native-`15m` event-focused backlog under the long-horizon research program. The incumbent benchmark remains `SIGNAL_E211_BANDED_68`. Batch policy is `Light Parallel`: at most two major theses active at once. Early-stop policy is `Strict Runtime Only`.
 
+## Explicit Thesis Template
+
+Every new thesis in this batch and future batches should be designed in this order:
+
+1. `Slice`
+   - define the favorable economic slice first
+   - examples: early-session leader state, high relative-volume event, calm-market stock-specific pressure, favorable liquidity/volatility regime
+2. `Selector`
+   - define the ranking or classification rule only inside that slice
+   - examples: top-k rank, persistence score, event-quality score, relative-strength selector
+3. `Execution`
+   - define the simplest executable rule first
+   - examples: fixed 1-2 bar hold, top-k rebalance every `15m`, one-entry-per-event rule
+4. `Failure condition`
+   - define what will kill the thesis quickly
+   - examples: top slice still negative after costs, one-name concentration, collapse in broader validation
+
+Working doctrine:
+
+> design theses around favorable economic slices first, and only then use classification or ranking as a selector inside those slices.
+
 ## Ranked Theses
 
 ### 1. `TB01_T01` Native15mFailedBreakout
@@ -82,5 +103,6 @@ Success gate: only opens if a concrete new data source is locally available and 
 - Baseline budget goes only to the top `2-3` research survivors.
 - Branches that fail broader validation are archived as `research_only`.
 - RL remains out of scope unless a baseline-first branch earns promotion.
-- Strong classification alone is not enough; a thesis must also isolate a regime or event slice where the best-ranked cases are economically attractive after costs.
+- Strong classification alone is not enough; a thesis must first isolate a favorable economic slice where the best-ranked cases are plausibly attractive after costs.
 - Native `15m` work should prefer event selection and regime selection over broad continuous scoring, because several score-port branches already showed that relative separation can exist without tradable absolute edge.
+- New theses should be rejected at design time if they begin as generic score-every-bar classifier ports without a clear favorable-slice argument.

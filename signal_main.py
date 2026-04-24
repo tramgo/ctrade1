@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger("main")
 
 from signal_config import (
     ABLATION_GRID_EXPERIMENTS,
@@ -23,12 +26,15 @@ from signal_config import (
     GENERALIZATION_EXPERIMENTS,
     MARKET_STATE_60M_EXPERIMENTS,
     MULTISCALE_60M_EXPERIMENTS,
+    NATIVE_15M_BREADTH_EVENT_EXPERIMENTS,
     NATIVE_15M_EXECUTION_EXPERIMENTS,
     NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS,
     NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS,
+    NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS,
     NATIVE_15M_OPEN_DRIVE_EXPERIMENTS,
     NATIVE_15M_SESSION_PHASE_EXPERIMENTS,
     NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS,
+    SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS,
     BREADTH_CONTEXT_60M_EXPERIMENTS,
     TIME_DISTRIBUTION_V2_EXPERIMENTS,
     INTRAHOUR_PATH_V1_EXPERIMENTS,
@@ -76,12 +82,15 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
         + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
         + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+        + list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
         + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
         + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
         + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
+        + list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
         + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
         + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
         + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
+        + list(SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS)
         + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
         + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
         + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
@@ -121,14 +130,20 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(NATIVE_15M_EXECUTION_EXPERIMENTS)
     if experiment_set == "native_15m_failed_breakout":
         return list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
+    if experiment_set == "native_15m_breadth_event":
+        return list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
     if experiment_set == "native_15m_holding_horizon":
         return list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
+    if experiment_set == "native_15m_mean_reversion_exhaustion":
+        return list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
     if experiment_set == "native_15m_open_drive":
         return list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
     if experiment_set == "native_15m_session_phase":
         return list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
     if experiment_set == "native_15m_topk_event_rank":
         return list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
+    if experiment_set == "sixty_minute_daily_context":
+        return list(SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS)
     if experiment_set == "breadth_context_60m":
         return list(BREADTH_CONTEXT_60M_EXPERIMENTS)
     if experiment_set == "time_distribution_v2":
@@ -156,12 +171,15 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(E302_SWEEP_EXPERIMENTS)
             + list(E102_REGIME_EXPERIMENTS)
             + list(GENERALIZATION_EXPERIMENTS)
+            + list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
             + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
             + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
             + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
+            + list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
             + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
             + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
             + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
+            + list(SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS)
         )
     if experiment_set == "generalization_next":
         return list(GENERALIZATION_NEXT_EXPERIMENTS)
@@ -187,12 +205,15 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
             + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
+            + list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
             + list(NATIVE_15M_EXECUTION_EXPERIMENTS)
             + list(NATIVE_15M_FAILED_BREAKOUT_EXPERIMENTS)
             + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
+            + list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
             + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
             + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
             + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
+            + list(SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS)
             + list(INTRAHOUR_PATH_V1_EXPERIMENTS)
             + list(GENERALIZATION_NEXT_EXPERIMENTS)
             + list(GENERALIZATION_WAVE2_EXPERIMENTS)
@@ -1187,6 +1208,141 @@ def build_native_15m_topk_event_rank_shortlist(compare: pd.DataFrame) -> pd.Data
     return out
 
 
+def build_native_15m_mean_reversion_exhaustion_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2101": "ExhaustionSnapback1Bar",
+        "E2102": "RelativeStretchSnapback",
+        "E2103": "StateAwareExhaustion",
+        "E2104": "FailedExtensionReversal",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_native_15m_breadth_event_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2301": "BreadthThrustEvent",
+        "E2302": "BreadthExpansionPersistence",
+        "E2303": "RelativeBreadthCarry",
+        "E2304": "CalmBreadthEvent",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_sixty_minute_daily_context_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2201": "DailyCarryContext",
+        "E2202": "RelativeDailyCarry",
+        "E2203": "StateAwareDailyCarry",
+        "E2204": "GapRangeDailyContext",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(4, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_portfolio_rank_60m_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1460,7 +1616,17 @@ def run_signal_pipeline(
     all_real = []
     all_shuffled = []
     all_predictions = []
-    for experiment in selected_experiments:
+    total_experiments = len(selected_experiments)
+    for idx, experiment in enumerate(selected_experiments, start=1):
+        logger.info(
+            "[SIGNAL PIPELINE] experiment %s/%s %s (%s, horizon=%s, model=%s)",
+            idx,
+            total_experiments,
+            experiment.experiment_id,
+            experiment.target_id,
+            experiment.horizon,
+            experiment.model_class,
+        )
         real_df = run_experiment(
             df=df,
             experiment=experiment,
@@ -1487,6 +1653,13 @@ def run_signal_pipeline(
         )
         if not pred_df.empty:
             all_predictions.append(pred_df)
+        logger.info(
+            "[SIGNAL PIPELINE] finished %s - real_folds=%s shuffled_folds=%s prediction_rows=%s",
+            experiment.experiment_id,
+            0 if real_df.empty else len(real_df),
+            0 if shuffled_df.empty else len(shuffled_df),
+            0 if pred_df.empty else len(pred_df),
+        )
 
     real_all = pd.concat(all_real, ignore_index=True) if all_real else pd.DataFrame()
     shuffled_all = pd.concat(all_shuffled, ignore_index=True) if all_shuffled else pd.DataFrame()
@@ -1496,10 +1669,36 @@ def run_signal_pipeline(
     if not compare.empty:
         compare["PromotedToRL"] = compare.apply(promote_signal, axis=1)
 
+    promoted_count = int(compare.get("PromotedToRL", pd.Series(dtype=bool)).sum()) if not compare.empty else 0
+    top_experiment = None
+    top_score = None
+    if not compare.empty and "SelectionScore" in compare.columns:
+        compare_scores = compare.copy()
+        compare_scores["SelectionScore"] = pd.to_numeric(compare_scores["SelectionScore"], errors="coerce")
+        compare_scores = compare_scores.dropna(subset=["SelectionScore"])
+        if not compare_scores.empty:
+            best_row = compare_scores.sort_values("SelectionScore", ascending=False).iloc[0]
+            top_experiment = best_row.get("ExperimentID")
+            top_score = float(best_row.get("SelectionScore"))
+
     real_all.to_csv(run_out_dir / "experiment_results_real.csv", index=False)
     shuffled_all.to_csv(run_out_dir / "experiment_results_shuffled.csv", index=False)
     compare.to_csv(run_out_dir / "experiment_summary_real_vs_shuffled.csv", index=False)
     predictions_all.to_csv(run_out_dir / "experiment_predictions_oos.csv", index=False)
+    if top_experiment is not None:
+        logger.info(
+            "[SIGNAL PIPELINE] completed %s experiments. promoted=%s top=%s score=%.6f",
+            total_experiments,
+            promoted_count,
+            top_experiment,
+            top_score,
+        )
+    else:
+        logger.info(
+            "[SIGNAL PIPELINE] completed %s experiments. promoted=%s",
+            total_experiments,
+            promoted_count,
+        )
     e302_shortlist = build_e302_shortlist(compare)
     if not e302_shortlist.empty:
         e302_shortlist.to_csv(run_out_dir / "e302_shortlist_summary.csv", index=False)
@@ -1700,6 +1899,45 @@ def run_signal_pipeline(
             "\n".join(promoted_native_15m_topk_event_rank),
             encoding="utf-8",
         )
+    native_15m_mean_reversion_exhaustion_shortlist = build_native_15m_mean_reversion_exhaustion_shortlist(compare)
+    if not native_15m_mean_reversion_exhaustion_shortlist.empty:
+        native_15m_mean_reversion_exhaustion_shortlist.to_csv(
+            run_out_dir / "native_15m_mean_reversion_exhaustion_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_mean_reversion_exhaustion = native_15m_mean_reversion_exhaustion_shortlist.loc[
+            native_15m_mean_reversion_exhaustion_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_mean_reversion_exhaustion_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_mean_reversion_exhaustion),
+            encoding="utf-8",
+        )
+    native_15m_breadth_event_shortlist = build_native_15m_breadth_event_shortlist(compare)
+    if not native_15m_breadth_event_shortlist.empty:
+        native_15m_breadth_event_shortlist.to_csv(
+            run_out_dir / "native_15m_breadth_event_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_native_15m_breadth_event = native_15m_breadth_event_shortlist.loc[
+            native_15m_breadth_event_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "native_15m_breadth_event_promoted_ids.txt").write_text(
+            "\n".join(promoted_native_15m_breadth_event),
+            encoding="utf-8",
+        )
+    sixty_minute_daily_context_shortlist = build_sixty_minute_daily_context_shortlist(compare)
+    if not sixty_minute_daily_context_shortlist.empty:
+        sixty_minute_daily_context_shortlist.to_csv(
+            run_out_dir / "sixty_minute_daily_context_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_sixty_minute_daily_context = sixty_minute_daily_context_shortlist.loc[
+            sixty_minute_daily_context_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "sixty_minute_daily_context_promoted_ids.txt").write_text(
+            "\n".join(promoted_sixty_minute_daily_context),
+            encoding="utf-8",
+        )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
     if not portfolio_rank_shortlist.empty:
         portfolio_rank_shortlist.to_csv(run_out_dir / "portfolio_rank_60m_shortlist.csv", index=False)
@@ -1758,7 +1996,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--experiment-set",
-        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
+        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "native_15m_execution", "native_15m_failed_breakout", "native_15m_open_drive", "native_15m_session_phase", "native_15m_holding_horizon", "native_15m_topk_event_rank", "native_15m_mean_reversion_exhaustion", "sixty_minute_daily_context", "all_15m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
         default="default",
         help="Named experiment bundle to use before optional --experiments filtering.",
     )

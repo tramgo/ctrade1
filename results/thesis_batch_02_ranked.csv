@@ -1,0 +1,11 @@
+Rank,ThesisID,ThesisName,Interval,Status,ResearchOwner,BaselineEligible,Notes
+1,TB02_T01,CrossSectionalCommonalityResidual,60m,pending,codex,False,Use market/sector/commonality residual slices first; selector only ranks names with favorable residual pressure
+2,TB02_T02,IntradayVolumeLiquidityForecast,15m+60m,pending,codex,False,Forecast relative intraday volume/liquidity state and trade only when payoff can plausibly survive costs
+3,TB02_T03,OpeningAuctionGapLiquidity,15m,pending,codex,False,Test open gap only when opening participation and spread/volatility proxies imply tradable follow-through
+4,TB02_T04,RegimeSpecificIncumbentVeto,60m+15m,pending,codex,False,Improve E211 only inside clearly defined adverse regimes rather than replacing it
+5,TB02_T05,PortfolioConstructionOverlay,60m,pending,codex,False,Convert weak single-name edges into constrained portfolio decisions with turnover and concentration gates
+6,TB02_T06,RelativeVolumeLeaderLag,15m,pending,codex,False,Trade only top relative-volume leaders or laggards after cross-sectional participation confirms a favorable slice
+7,TB02_T07,VolatilityCompressionExpansion,15m+60m,pending,codex,False,Separate compression-to-expansion events from noisy continuation and require favorable liquidity state
+8,TB02_T08,ExecutionCostAwareEntryDelay,60m+15m,pending,codex,False,Test whether waiting one bar or using liquidity-aware entry timing improves incumbent economics
+9,TB02_T09,SectorRotationMicroRegime,60m,pending,codex,False,Use sector-relative rotation states as the slice and rank only names aligned with the active sector impulse
+10,TB02_T10,NewExternalDataAxis,external,pending_data_required,codex,False,Open only after a real local feed exists such as options OI, news/events, FII/DII, index futures basis, or order-book proxy
