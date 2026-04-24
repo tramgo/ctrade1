@@ -5,8 +5,8 @@
 - Last completed Batch 01 executable thesis: `TB01_T09 EventConditionedSizingVeto`
 - `TB01_T10 NewDataAxisIfAvailable`: not opened because no concrete new local data axis was found
 - Active batch: `TB02`
-- Active thesis: none
-- Active stage: `idle`
+- Active thesis: `TB02_T01 CrossSectionalCommonalityResidual`
+- Active stage: `research_ready`
 - Incumbent remains: `SIGNAL_E211_BANDED_68`
 - RL status: frozen
 
