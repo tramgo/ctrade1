@@ -1,7 +1,11 @@
 Rank,ThesisID,ThesisName,Interval,Status,ResearchOwner,BaselineEligible,Notes
-1,TB04_T01,PortfolioRankHoldWalkforward,60m,queued_next,codex,True,Validate hold-sweep leaders E1002@15 E1006@10 and E1003@21 across 3 contiguous folds before any promotion logic
-2,TB04_T02,PortfolioRankTopKSweep,60m,pending,codex,True,Sweep top_k in 2 3 4 5 7 on the winning hold cadence to choose concentration versus diversification
-3,TB04_T03,PortfolioRankScoreWeightedSizing,60m,pending,codex,True,Test score-weighted sizing against equal weight on the winning hold cell
-4,TB04_T04,PortfolioRankRegimeGate,60m,pending,codex,True,Use E801 regime context as a veto or skip gate on the winning swing cell
-5,TB04_T05,PortfolioRankLiquidSubsetAudit,60m,pending,codex,True,Retest the winning swing cell on the highest-liquidity subset to tighten live-execution realism
-6,TB04_T06,PortfolioRankPaperTradeGate,deployment,pending_result_required,codex,False,Only open after walk-forward concentration and subset checks pass
+1,TB04_T01,PortfolioRankHoldWalkforward,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; E1006@10 passed hold-specific walk-forward while E1002@15 and E1003@21 failed one fold each
+2,TB04_T02,PortfolioRankTopKSweep,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; top_k 2 3 4 5 7 all stayed positive with E1006 every_10 and top_k=2 produced the strongest return
+3,TB04_T03,PortfolioRankScoreWeightedSizing,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; score-weighted sizing materially lifted E1006 top2 every_10 versus equal weight while staying below the current concentration red-flag line
+4,TB04_T04,PortfolioRankRegimeGate,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; E801 gate starved the strategy and did not improve economics, so close as failed add-on for this cell
+5,TB04_T05,PortfolioRankLiquidSubsetAudit,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; narrowing to the top-liquidity subset weakened results materially so the current edge should stay on the broader universe
+6,TB04_T06,PortfolioRankScoreWeightedTopKSweep,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; score-weighted sizing remained strongest at top_k 2 on single-window economics but the gap versus top_k 3 4 5 narrowed materially
+7,TB04_T07,PortfolioRankScoreWeightedTopKWalkforward,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; no score-weighted top-k cell passed all folds, but top_k 3 had the best robustness-return tradeoff while all score-weighted variants leaned toward non-top-liquid names
+8,TB04_T08,PortfolioRankDispersionGate,60m,completed_diagnostic,codex,True,Completed on 2026-04-29; binary prediction-spread gate reduced turnover and concentration but sacrificed too much edge, so do not use flat-gate mode as the deployment shape
+9,TB04_T09,PortfolioRankDispersionSizingWalkforward,60m,wired_pending_rerun,codex,True,Second 2026-04-29 run stayed strongly positive across all folds but fold 1 still used an internal warm-up prior; mode is now patched to fold1 constant 1.0x plus prefold references and should be rerun once more before validation is accepted
+10,TB04_T10,PortfolioRankPaperTradeGate,deployment,pending_result_required,codex,False,Only open after dispersion-sized walk-forward evidence and live trip-wire definitions pass

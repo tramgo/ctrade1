@@ -8516,6 +8516,1459 @@ def run_portfolio_rank_long_only_hold_walkforward(
     return combined
 
 
+def run_portfolio_rank_long_only_topk_sweep(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    topk_specs = [2, 3, 4, 5, 7]
+    sweep_rows: List[pd.DataFrame] = []
+
+    print(
+        f"[PORTFOLIO-TOPK] starting top-k sweep for {experiment_id} across {len(topk_specs)} variants at hold={rebalance_every_sessions}",
+        flush=True,
+    )
+    for top_k in topk_specs:
+        output_stem = f"portfolio_rank_60m_long_only_topk_{experiment_id}_k{top_k}_r{rebalance_every_sessions}"
+        print(
+            f"[PORTFOLIO-TOPK] running experiment={experiment_id} top_k={top_k} rebalance_every={rebalance_every_sessions}",
+            flush=True,
+        )
+        summary_df = run_portfolio_rank_baseline(
+            promoted_ids=[experiment_id],
+            top_k=top_k,
+            benchmark_policy=benchmark_policy,
+            portfolio_style="long_only",
+            rebalance_every_sessions=rebalance_every_sessions,
+            output_stem=output_stem,
+        ).copy()
+        if summary_df.empty:
+            print(f"[PORTFOLIO-TOPK] no rows for top_k={top_k}", flush=True)
+            continue
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        summary_df["sweep_experiment_id"] = experiment_id
+        summary_df["sweep_top_k"] = int(top_k)
+        summary_df["sweep_rebalance_every_sessions"] = int(rebalance_every_sessions)
+        summary_df["approx_periods_per_year"] = periods_per_year
+        summary_df["approx_annualized_return"] = summary_df["portfolio_mean_return"].apply(
+            lambda x: float((1.0 + float(pd.to_numeric(x, errors="coerce"))) ** periods_per_year - 1.0)
+            if pd.notna(pd.to_numeric(x, errors="coerce")) and float(pd.to_numeric(x, errors="coerce")) > -0.999999
+            else np.nan
+        )
+        sweep_rows.append(summary_df)
+
+        best_row = summary_df.iloc[0]
+        print(
+            "[PORTFOLIO-TOPK] "
+            f"top_k={top_k} ret={float(best_row['portfolio_mean_return']):.6f} "
+            f"ann={float(pd.to_numeric(best_row['approx_annualized_return'], errors='coerce')):.4f} "
+            f"share={float(best_row['top_contributor_share']):.4f}",
+            flush=True,
+        )
+
+    combined = pd.concat(sweep_rows, ignore_index=True) if sweep_rows else pd.DataFrame()
+    combined_csv = baseline_dir / "portfolio_rank_60m_long_only_topk_sweep_summary.csv"
+    combined.to_csv(combined_csv, index=False)
+
+    best_csv = baseline_dir / "portfolio_rank_60m_long_only_topk_sweep_best.csv"
+    if combined.empty:
+        pd.DataFrame().to_csv(best_csv, index=False)
+    else:
+        best_df = combined.sort_values(
+            ["approx_annualized_return", "portfolio_mean_return", "portfolio_mean_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+        best_df.to_csv(best_csv, index=False)
+
+    main_logger.info(f"[PORTFOLIO-TOPK] top-k sweep summary saved: {combined_csv}")
+    main_logger.info(f"[PORTFOLIO-TOPK] top-k sweep best saved: {best_csv}")
+    print(f"[PORTFOLIO-TOPK] top-k sweep summary saved: {combined_csv}", flush=True)
+    return combined
+
+
+def run_portfolio_rank_regime_gate_sweep(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    top_k: int = 2,
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    gate_dir = RESULTS_DIR / "signal_research" / "outputs_market_state_60m" / "latest"
+    gate_promoted_csv = gate_dir / "promoted_predictions_oos.csv"
+    gate_experiment_csv = gate_dir / "experiment_predictions_oos.csv"
+    gate_predictions_csv = gate_promoted_csv if gate_promoted_csv.exists() else gate_experiment_csv
+    if not predictions_csv.exists() or not dataset_csv.exists() or not gate_predictions_csv.exists():
+        out_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-GATE] missing predictions or dataset; no regime-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    gate_df = pd.read_csv(gate_predictions_csv)
+    if pred_df.empty or data_df.empty or gate_df.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-GATE] empty predictions or dataset; no regime-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    gate_df["Date"] = pd.to_datetime(gate_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        main_logger.warning(f"[PORTFOLIO-GATE] no rows for {experiment_id}; no regime-gate rows were produced.")
+        return pd.DataFrame()
+
+    gate_e801_df = gate_df.loc[gate_df["ExperimentID"] == "E801"].copy()
+    if gate_e801_df.empty and gate_predictions_csv != gate_experiment_csv and gate_experiment_csv.exists():
+        msg = "[PORTFOLIO-GATE] promoted market-state predictions do not include E801; falling back to experiment_predictions_oos.csv"
+        main_logger.info(msg)
+        print(msg, flush=True)
+        gate_df = pd.read_csv(gate_experiment_csv)
+        gate_df["Date"] = pd.to_datetime(gate_df["Date"], errors="coerce")
+        gate_e801_df = gate_df.loc[gate_df["ExperimentID"] == "E801"].copy()
+
+    gate_scores = (
+        gate_e801_df.groupby("Date")["Prediction"]
+        .mean()
+        .sort_index()
+    )
+    if gate_scores.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-GATE] no E801 gate scores available; no regime-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    benchmark_return = 0.0
+    benchmark_summary_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+    if benchmark_summary_csv.exists():
+        try:
+            bench_df = pd.read_csv(benchmark_summary_csv)
+            bench_row = bench_df.loc[bench_df["policy"] == benchmark_policy]
+            if not bench_row.empty:
+                benchmark_return = float(pd.to_numeric(bench_row.iloc[0]["test_return"], errors="coerce"))
+        except Exception as exc:
+            main_logger.warning(f"[PORTFOLIO-GATE] failed to read benchmark summary: {exc}")
+
+    gate_thresholds = [0.50, 0.55, 0.60, 0.65, 0.70]
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    print(
+        f"[PORTFOLIO-GATE] starting E801 gate sweep for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} across {len(gate_thresholds)} thresholds",
+        flush=True,
+    )
+
+    open_times = (
+        merged.groupby("TradeDate")["Date"]
+        .min()
+        .dropna()
+        .sort_values()
+        .tolist()
+    )
+    min_names_required = top_k
+    for gate_threshold in gate_thresholds:
+        prev_weights: Dict[str, float] = {}
+        event_returns: List[float] = []
+        event_turnovers: List[float] = []
+        event_gate_scores: List[float] = []
+        event_gate_passed: List[bool] = []
+        ticker_contrib: Dict[str, float] = {}
+        allowed_count = 0
+        blocked_count = 0
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+
+            gate_score = float(pd.to_numeric(gate_scores.get(open_ts, np.nan), errors="coerce"))
+            gate_passed = bool(np.isfinite(gate_score) and gate_score >= gate_threshold)
+            current = merged.loc[merged["Date"] == open_ts].copy()
+            future = merged.loc[merged["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+
+            if len(current) < min_names_required:
+                continue
+
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+            weights: Dict[str, float] = {}
+            long_weight = 1.0 / top_k
+            event_return = 0.0
+
+            if gate_passed:
+                allowed_count += 1
+                for _, row in longs.iterrows():
+                    raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                    contribution = long_weight * raw_ret - abs(long_weight) * float(row["est_cost"])
+                    event_return += contribution
+                    ticker = str(row["Ticker"])
+                    weights[ticker] = long_weight
+                    ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+            else:
+                blocked_count += 1
+
+            universe = set(prev_weights) | set(weights)
+            turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
+            prev_weights = weights
+
+            event_returns.append(event_return)
+            event_turnovers.append(turnover)
+            event_gate_scores.append(gate_score)
+            event_gate_passed.append(gate_passed)
+            history_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "top_k": top_k,
+                    "rebalance_every_sessions": rebalance_every_sessions,
+                    "gate_threshold": gate_threshold,
+                    "rebalance_idx": idx + 1,
+                    "open_ts": open_ts,
+                    "next_open_ts": next_open_ts,
+                    "gate_score_e801_mean": gate_score,
+                    "gate_passed": gate_passed,
+                    "eligible_count": int(len(current)),
+                    "portfolio_return": event_return,
+                    "turnover": turnover,
+                    "long_names": ",".join(longs["Ticker"].astype(str).tolist()) if gate_passed else "",
+                }
+            )
+
+        if not event_returns:
+            continue
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contrib_share = 0.0
+        if contrib_total_abs > 0:
+            top_contrib_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs
+
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        mean_return = float(np.mean(event_returns))
+        approx_annualized_return = float((1.0 + mean_return) ** periods_per_year - 1.0) if mean_return > -0.999999 else np.nan
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "portfolio_style": "long_only",
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "top_k": top_k,
+                "gate_experiment_id": "E801",
+                "gate_threshold": gate_threshold,
+                "rebalance_count": int(len(event_returns)),
+                "allowed_rebalances": int(allowed_count),
+                "blocked_rebalances": int(blocked_count),
+                "gate_pass_rate": float(np.mean(event_gate_passed)) if event_gate_passed else np.nan,
+                "mean_gate_score": float(np.nanmean(event_gate_scores)) if event_gate_scores else np.nan,
+                "portfolio_mean_return": mean_return,
+                "portfolio_median_return": float(np.median(event_returns)),
+                "portfolio_std_return": float(np.std(event_returns)),
+                "portfolio_mean_turnover": float(np.mean(event_turnovers)) if event_turnovers else np.nan,
+                "positive_windows": int(sum(val > 0 for val in event_returns)),
+                "zero_windows": int(sum(np.isclose(val, 0.0) for val in event_returns)),
+                "negative_windows": int(sum(val < 0 for val in event_returns)),
+                "portfolio_win_rate": float(np.mean([val > 0 for val in event_returns])),
+                "top_contributor_share": top_contrib_share,
+                "benchmark_policy": benchmark_policy,
+                "benchmark_return": benchmark_return,
+                "excess_vs_benchmark": mean_return - benchmark_return,
+                "beats_flat": bool(mean_return > 0.0),
+                "beats_benchmark": bool(mean_return > benchmark_return),
+                "promotion_verdict": "baseline_promoted"
+                if (mean_return > 0.0 and mean_return > benchmark_return and top_contrib_share <= 0.60)
+                else "research_only",
+                "approx_periods_per_year": periods_per_year,
+                "approx_annualized_return": approx_annualized_return,
+            }
+        )
+
+        print(
+            "[PORTFOLIO-GATE] "
+            f"threshold={gate_threshold:.2f} ret={mean_return:.6f} ann={approx_annualized_return:.4f} "
+            f"pass_rate={float(np.mean(event_gate_passed)):.2%}",
+            flush=True,
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["approx_annualized_return", "portfolio_mean_return", "portfolio_mean_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+    summary_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_summary.csv"
+    history_csv = baseline_dir / "portfolio_rank_60m_regime_gate_sweep_history.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-GATE] regime gate sweep summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-GATE] regime gate sweep history saved: {history_csv}")
+    print(f"[PORTFOLIO-GATE] regime gate sweep summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_portfolio_rank_score_weighted_sizing(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    top_k: int = 2,
+    rebalance_every_sessions: int = 10,
+    ticker_subset: Optional[List[str]] = None,
+    output_stem: str = "portfolio_rank_60m_score_weighted_sizing",
+    source_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    top_liquid_subset = {
+        "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
+        "TCS", "INFY", "WIPRO", "HCLTECH", "ITC",
+        "HINDUNILVR", "RELIANCE", "LT", "BHARTIARTL",
+    }
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    summary_csv = baseline_dir / f"{output_stem}_summary.csv"
+    history_csv = baseline_dir / f"{output_stem}_history.csv"
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = "[PORTFOLIO-SIZING] missing predictions or dataset; no sizing rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = source_df.copy() if source_df is not None else pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = "[PORTFOLIO-SIZING] empty predictions or dataset; no sizing rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    exp_df = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    universe_mode = "full_universe"
+    if ticker_subset:
+        normalized_subset = {str(t).strip().upper() for t in ticker_subset if str(t).strip()}
+        exp_df = exp_df.loc[exp_df["Ticker"].astype(str).str.upper().isin(normalized_subset)].copy()
+        universe_mode = f"subset_{len(normalized_subset)}"
+    exp_df = exp_df.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if exp_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = f"[PORTFOLIO-SIZING] no rows for {experiment_id}; no sizing rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    benchmark_return = 0.0
+    benchmark_summary_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+    if benchmark_summary_csv.exists():
+        try:
+            bench_df = pd.read_csv(benchmark_summary_csv)
+            bench_row = bench_df.loc[bench_df["policy"] == benchmark_policy]
+            if not bench_row.empty:
+                benchmark_return = float(pd.to_numeric(bench_row.iloc[0]["test_return"], errors="coerce"))
+        except Exception as exc:
+            main_logger.warning(f"[PORTFOLIO-SIZING] failed to read benchmark summary: {exc}")
+
+    weighting_specs = ["equal_weight", "score_weighted"]
+    open_times = (
+        exp_df.groupby("TradeDate")["Date"]
+        .min()
+        .dropna()
+        .sort_values()
+        .tolist()
+    )
+    history_rows: List[dict] = []
+    summary_rows: List[dict] = []
+    print(
+        f"[PORTFOLIO-SIZING] starting sizing comparison for {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+        flush=True,
+    )
+
+    for weighting_mode in weighting_specs:
+        prev_weights: Dict[str, float] = {}
+        event_returns: List[float] = []
+        event_turnovers: List[float] = []
+        event_top_liquid_weights: List[float] = []
+        event_non_top_liquid_weights: List[float] = []
+        event_majority_non_top_liquid: List[bool] = []
+        ticker_contrib: Dict[str, float] = {}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+
+            current = exp_df.loc[exp_df["Date"] == open_ts].copy()
+            future = exp_df.loc[exp_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < top_k:
+                continue
+
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+
+            if weighting_mode == "equal_weight":
+                longs["alloc_weight"] = 1.0 / top_k
+            else:
+                centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+                centered = centered + 1e-6
+                denom = float(centered.sum())
+                if not np.isfinite(denom) or denom <= 0.0:
+                    longs["alloc_weight"] = 1.0 / top_k
+                else:
+                    longs["alloc_weight"] = centered / denom
+
+            weights: Dict[str, float] = {}
+            event_return = 0.0
+            for _, row in longs.iterrows():
+                w = float(row["alloc_weight"])
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                contribution = w * raw_ret - abs(w) * float(row["est_cost"])
+                event_return += contribution
+                ticker = str(row["Ticker"])
+                weights[ticker] = w
+                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+
+            top_liquid_weight = float(
+                sum(
+                    float(w)
+                    for ticker, w in weights.items()
+                    if str(ticker).strip().upper() in top_liquid_subset
+                )
+            )
+            non_top_liquid_weight = float(
+                sum(
+                    float(w)
+                    for ticker, w in weights.items()
+                    if str(ticker).strip().upper() not in top_liquid_subset
+                )
+            )
+
+            universe = set(prev_weights) | set(weights)
+            turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
+            prev_weights = weights
+            event_returns.append(event_return)
+            event_turnovers.append(turnover)
+            event_top_liquid_weights.append(top_liquid_weight)
+            event_non_top_liquid_weights.append(non_top_liquid_weight)
+            event_majority_non_top_liquid.append(non_top_liquid_weight > top_liquid_weight)
+            history_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "weighting_mode": weighting_mode,
+                    "universe_mode": universe_mode,
+                    "top_k": top_k,
+                    "rebalance_every_sessions": rebalance_every_sessions,
+                    "rebalance_idx": idx + 1,
+                    "open_ts": open_ts,
+                    "next_open_ts": next_open_ts,
+                    "portfolio_return": event_return,
+                    "turnover": turnover,
+                    "long_names": ",".join(longs["Ticker"].astype(str).tolist()),
+                    "long_weights": ",".join(f"{float(w):.6f}" for w in longs["alloc_weight"].tolist()),
+                    "selected_weight_top_liquid14": top_liquid_weight,
+                    "selected_weight_non_top_liquid": non_top_liquid_weight,
+                    "majority_non_top_liquid": bool(non_top_liquid_weight > top_liquid_weight),
+                }
+            )
+
+        if not event_returns:
+            continue
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contrib_share = 0.0
+        if contrib_total_abs > 0:
+            top_contrib_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs
+        mean_return = float(np.mean(event_returns))
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        approx_annualized_return = float((1.0 + mean_return) ** periods_per_year - 1.0) if mean_return > -0.999999 else np.nan
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "weighting_mode": weighting_mode,
+                "universe_mode": universe_mode,
+                "top_k": top_k,
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "rebalance_count": int(len(event_returns)),
+                "portfolio_mean_return": mean_return,
+                "portfolio_median_return": float(np.median(event_returns)),
+                "portfolio_std_return": float(np.std(event_returns)),
+                "portfolio_mean_turnover": float(np.mean(event_turnovers)) if event_turnovers else np.nan,
+                "positive_windows": int(sum(val > 0 for val in event_returns)),
+                "zero_windows": int(sum(np.isclose(val, 0.0) for val in event_returns)),
+                "negative_windows": int(sum(val < 0 for val in event_returns)),
+                "portfolio_win_rate": float(np.mean([val > 0 for val in event_returns])),
+                "top_contributor_share": top_contrib_share,
+                "mean_selected_weight_top_liquid14": float(np.mean(event_top_liquid_weights)) if event_top_liquid_weights else np.nan,
+                "mean_selected_weight_non_top_liquid": float(np.mean(event_non_top_liquid_weights)) if event_non_top_liquid_weights else np.nan,
+                "rebalances_majority_non_top_liquid": int(sum(event_majority_non_top_liquid)),
+                "majority_non_top_liquid_rate": float(np.mean(event_majority_non_top_liquid)) if event_majority_non_top_liquid else np.nan,
+                "benchmark_policy": benchmark_policy,
+                "benchmark_return": benchmark_return,
+                "excess_vs_benchmark": mean_return - benchmark_return,
+                "beats_flat": bool(mean_return > 0.0),
+                "beats_benchmark": bool(mean_return > benchmark_return),
+                "promotion_verdict": "baseline_promoted"
+                if (mean_return > 0.0 and mean_return > benchmark_return and top_contrib_share <= 0.60)
+                else "research_only",
+                "approx_periods_per_year": periods_per_year,
+                "approx_annualized_return": approx_annualized_return,
+            }
+        )
+        print(
+            "[PORTFOLIO-SIZING] "
+            f"mode={weighting_mode} ret={mean_return:.6f} ann={approx_annualized_return:.4f} "
+            f"share={top_contrib_share:.4f}",
+            flush=True,
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["approx_annualized_return", "portfolio_mean_return", "portfolio_mean_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-SIZING] sizing summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-SIZING] sizing history saved: {history_csv}")
+    print(f"[PORTFOLIO-SIZING] sizing summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_portfolio_rank_liquid_subset_audit(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    top_k: int = 2,
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    top_liquid_subset = [
+        "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
+        "TCS", "INFY", "WIPRO", "HCLTECH", "ITC",
+        "HINDUNILVR", "RELIANCE", "LT", "BHARTIARTL",
+    ]
+    print(
+        f"[PORTFOLIO-LIQUID] auditing {experiment_id} top_k={top_k} hold={rebalance_every_sessions} on top-liquidity subset of {len(top_liquid_subset)} names",
+        flush=True,
+    )
+    return run_portfolio_rank_score_weighted_sizing(
+        benchmark_policy=benchmark_policy,
+        experiment_id=experiment_id,
+        top_k=top_k,
+        rebalance_every_sessions=rebalance_every_sessions,
+        ticker_subset=top_liquid_subset,
+        output_stem="portfolio_rank_60m_liquid_subset_audit",
+    )
+
+
+def run_portfolio_rank_score_weighted_topk_sweep(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    topk_specs = [2, 3, 4, 5]
+    sweep_rows: List[pd.DataFrame] = []
+
+    print(
+        f"[PORTFOLIO-SW-TOPK] starting score-weighted top-k sweep for {experiment_id} at hold={rebalance_every_sessions}",
+        flush=True,
+    )
+    for top_k in topk_specs:
+        print(
+            f"[PORTFOLIO-SW-TOPK] running top_k={top_k}",
+            flush=True,
+        )
+        summary_df = run_portfolio_rank_score_weighted_sizing(
+            benchmark_policy=benchmark_policy,
+            experiment_id=experiment_id,
+            top_k=top_k,
+            rebalance_every_sessions=rebalance_every_sessions,
+            output_stem=f"portfolio_rank_60m_score_weighted_topk_{experiment_id}_k{top_k}_r{rebalance_every_sessions}",
+        ).copy()
+        if summary_df.empty:
+            continue
+        summary_df["sweep_experiment_id"] = experiment_id
+        summary_df["sweep_top_k"] = int(top_k)
+        summary_df["sweep_rebalance_every_sessions"] = int(rebalance_every_sessions)
+        sweep_rows.append(summary_df)
+        best_row = summary_df.iloc[0]
+        print(
+            "[PORTFOLIO-SW-TOPK] "
+            f"top_k={top_k} ret={float(best_row['portfolio_mean_return']):.6f} "
+            f"ann={float(pd.to_numeric(best_row['approx_annualized_return'], errors='coerce')):.4f} "
+            f"share={float(best_row['top_contributor_share']):.4f}",
+            flush=True,
+        )
+
+    combined = pd.concat(sweep_rows, ignore_index=True) if sweep_rows else pd.DataFrame()
+    summary_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_sweep_summary.csv"
+    best_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_sweep_best.csv"
+    combined.to_csv(summary_csv, index=False)
+    if combined.empty:
+        pd.DataFrame().to_csv(best_csv, index=False)
+    else:
+        combined.sort_values(
+            ["approx_annualized_return", "portfolio_mean_return", "portfolio_mean_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True).to_csv(best_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-SW-TOPK] score-weighted top-k summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-SW-TOPK] score-weighted top-k best saved: {best_csv}")
+    print(f"[PORTFOLIO-SW-TOPK] score-weighted top-k summary saved: {summary_csv}", flush=True)
+    return combined
+
+
+def run_portfolio_rank_score_weighted_topk_walkforward(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    if not dataset_csv.exists():
+        out_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-SW-WF] missing research dataset; no walk-forward rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    data_df = pd.read_csv(dataset_csv)
+    if data_df.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-SW-WF] empty research dataset; no walk-forward rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.dropna(subset=["Date"]).sort_values(["Date", "Ticker"]).reset_index(drop=True)
+    trade_dates = sorted(pd.Series(data_df["Date"].dt.normalize().dropna().unique()).tolist())
+    if len(trade_dates) < 9:
+        out_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-SW-WF] insufficient trade dates for 3-fold walk-forward."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    topk_specs = [2, 3, 4, 5]
+    date_folds = [fold.tolist() for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), 3) if len(fold) > 0]
+    manifest_rows: List[dict] = []
+    fold_rows: List[pd.DataFrame] = []
+    print(
+        f"[PORTFOLIO-SW-WF] starting score-weighted walk-forward for {experiment_id} at hold={rebalance_every_sessions} across {len(topk_specs)} top-k cells",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_start = pd.Timestamp(fold_dates[0])
+        fold_end = pd.Timestamp(fold_dates[-1])
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = data_df.loc[data_df["Date"].dt.normalize().isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+        print(
+            f"[PORTFOLIO-SW-WF] fold {fold_idx}/{len(date_folds)} {fold_start.date()} -> {fold_end.date()} rows={len(fold_df)}",
+            flush=True,
+        )
+        for top_k in topk_specs:
+            print(
+                f"[PORTFOLIO-SW-WF] fold {fold_idx} running {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+                flush=True,
+            )
+            fold_summary = run_portfolio_rank_score_weighted_sizing(
+                benchmark_policy=benchmark_policy,
+                experiment_id=experiment_id,
+                top_k=top_k,
+                rebalance_every_sessions=rebalance_every_sessions,
+                output_stem=f"portfolio_rank_60m_score_weighted_topk_walkforward_{experiment_id}_k{top_k}_r{rebalance_every_sessions}_fold{fold_idx}",
+                source_df=fold_df,
+            ).copy()
+            if fold_summary.empty:
+                continue
+            periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+            fold_summary["fold_id"] = int(fold_idx)
+            fold_summary["fold_start_date"] = fold_start
+            fold_summary["fold_end_date"] = fold_end
+            fold_summary["fold_trade_dates"] = int(len(fold_dates))
+            fold_summary["fold_rows"] = int(len(fold_df))
+            fold_summary["approx_periods_per_year"] = periods_per_year
+            fold_summary["approx_annualized_return"] = fold_summary["portfolio_mean_return"].apply(
+                lambda x: float((1.0 + float(pd.to_numeric(x, errors="coerce"))) ** periods_per_year - 1.0)
+                if pd.notna(pd.to_numeric(x, errors="coerce")) and float(pd.to_numeric(x, errors="coerce")) > -0.999999
+                else np.nan
+            )
+            fold_rows.append(fold_summary)
+
+    combined = pd.concat(fold_rows, ignore_index=True) if fold_rows else pd.DataFrame()
+    combined_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_summary.csv"
+    combined.to_csv(combined_csv, index=False)
+
+    aggregate_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_aggregate.csv"
+    if combined.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            combined.groupby(
+                ["experiment_id", "weighting_mode", "top_k", "rebalance_rule"],
+                dropna=False,
+            )
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_of_fold_returns=("portfolio_mean_return", "mean"),
+                min_fold_return=("portfolio_mean_return", "min"),
+                max_fold_return=("portfolio_mean_return", "max"),
+                mean_of_fold_annualized=("approx_annualized_return", "mean"),
+                min_fold_annualized=("approx_annualized_return", "min"),
+                max_fold_annualized=("approx_annualized_return", "max"),
+                mean_of_fold_turnover=("portfolio_mean_turnover", "mean"),
+                mean_of_fold_win_rate=("portfolio_win_rate", "mean"),
+                mean_selected_weight_top_liquid14=("mean_selected_weight_top_liquid14", "mean"),
+                mean_selected_weight_non_top_liquid=("mean_selected_weight_non_top_liquid", "mean"),
+                max_majority_non_top_liquid_rate=("majority_non_top_liquid_rate", "max"),
+                folds_beating_flat=("beats_flat", "sum"),
+                folds_beating_benchmark=("beats_benchmark", "sum"),
+                max_top_contributor_share=("top_contributor_share", "max"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_positive"] = aggregate["folds_beating_flat"] == aggregate["fold_count"]
+        aggregate["all_folds_beat_benchmark"] = aggregate["folds_beating_benchmark"] == aggregate["fold_count"]
+        aggregate["walkforward_verdict"] = np.where(
+            aggregate["all_folds_positive"] & aggregate["all_folds_beat_benchmark"] & (aggregate["max_top_contributor_share"] <= 0.60),
+            "score_weighted_topk_walkforward_validated",
+            "score_weighted_topk_walkforward_fragile",
+        )
+        aggregate = aggregate.sort_values(
+            ["mean_of_fold_annualized", "min_fold_return", "mean_of_fold_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+
+    manifest_csv = baseline_dir / "portfolio_rank_60m_score_weighted_topk_walkforward_manifest.csv"
+    pd.DataFrame(manifest_rows).to_csv(manifest_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-SW-WF] score-weighted walk-forward summary saved: {combined_csv}")
+    main_logger.info(f"[PORTFOLIO-SW-WF] score-weighted walk-forward aggregate saved: {aggregate_csv}")
+    main_logger.info(f"[PORTFOLIO-SW-WF] score-weighted walk-forward manifest saved: {manifest_csv}")
+    print(f"[PORTFOLIO-SW-WF] score-weighted walk-forward summary saved: {combined_csv}", flush=True)
+    return combined
+
+
+def run_portfolio_rank_dispersion_gate_sweep(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    summary_csv = baseline_dir / "portfolio_rank_60m_dispersion_gate_sweep_summary.csv"
+    history_csv = baseline_dir / "portfolio_rank_60m_dispersion_gate_sweep_history.csv"
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = "[PORTFOLIO-DISP] missing predictions or dataset; no dispersion-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = "[PORTFOLIO-DISP] empty predictions or dataset; no dispersion-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = f"[PORTFOLIO-DISP] no rows for {experiment_id}; no dispersion-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    benchmark_return = 0.0
+    benchmark_summary_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+    if benchmark_summary_csv.exists():
+        try:
+            bench_df = pd.read_csv(benchmark_summary_csv)
+            bench_row = bench_df.loc[bench_df["policy"] == benchmark_policy]
+            if not bench_row.empty:
+                benchmark_return = float(pd.to_numeric(bench_row.iloc[0]["test_return"], errors="coerce"))
+        except Exception as exc:
+            main_logger.warning(f"[PORTFOLIO-DISP] failed to read benchmark summary: {exc}")
+
+    open_times = (
+        merged.groupby("TradeDate")["Date"]
+        .min()
+        .dropna()
+        .sort_values()
+        .tolist()
+    )
+    spread_values: List[float] = []
+    snapshot_map: Dict[pd.Timestamp, pd.DataFrame] = {}
+    for idx in range(len(open_times) - 1):
+        if idx % rebalance_every_sessions != 0:
+            continue
+        open_ts = open_times[idx]
+        next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+        next_open_ts = open_times[next_idx]
+        if next_open_ts == open_ts:
+            continue
+        current = merged.loc[merged["Date"] == open_ts].copy()
+        future = merged.loc[merged["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+        current = current.merge(future, on="Ticker", how="inner")
+        current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+        current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+        current = current.dropna(subset=["Prediction"]).copy()
+        if len(current) < top_k:
+            continue
+        spread = float(current["Prediction"].max() - current["Prediction"].min())
+        spread_values.append(spread)
+        snapshot_map[open_ts] = current
+
+    if not spread_values:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = "[PORTFOLIO-DISP] no eligible rebalance snapshots; no dispersion-gate rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    gate_quantiles = [0.40, 0.50, 0.60, 0.70]
+    gate_thresholds = [float(np.quantile(spread_values, q)) for q in gate_quantiles]
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    print(
+        f"[PORTFOLIO-DISP] starting dispersion-gate sweep for {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+        flush=True,
+    )
+
+    for gate_quantile, gate_threshold in zip(gate_quantiles, gate_thresholds):
+        prev_weights: Dict[str, float] = {}
+        event_returns: List[float] = []
+        event_turnovers: List[float] = []
+        event_gate_spreads: List[float] = []
+        event_gate_passed: List[bool] = []
+        ticker_contrib: Dict[str, float] = {}
+        allowed_count = 0
+        blocked_count = 0
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts or open_ts not in snapshot_map:
+                continue
+
+            current = snapshot_map[open_ts].copy()
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Close", "NextClose"]).copy()
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+
+            gate_spread = float(current["Prediction"].max() - current["Prediction"].min())
+            gate_passed = bool(np.isfinite(gate_spread) and gate_spread >= gate_threshold)
+            weights: Dict[str, float] = {}
+            event_return = 0.0
+
+            if gate_passed:
+                allowed_count += 1
+                centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+                centered = centered + 1e-6
+                denom = float(centered.sum())
+                if not np.isfinite(denom) or denom <= 0.0:
+                    longs["alloc_weight"] = 1.0 / top_k
+                else:
+                    longs["alloc_weight"] = centered / denom
+                for _, row in longs.iterrows():
+                    w = float(row["alloc_weight"])
+                    raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                    contribution = w * raw_ret - abs(w) * float(row["est_cost"])
+                    event_return += contribution
+                    ticker = str(row["Ticker"])
+                    weights[ticker] = w
+                    ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+            else:
+                blocked_count += 1
+                longs["alloc_weight"] = 0.0
+
+            universe = set(prev_weights) | set(weights)
+            turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
+            prev_weights = weights
+            event_returns.append(event_return)
+            event_turnovers.append(turnover)
+            event_gate_spreads.append(gate_spread)
+            event_gate_passed.append(gate_passed)
+            history_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "weighting_mode": "score_weighted",
+                    "top_k": top_k,
+                    "rebalance_every_sessions": rebalance_every_sessions,
+                    "gate_feature": "prediction_spread",
+                    "gate_quantile": gate_quantile,
+                    "gate_threshold": gate_threshold,
+                    "rebalance_idx": idx + 1,
+                    "open_ts": open_ts,
+                    "next_open_ts": next_open_ts,
+                    "gate_spread": gate_spread,
+                    "gate_passed": gate_passed,
+                    "portfolio_return": event_return,
+                    "turnover": turnover,
+                    "long_names": ",".join(longs["Ticker"].astype(str).tolist()) if gate_passed else "",
+                    "long_weights": ",".join(f"{float(w):.6f}" for w in longs["alloc_weight"].tolist()) if gate_passed else "",
+                }
+            )
+
+        if not event_returns:
+            continue
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contrib_share = 0.0
+        if contrib_total_abs > 0:
+            top_contrib_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs
+        mean_return = float(np.mean(event_returns))
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        approx_annualized_return = float((1.0 + mean_return) ** periods_per_year - 1.0) if mean_return > -0.999999 else np.nan
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "weighting_mode": "score_weighted",
+                "top_k": top_k,
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "gate_feature": "prediction_spread",
+                "gate_quantile": gate_quantile,
+                "gate_threshold": gate_threshold,
+                "rebalance_count": int(len(event_returns)),
+                "allowed_rebalances": int(allowed_count),
+                "blocked_rebalances": int(blocked_count),
+                "gate_pass_rate": float(np.mean(event_gate_passed)) if event_gate_passed else np.nan,
+                "mean_gate_spread": float(np.nanmean(event_gate_spreads)) if event_gate_spreads else np.nan,
+                "portfolio_mean_return": mean_return,
+                "portfolio_median_return": float(np.median(event_returns)),
+                "portfolio_std_return": float(np.std(event_returns)),
+                "portfolio_mean_turnover": float(np.mean(event_turnovers)) if event_turnovers else np.nan,
+                "positive_windows": int(sum(val > 0 for val in event_returns)),
+                "zero_windows": int(sum(np.isclose(val, 0.0) for val in event_returns)),
+                "negative_windows": int(sum(val < 0 for val in event_returns)),
+                "portfolio_win_rate": float(np.mean([val > 0 for val in event_returns])),
+                "top_contributor_share": top_contrib_share,
+                "benchmark_policy": benchmark_policy,
+                "benchmark_return": benchmark_return,
+                "excess_vs_benchmark": mean_return - benchmark_return,
+                "beats_flat": bool(mean_return > 0.0),
+                "beats_benchmark": bool(mean_return > benchmark_return),
+                "promotion_verdict": "baseline_promoted"
+                if (mean_return > 0.0 and mean_return > benchmark_return and top_contrib_share <= 0.60)
+                else "research_only",
+                "approx_periods_per_year": periods_per_year,
+                "approx_annualized_return": approx_annualized_return,
+            }
+        )
+        print(
+            "[PORTFOLIO-DISP] "
+            f"q={gate_quantile:.2f} thr={gate_threshold:.6f} ret={mean_return:.6f} ann={approx_annualized_return:.4f} "
+            f"pass_rate={float(np.mean(event_gate_passed)):.2%}",
+            flush=True,
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["approx_annualized_return", "portfolio_mean_return", "portfolio_mean_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-DISP] dispersion-gate summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-DISP] dispersion-gate history saved: {history_csv}")
+    print(f"[PORTFOLIO-DISP] dispersion-gate summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_portfolio_rank_dispersion_sizing_walkforward(
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    top_liquid_subset = {
+        "HDFCBANK", "ICICIBANK", "SBIN", "AXISBANK", "KOTAKBANK",
+        "TCS", "INFY", "WIPRO", "HCLTECH", "ITC",
+        "HINDUNILVR", "RELIANCE", "LT", "BHARTIARTL",
+    }
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        out_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-DISP-SIZE] missing predictions or dataset; no walk-forward rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-DISP-SIZE] empty predictions or dataset; no walk-forward rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = f"[PORTFOLIO-DISP-SIZE] no rows for {experiment_id}; no walk-forward rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    benchmark_return = 0.0
+    benchmark_summary_csv = baseline_dir / "e102_deepdive_policy_summary.csv"
+    if benchmark_summary_csv.exists():
+        try:
+            bench_df = pd.read_csv(benchmark_summary_csv)
+            bench_row = bench_df.loc[bench_df["policy"] == benchmark_policy]
+            if not bench_row.empty:
+                benchmark_return = float(pd.to_numeric(bench_row.iloc[0]["test_return"], errors="coerce"))
+        except Exception as exc:
+            main_logger.warning(f"[PORTFOLIO-DISP-SIZE] failed to read benchmark summary: {exc}")
+
+    trade_dates = sorted(pd.Series(merged["Date"].dt.normalize().dropna().unique()).tolist())
+    if len(trade_dates) < 9:
+        out_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-DISP-SIZE] insufficient trade dates for 3-fold walk-forward."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    date_folds = [fold.tolist() for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), 3) if len(fold) > 0]
+    fold_snapshots: List[Dict[pd.Timestamp, pd.DataFrame]] = []
+    fold_spreads: List[List[float]] = []
+    manifest_rows: List[dict] = []
+    history_rows: List[dict] = []
+    summary_rows: List[dict] = []
+    print(
+        f"[PORTFOLIO-DISP-SIZE] starting dispersion-sized walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_start = pd.Timestamp(fold_dates[0])
+        fold_end = pd.Timestamp(fold_dates[-1])
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["Date"].dt.normalize().isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = (
+            fold_df.groupby("TradeDate")["Date"]
+            .min()
+            .dropna()
+            .sort_values()
+            .tolist()
+        )
+        spread_samples: List[float] = []
+        snapshots: Dict[pd.Timestamp, pd.DataFrame] = {}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            spread = float(current.iloc[0]["Prediction"] - current.iloc[4]["Prediction"])
+            spread_samples.append(spread)
+            snapshots[open_ts] = current
+
+        fold_snapshots.append(snapshots)
+        fold_spreads.append(spread_samples)
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_start = pd.Timestamp(fold_dates[0])
+        fold_end = pd.Timestamp(fold_dates[-1])
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["Date"].dt.normalize().isin(fold_date_index)].copy()
+        open_times = (
+            fold_df.groupby("TradeDate")["Date"]
+            .min()
+            .dropna()
+            .sort_values()
+            .tolist()
+        )
+        snapshots = fold_snapshots[fold_idx - 1] if len(fold_snapshots) >= fold_idx else {}
+        spread_samples = fold_spreads[fold_idx - 1] if len(fold_spreads) >= fold_idx else []
+        if not spread_samples:
+            continue
+        if fold_idx == 1:
+            ref_spreads = []
+            ref_source = "fold1_constant_1p0"
+        else:
+            ref_spreads = fold_spreads[fold_idx - 2]
+            ref_source = f"prefold_{fold_idx - 1}"
+        if not ref_spreads:
+            if fold_idx == 1:
+                disp_median = np.nan
+            else:
+                ref_spreads = spread_samples
+                ref_source = f"fallback_fold_{fold_idx}"
+                disp_median = float(np.median(ref_spreads))
+        else:
+            disp_median = float(np.median(ref_spreads))
+        print(
+            f"[PORTFOLIO-DISP-SIZE] fold {fold_idx}/{len(date_folds)} {fold_start.date()} -> {fold_end.date()} rows={len(fold_df)} ref_median={disp_median if np.isfinite(disp_median) else 'NA'} source={ref_source}",
+            flush=True,
+        )
+
+        prev_weights: Dict[str, float] = {}
+        event_returns: List[float] = []
+        event_turnovers: List[float] = []
+        event_size_multipliers: List[float] = []
+        event_spreads: List[float] = []
+        event_top_liquid_weights: List[float] = []
+        event_non_top_liquid_weights: List[float] = []
+        event_majority_non_top_liquid: List[bool] = []
+        ticker_contrib: Dict[str, float] = {}
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts or open_ts not in snapshots:
+                continue
+
+            current = snapshots[open_ts].copy()
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+            centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+            centered = centered + 1e-6
+            denom = float(centered.sum())
+            if not np.isfinite(denom) or denom <= 0.0:
+                longs["alloc_weight"] = 1.0 / top_k
+            else:
+                longs["alloc_weight"] = centered / denom
+
+            disp = float(current.iloc[0]["Prediction"] - current.iloc[4]["Prediction"])
+            if ref_source == "fold1_constant_1p0":
+                size_multiplier = 1.0
+            elif not np.isfinite(disp_median) or disp_median <= 0.0:
+                size_multiplier = 1.0
+            else:
+                size_multiplier = float(np.clip(disp / disp_median, 0.0, 1.5))
+            if ref_spreads:
+                dispersion_percentile = float(np.mean(np.asarray(ref_spreads, dtype=float) <= disp))
+            else:
+                dispersion_percentile = np.nan
+            longs["alloc_weight"] = longs["alloc_weight"] * size_multiplier
+
+            weights: Dict[str, float] = {}
+            event_return = 0.0
+            for _, row in longs.iterrows():
+                w = float(row["alloc_weight"])
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                contribution = w * raw_ret - abs(w) * float(row["est_cost"])
+                event_return += contribution
+                ticker = str(row["Ticker"])
+                weights[ticker] = w
+                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+
+            top_liquid_weight = float(
+                sum(float(w) for ticker, w in weights.items() if str(ticker).strip().upper() in top_liquid_subset)
+            )
+            non_top_liquid_weight = float(
+                sum(float(w) for ticker, w in weights.items() if str(ticker).strip().upper() not in top_liquid_subset)
+            )
+            universe = set(prev_weights) | set(weights)
+            turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
+            prev_weights = weights
+
+            event_returns.append(event_return)
+            event_turnovers.append(turnover)
+            event_size_multipliers.append(size_multiplier)
+            event_spreads.append(disp)
+            event_top_liquid_weights.append(top_liquid_weight)
+            event_non_top_liquid_weights.append(non_top_liquid_weight)
+            event_majority_non_top_liquid.append(non_top_liquid_weight > top_liquid_weight)
+            history_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "fold_id": fold_idx,
+                    "weighting_mode": "score_weighted_dispersion_sized",
+                    "top_k": top_k,
+                    "rebalance_every_sessions": rebalance_every_sessions,
+                    "rebalance_idx": idx + 1,
+                    "open_ts": open_ts,
+                    "next_open_ts": next_open_ts,
+                    "dispersion_top1_minus_top5": disp,
+                    "dispersion_reference_median": disp_median,
+                    "dispersion_reference_source": ref_source,
+                    "dispersion_percentile_vs_ref": dispersion_percentile,
+                    "size_multiplier": size_multiplier,
+                    "portfolio_return": event_return,
+                    "portfolio_return_sign": int(np.sign(event_return)),
+                    "turnover": turnover,
+                    "selected_weight_top_liquid14": top_liquid_weight,
+                    "selected_weight_non_top_liquid": non_top_liquid_weight,
+                    "majority_non_top_liquid": bool(non_top_liquid_weight > top_liquid_weight),
+                    "long_names": ",".join(longs["Ticker"].astype(str).tolist()),
+                    "long_weights": ",".join(f"{float(w):.6f}" for w in longs["alloc_weight"].tolist()),
+                }
+            )
+
+        if not event_returns:
+            continue
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contrib_share = 0.0
+        if contrib_total_abs > 0:
+            top_contrib_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs
+
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        mean_return = float(np.mean(event_returns))
+        approx_annualized_return = float((1.0 + mean_return) ** periods_per_year - 1.0) if mean_return > -0.999999 else np.nan
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "fold_id": int(fold_idx),
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+                "weighting_mode": "score_weighted_dispersion_sized",
+                "top_k": top_k,
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "rebalance_count": int(len(event_returns)),
+                "portfolio_mean_return": mean_return,
+                "portfolio_median_return": float(np.median(event_returns)),
+                "portfolio_std_return": float(np.std(event_returns)),
+                "portfolio_mean_turnover": float(np.mean(event_turnovers)) if event_turnovers else np.nan,
+                "portfolio_win_rate": float(np.mean([val > 0 for val in event_returns])),
+                "positive_windows": int(sum(val > 0 for val in event_returns)),
+                "zero_windows": int(sum(np.isclose(val, 0.0) for val in event_returns)),
+                "negative_windows": int(sum(val < 0 for val in event_returns)),
+                "top_contributor_share": top_contrib_share,
+                "mean_dispersion_top1_minus_top5": float(np.mean(event_spreads)) if event_spreads else np.nan,
+                "dispersion_reference_median": disp_median,
+                "dispersion_reference_source": ref_source,
+                "mean_size_multiplier": float(np.mean(event_size_multipliers)) if event_size_multipliers else np.nan,
+                "mean_selected_weight_top_liquid14": float(np.mean(event_top_liquid_weights)) if event_top_liquid_weights else np.nan,
+                "mean_selected_weight_non_top_liquid": float(np.mean(event_non_top_liquid_weights)) if event_non_top_liquid_weights else np.nan,
+                "majority_non_top_liquid_rate": float(np.mean(event_majority_non_top_liquid)) if event_majority_non_top_liquid else np.nan,
+                "benchmark_policy": benchmark_policy,
+                "benchmark_return": benchmark_return,
+                "excess_vs_benchmark": mean_return - benchmark_return,
+                "beats_flat": bool(mean_return > 0.0),
+                "beats_benchmark": bool(mean_return > benchmark_return),
+                "promotion_verdict": "baseline_promoted"
+                if (mean_return > 0.0 and mean_return > benchmark_return and top_contrib_share <= 0.60)
+                else "research_only",
+                "approx_periods_per_year": periods_per_year,
+                "approx_annualized_return": approx_annualized_return,
+            }
+        )
+
+    combined = pd.DataFrame(summary_rows)
+    combined_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv"
+    combined.to_csv(combined_csv, index=False)
+
+    aggregate_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_aggregate.csv"
+    if combined.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            combined.groupby(
+                ["experiment_id", "weighting_mode", "top_k", "rebalance_rule"],
+                dropna=False,
+            )
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_of_fold_returns=("portfolio_mean_return", "mean"),
+                min_fold_return=("portfolio_mean_return", "min"),
+                max_fold_return=("portfolio_mean_return", "max"),
+                mean_of_fold_annualized=("approx_annualized_return", "mean"),
+                min_fold_annualized=("approx_annualized_return", "min"),
+                max_fold_annualized=("approx_annualized_return", "max"),
+                mean_of_fold_turnover=("portfolio_mean_turnover", "mean"),
+                mean_of_fold_win_rate=("portfolio_win_rate", "mean"),
+                mean_size_multiplier=("mean_size_multiplier", "mean"),
+                mean_selected_weight_top_liquid14=("mean_selected_weight_top_liquid14", "mean"),
+                mean_selected_weight_non_top_liquid=("mean_selected_weight_non_top_liquid", "mean"),
+                max_majority_non_top_liquid_rate=("majority_non_top_liquid_rate", "max"),
+                folds_beating_flat=("beats_flat", "sum"),
+                folds_beating_benchmark=("beats_benchmark", "sum"),
+                max_top_contributor_share=("top_contributor_share", "max"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_positive"] = aggregate["folds_beating_flat"] == aggregate["fold_count"]
+        aggregate["all_folds_beat_benchmark"] = aggregate["folds_beating_benchmark"] == aggregate["fold_count"]
+        aggregate["walkforward_verdict"] = np.where(
+            aggregate["all_folds_positive"] & aggregate["all_folds_beat_benchmark"] & (aggregate["max_top_contributor_share"] <= 0.60),
+            "dispersion_sized_walkforward_validated",
+            "dispersion_sized_walkforward_fragile",
+        )
+        aggregate = aggregate.sort_values(
+            ["mean_of_fold_annualized", "min_fold_return", "mean_of_fold_turnover"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+
+    manifest_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_manifest.csv"
+    pd.DataFrame(manifest_rows).to_csv(manifest_csv, index=False)
+    history_csv = baseline_dir / "portfolio_rank_60m_dispersion_sizing_walkforward_history.csv"
+    pd.DataFrame(history_rows).to_csv(history_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-DISP-SIZE] dispersion-sized walk-forward summary saved: {combined_csv}")
+    main_logger.info(f"[PORTFOLIO-DISP-SIZE] dispersion-sized walk-forward aggregate saved: {aggregate_csv}")
+    main_logger.info(f"[PORTFOLIO-DISP-SIZE] dispersion-sized walk-forward manifest saved: {manifest_csv}")
+    main_logger.info(f"[PORTFOLIO-DISP-SIZE] dispersion-sized walk-forward history saved: {history_csv}")
+    print(f"[PORTFOLIO-DISP-SIZE] dispersion-sized walk-forward summary saved: {combined_csv}", flush=True)
+    return combined
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -9720,6 +11173,14 @@ if __name__ == "__main__":
             "signal_baseline_portfolio_rank_60m_long_only_walkforward",
             "signal_baseline_portfolio_rank_60m_long_only_hold_sweep",
             "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward",
+            "signal_baseline_portfolio_rank_60m_long_only_topk_sweep",
+            "signal_baseline_portfolio_rank_60m_regime_gate_sweep",
+            "signal_baseline_portfolio_rank_60m_score_weighted_sizing",
+            "signal_baseline_portfolio_rank_60m_liquid_subset_audit",
+            "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep",
+            "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward",
+            "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep",
+            "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -10152,7 +11613,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -11843,6 +13304,107 @@ if __name__ == "__main__":
             run_portfolio_rank_long_only_hold_walkforward(
                 benchmark_policy="SIGNAL_E211_BANDED_68",
                 fold_count=3,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_long_only_topk_sweep":
+            main_logger.info(
+                "Starting portfolio-rank 60m long-only top-k sweep. "
+                "Testing validated hold winner E1006 at every_10 sessions across top_k 2/3/4/5/7 against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_long_only_topk_sweep(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_regime_gate_sweep":
+            main_logger.info(
+                "Starting portfolio-rank 60m regime-gate sweep. "
+                "Testing validated swing winner E1006 top2 every_10 with E801 mean-score veto thresholds against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_regime_gate_sweep(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                top_k=2,
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_score_weighted_sizing":
+            main_logger.info(
+                "Starting portfolio-rank 60m score-weighted sizing comparison. "
+                "Testing E1006 top2 every_10 under equal-weight versus score-weighted allocation against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_score_weighted_sizing(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                top_k=2,
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_liquid_subset_audit":
+            main_logger.info(
+                "Starting portfolio-rank 60m liquid-subset audit. "
+                "Testing E1006 top2 every_10 with score-weighted sizing on a top-liquidity subset against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_liquid_subset_audit(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                top_k=2,
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep":
+            main_logger.info(
+                "Starting portfolio-rank 60m score-weighted top-k sweep. "
+                "Testing E1006 every_10 across top_k 2/3/4/5 under score-weighted allocation against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_score_weighted_topk_sweep(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward":
+            main_logger.info(
+                "Starting portfolio-rank 60m score-weighted top-k walk-forward. "
+                "Testing E1006 every_10 across top_k 2/3/4/5 under score-weighted allocation across 3 contiguous folds against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_score_weighted_topk_walkforward(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep":
+            main_logger.info(
+                "Starting portfolio-rank 60m dispersion-gate sweep. "
+                "Testing E1006 every_10 top_k=3 under score-weighted allocation with a self-contained prediction-spread gate against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_dispersion_gate_sweep(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward":
+            main_logger.info(
+                "Starting portfolio-rank 60m dispersion-sized walk-forward. "
+                "Testing E1006 every_10 top_k=3 under score-weighted allocation with a continuous top1-minus-top5 dispersion sizing multiplier across 3 contiguous folds against SIGNAL_E211_BANDED_68 and FLAT only."
+            )
+            run_portfolio_rank_dispersion_sizing_walkforward(
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
             )
             raise SystemExit(0)
 
