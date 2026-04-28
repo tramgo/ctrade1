@@ -1,0 +1,7 @@
+Rank,ThesisID,ThesisName,Interval,Status,ResearchOwner,BaselineEligible,Notes
+1,TB04_T01,PortfolioRankHoldWalkforward,60m,queued_next,codex,True,Validate hold-sweep leaders E1002@15 E1006@10 and E1003@21 across 3 contiguous folds before any promotion logic
+2,TB04_T02,PortfolioRankTopKSweep,60m,pending,codex,True,Sweep top_k in 2 3 4 5 7 on the winning hold cadence to choose concentration versus diversification
+3,TB04_T03,PortfolioRankScoreWeightedSizing,60m,pending,codex,True,Test score-weighted sizing against equal weight on the winning hold cell
+4,TB04_T04,PortfolioRankRegimeGate,60m,pending,codex,True,Use E801 regime context as a veto or skip gate on the winning swing cell
+5,TB04_T05,PortfolioRankLiquidSubsetAudit,60m,pending,codex,True,Retest the winning swing cell on the highest-liquidity subset to tighten live-execution realism
+6,TB04_T06,PortfolioRankPaperTradeGate,deployment,pending_result_required,codex,False,Only open after walk-forward concentration and subset checks pass
