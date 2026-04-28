@@ -26,7 +26,8 @@ RL stays frozen unless a branch first proves itself with:
 ### Stable truths
 
 - the research stack can find real predictive structure
-- cost modeling is not the main bottleneck
+- the regulatory fee stack is stable and correctly modeled
+- slippage calibration, portfolio wrapper choice, holding horizon, and instrument choice are still open economic levers
 - many branches improve research metrics without improving monetization
 - `E211` remains the strongest durable executable benchmark
 - Batch 01 and early Batch 02 now show that standalone OHLCV-derived short-horizon classifiers, event classifiers, and path-aware event-outcome labels are not the current highest-value alpha path
@@ -93,10 +94,10 @@ These are not the best next moves now:
 
 These are the better directions now:
 
-- incumbent-specific failure-mode audit
-- execution timing, veto, and sizing overlays on `SIGNAL_E211_BANDED_68`
-- portfolio construction overlays that control concentration and turnover
-- materially new external or microstructure information if a real feed exists
+- cost and slippage calibration on the existing incumbent and strongest challengers
+- portfolio construction overlays that control concentration, short-side drag, and turnover
+- instrument migration tests where the same signal is evaluated on cheaper futures cost profiles
+- incumbent-specific execution timing, veto, and sizing overlays on `SIGNAL_E211_BANDED_68`
 - only after those, a small number of event/state theses whose favorable slice has positive absolute economics before classification begins
 
 ## Program Structure
@@ -173,33 +174,38 @@ Each thesis ends as one of:
 
 ### Current next thesis
 
-- `TB02_T04 RegimeSpecificIncumbentVeto`
-  - incumbent-only failure-mode audit before any new standalone alpha family
-  - next command: `run_mode.bat signal_baseline_e211_entry_audit`
+- `TB03_T05 HoldingHorizonE1903Sweep`
+  - `TB03_T01` and `TB03_T03` completed as diagnostics and improved economics without overturning the incumbent
+  - `TB03_T04` completed as the first true executable breakthrough, with `PortfolioRank60m` long-only weekly wrappers turning strongly positive
+  - next command: `run_mode.bat signal_baseline_native_15m_holding_horizon_execution_sweep`
 
 ## Immediate Plan
 
 Implement next:
 
-- run the existing `E211` entry audit
-- inspect loser regimes, entry timing, and adverse path behavior
-- only then decide whether a veto, delay, or sizing overlay is justified
+- run the dedicated `E1903` execution-hold sweep
+- confirm whether threshold tightening plus longer holding rescues the strongest holding-horizon research survivor
+- keep explicit comparison to `FLAT` and `SIGNAL_E211_BANDED_68`
+- if `E1903` still fails, treat portfolio construction rather than single-name holding-horizon rescue as the cleaner executable path
 
 Decision rule:
 
-- if losing regimes are clearly separable:
-  - build the smallest incumbent overlay that avoids or resizes those entries
-- if losing regimes are not separable:
-  - do not rescue with another classifier; move toward portfolio construction or a real new data axis
+- if one or more near-boundary policies flips positive under plausible liquid-name friction:
+  - prioritize tiered slippage, cheaper-instrument baselines, and low-turnover wrapper work
+- if nothing flips and the gap stays wide even under lower friction:
+  - do not rescue with another classifier; move back toward incumbent overlays or a real new data axis
 
 ## Short-Term Queue
 
 Continue in this order:
 
-1. `TB02_T04 RegimeSpecificIncumbentVeto`
-2. `TB02_T05 PortfolioConstructionOverlay`
-3. `TB02_T08 ExecutionCostAwareEntryDelay`
-4. `TB02_T10 NewExternalDataAxis`, only when a real local feed exists
+1. `TB03_T05 HoldingHorizonE1903Sweep`
+2. `TB03_T06 BenchmarkSuiteRefresh`
+3. `TB03_T07 CostAwareSelectionScore`
+4. `TB03_T08 InstrumentAwareCostDashboard`
+5. `TB03_T09 IncumbentLiquidSubsetAudit`
+6. `TB02_T08 ExecutionCostAwareEntryDelay`
+7. `TB02_T10 NewExternalDataAxis`, only when a real local feed exists
 
 ## Source Of Truth
 
@@ -243,7 +249,7 @@ Batch 01 is closed / held:
 - `SIGNAL_E211_BANDED_68` remains the incumbent
 - RL remains frozen
 
-Batch 02 is now the active planning batch.
+Batch 02 is now treated as the completed diagnostic batch that confirmed the current standalone predictor ceiling.
 
 ### Current branch
 
@@ -253,15 +259,35 @@ Batch 02 has completed:
 - `TB02_T02 IntradayVolumeLiquidityForecast`: closed `research_only`
 - `TB02_T03 EventOutcomeAccounting`: closed `research_only`
 
-The active branch is now:
+The next active branch is now:
 
-- `TB02_T04 RegimeSpecificIncumbentVeto`
+- `TB03_T01 SlippageSensitivityCalibration`
 
 Rationale:
 
 - Batch 02 confirmed that better OHLCV-derived prediction and better event labels still do not guarantee positive executable economics
-- `E211` remains the only durable executable benchmark
-- improving or auditing the incumbent is now higher value than launching another standalone classifier family
+- the revised review of Batch 01 and Batch 02 also showed that several branches sit closer to the friction boundary than the older writeups implied
+- the fastest next information gain is therefore not another predictor family, but an execution-cost recalibration pass inside the current framework
+
+### Batch 03 update
+
+Date: 2026-04-28
+
+Batch 03 is now the active planning batch.
+
+Theme:
+
+- treat signal quality as real but economically marginal
+- measure how much slippage, wrapper design, holding horizon, and instrument cost profile change executable sign
+- only resume broader discovery after these internal levers are exhausted honestly
+
+Priority order:
+
+1. `TB03_T01 SlippageSensitivityCalibration`
+2. `TB03_T02 LiquidityTieredSlippageMap`
+3. `TB03_T03 FuturesCostProfilePort`
+4. `TB03_T04 PortfolioRankLongOnly`
+5. `TB03_T05 HoldingHorizonE1903Sweep`
 
 ### Batch 02 artifact set
 

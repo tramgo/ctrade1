@@ -3,12 +3,12 @@
   "version": "1.0",
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
-  "active_batch": "TB02",
-  "active_thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
-  "active_stage": "research_ready",
-  "last_completed_thesis": "TB02_T03_EventOutcomeAccounting",
-  "last_completed_verdict": "research_only",
-  "next_thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
+  "active_batch": "TB03",
+  "active_thesis": "TB03_T05_HoldingHorizonE1903Sweep",
+  "active_stage": "baseline_ready",
+  "last_completed_thesis": "TB03_T04_PortfolioRankLongOnly",
+  "last_completed_verdict": "diagnostic_complete",
+  "next_thesis": "TB03_T05_HoldingHorizonE1903Sweep",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -38,5 +38,5 @@
     "Do not start a new thesis while run_lock.json is locked.",
     "Use E211 as incumbent benchmark until displaced by executable validation."
   ],
-  "last_updated_by": "codex_tb02_t03_closeout_2026-04-25"
+  "last_updated_by": "codex_tb03_t05_wiring_2026-04-28"
 }

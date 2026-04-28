@@ -1,14 +1,13 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
-  "stage": "research_ready",
-  "started_at": "2026-04-25T00:40:00+05:30",
+  "thesis": "TB03_T05_HoldingHorizonE1903Sweep",
+  "stage": "baseline_ready",
+  "started_at": "2026-04-28T00:00:00+05:30",
   "expected_outputs": [
-    "results/signal_baseline/e211_entry_audit_detail.csv",
-    "results/signal_baseline/e211_entry_audit_summary.csv",
-    "results/signal_baseline/e211_entry_feature_separation.csv"
+    "results/signal_baseline/native_15m_holding_horizon_execution_sweep_summary.csv",
+    "results/signal_baseline/native_15m_holding_horizon_execution_sweep_detail.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB02_T03 is closed research_only after broad and refined event-outcome accounting failed promotion. Next step is incumbent-only E211 failure-mode audit before any new standalone thesis."
+  "notes": "TB03_T04 completed with a strong weekly long-only winner; next step is TB03_T05 execution-hold sweep around E1903 to test threshold tightening plus longer baseline holding."
 }

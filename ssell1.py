@@ -2402,7 +2402,9 @@ class SingleStockTradingEnv(gym.Env):
         inference_buy_threshold: float = 0.5,   # New: threshold for buy signals (tuned between 0.5 and 1.0)
         inference_sell_threshold: float = 0.5,  # New: threshold for sell signals (tuned between 0.5 and 1.0)
         slippage_rate: float = 0.001,
-        disable_costs: bool = False
+        disable_costs: bool = False,
+        cost_profile: str = "cash_equity",
+        max_holding_bars: Optional[int] = None,
     ):
         super(SingleStockTradingEnv, self).__init__()
         self.env_rank = env_rank
@@ -2442,9 +2444,15 @@ class SingleStockTradingEnv(gym.Env):
         self.inference_sell_threshold = inference_sell_threshold
         self.slippage_rate = float(max(0.0, slippage_rate))
         self.disable_costs = bool(disable_costs)
+        self.cost_profile = str(cost_profile or "cash_equity").strip().lower()
+        self.max_holding_bars = int(max_holding_bars) if max_holding_bars is not None else None
+        if self.max_holding_bars is not None and self.max_holding_bars <= 0:
+            self.max_holding_bars = None
         self.dp_charge_applied = False
         self.last_dp_charge_amount = 0.0
         self.current_step = 0
+        self.position_holding_bars = 0
+        self.last_position_sign = 0
 
         if self.mode == "test":
             main_logger.info(f"[Env {self.env_rank}] In test mode: Inference Buy Threshold set to {self.inference_buy_threshold}, "
@@ -2484,6 +2492,8 @@ class SingleStockTradingEnv(gym.Env):
         self.returns_window = []
         self.avg_entry_price = 0.0
         self.position_style = "flat"
+        self.position_holding_bars = 0
+        self.last_position_sign = 0
         self.transaction_count = 0
         self.consecutive_drawdown_steps = 0
         self.last_dp_charge_flag = 0
@@ -2616,7 +2626,7 @@ class SingleStockTradingEnv(gym.Env):
     def calculate_transaction_cost(self, order_value: float, side: str, quantity: int) -> tuple:
         """
         Calculate the transaction cost for a given order_value and side ('buy' or 'sell')
-        using the revised fee components:
+        using the configured cost profile.
         
         - Brokerage Fee: min(₹20, 0.03% of order_value)  
         (Applicable on both Buy & Sell orders)
@@ -2640,6 +2650,7 @@ class SingleStockTradingEnv(gym.Env):
         """
         if self.disable_costs:
             breakdown = {
+                'Cost_Profile': self.cost_profile,
                 'Brokerage_Fee': 0.0,
                 'STT': 0.0,
                 'Transaction_Charge': 0.0,
@@ -2651,12 +2662,21 @@ class SingleStockTradingEnv(gym.Env):
             }
             return 0.0, breakdown
 
-        brokerage_fee = min(20, 0.0003 * order_value)
-        stt = 0.00025 * order_value if side.lower() == 'sell' else 0.0
-        transaction_charge = 0.0000297 * order_value
-        sebi_fee = 1e-6 * order_value  # 0.0001% of order_value
-        gst = 0.18 * (brokerage_fee + transaction_charge + sebi_fee)
-        stamp_duty = 0.00003 * order_value if side.lower() == 'buy' else 0.0
+        profile = self.cost_profile
+        if profile == "stock_futures":
+            brokerage_fee = min(20, 0.0003 * order_value)
+            stt = 0.0005 * order_value if side.lower() == 'sell' else 0.0
+            transaction_charge = 0.0000183 * order_value
+            sebi_fee = 1e-6 * order_value
+            gst = 0.18 * (brokerage_fee + transaction_charge + sebi_fee)
+            stamp_duty = 0.00002 * order_value if side.lower() == 'buy' else 0.0
+        else:
+            brokerage_fee = min(20, 0.0003 * order_value)
+            stt = 0.00025 * order_value if side.lower() == 'sell' else 0.0
+            transaction_charge = 0.0000297 * order_value
+            sebi_fee = 1e-6 * order_value  # 0.0001% of order_value
+            gst = 0.18 * (brokerage_fee + transaction_charge + sebi_fee)
+            stamp_duty = 0.00003 * order_value if side.lower() == 'buy' else 0.0
 
         total_cost = brokerage_fee + stt + transaction_charge + sebi_fee + gst + stamp_duty
 
@@ -2668,6 +2688,7 @@ class SingleStockTradingEnv(gym.Env):
             shares_sold = quantity
 
         breakdown = {
+            'Cost_Profile': profile,
             'Brokerage_Fee': brokerage_fee,
             'STT': stt,
             'Transaction_Charge': transaction_charge,
@@ -3150,6 +3171,29 @@ class SingleStockTradingEnv(gym.Env):
         elif action_id == 3:
             action_penalty = action_penalty_weight * reduce_penalty_multiplier
 
+        timed_exit_triggered = False
+        current_position_sign = int(np.sign(self.position))
+        if current_position_sign == 0:
+            self.position_holding_bars = 0
+        elif current_position_sign != self.last_position_sign:
+            self.position_holding_bars = 1
+        else:
+            self.position_holding_bars += 1
+
+        if (
+            self.max_holding_bars is not None
+            and self.position != 0
+            and self.position_holding_bars >= self.max_holding_bars
+        ):
+            timed_exit_triggered = True
+            reduce_position(1.0)
+            if self.position == 0:
+                self.avg_entry_price = 0.0
+                self.position_style = "flat"
+                self.position_holding_bars = 0
+            current_position_sign = int(np.sign(self.position))
+        self.last_position_sign = current_position_sign
+
         if self.position < 0:
             mtm_cover_cost = abs(self.position) * current_price * buy_mult
             if mtm_cover_cost > self.balance:
@@ -3270,6 +3314,8 @@ class SingleStockTradingEnv(gym.Env):
             "stop_exit_side": stop_exit_side,
             "tp_exit_side": tp_exit_side,
             "drawdown_triggered": drawdown_triggered,
+            "timed_exit_triggered": timed_exit_triggered,
+            "position_holding_bars": int(self.position_holding_bars),
             "equity_reference": self.net_worth,
             "invalid_act_penalty": invalid_act_penalty,
             "profit_weight": 1.0,
@@ -5348,9 +5394,12 @@ def run_baseline_backtest(
     initial_balance: float,
     env_kwargs: dict,
     policy_name: str,
-    seed: int = 42
+    seed: int = 42,
+    env_overrides: Optional[dict] = None,
 ) -> Dict[str, object]:
     local_env_kwargs = copy.deepcopy(env_kwargs)
+    if env_overrides:
+        local_env_kwargs.update(copy.deepcopy(env_overrides))
     if policy_name.startswith("SIGNAL_E") or policy_name.startswith("SIGNAL_COMBO_E102_E302"):
         reward_weights = dict(local_env_kwargs.get("reward_weights", {}))
         reward_weights["regime_gate_min_confidence"] = min(float(reward_weights.get("regime_gate_min_confidence", 0.60)), 0.45)
@@ -7467,6 +7516,160 @@ def run_signal_cost_sensitivity_audit(
     return detail_df, summary_df
 
 
+def run_signal_futures_cost_profile_audit(
+    ticker_list: List[str],
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+    interval: str = "60minute",
+    history_days: int = 1095,
+    train_days: int = 730,
+    val_days: int = 90,
+    test_days: int = 30,
+    step_days: int = 30,
+    max_windows_per_ticker: int = 1,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    policies = [
+        "SIGNAL_E211_BANDED_68",
+        "SIGNAL_E801_BANDED_70",
+        "SIGNAL_E1102_BANDED_70",
+        "FLAT",
+    ]
+    cost_profiles = [
+        {"CostProfile": "cash_equity_realistic", "cost_profile": "cash_equity", "slippage_rate": 0.0010, "disable_costs": False},
+        {"CostProfile": "cash_equity_half_slippage", "cost_profile": "cash_equity", "slippage_rate": 0.0005, "disable_costs": False},
+        {"CostProfile": "stock_futures_realistic", "cost_profile": "stock_futures", "slippage_rate": 0.0010, "disable_costs": False},
+        {"CostProfile": "stock_futures_half_slippage", "cost_profile": "stock_futures", "slippage_rate": 0.0005, "disable_costs": False},
+        {"CostProfile": "stock_futures_fees_only", "cost_profile": "stock_futures", "slippage_rate": 0.0, "disable_costs": False},
+        {"CostProfile": "stock_futures_frictionless", "cost_profile": "stock_futures", "slippage_rate": 0.0, "disable_costs": True},
+    ]
+
+    rows = []
+    total_tickers = len(ticker_list)
+
+    base_env_kwargs = {
+        "stop_loss": best_params.get("stop_loss", stop_loss),
+        "take_profit": best_params.get("take_profit", take_profit),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
+        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+        "hold_threshold": best_params.get("hold_threshold", 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+    }
+
+    for ticker_idx, ticker in enumerate(ticker_list, start=1):
+        print(f"[FUTURES COST AUDIT] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            main_logger.warning(f"[FUTURES COST AUDIT:{ticker}] token missing, skipping.")
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=history_days, interval=interval)
+        if df_full.empty:
+            main_logger.warning(f"[FUTURES COST AUDIT:{ticker}] no data, skipping.")
+            continue
+
+        windows = make_walk_forward_slices(
+            df_full,
+            interval=interval,
+            train_days=train_days,
+            val_days=val_days,
+            test_days=test_days,
+            step_days=step_days,
+        )
+        if max_windows_per_ticker > 0:
+            windows = windows[:max_windows_per_ticker]
+        if not windows:
+            main_logger.warning(f"[FUTURES COST AUDIT:{ticker}] no walk-forward windows, skipping.")
+            continue
+
+        for cycle_idx, (s, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if test_df.empty:
+                continue
+            for profile in cost_profiles:
+                env_kwargs = dict(base_env_kwargs)
+                env_kwargs["cost_profile"] = profile["cost_profile"]
+                env_kwargs["slippage_rate"] = profile["slippage_rate"]
+                env_kwargs["disable_costs"] = profile["disable_costs"]
+                for policy_name in policies:
+                    res = run_baseline_backtest(
+                        test_df,
+                        ticker,
+                        initial_balance,
+                        env_kwargs,
+                        policy_name,
+                        seed=RANDOM_SEED + 3000 + cycle_idx,
+                    )
+                    metrics = res["metrics"]
+                    rows.append(
+                        {
+                            "ticker": ticker,
+                            "cycle": cycle_idx,
+                            "policy": policy_name,
+                            "cost_profile_label": profile["CostProfile"],
+                            "cost_profile": profile["cost_profile"],
+                            "slippage_rate": profile["slippage_rate"],
+                            "disable_costs": profile["disable_costs"],
+                            "test_return": metrics["total_return"],
+                            "test_drawdown": metrics["max_drawdown"],
+                            "test_sharpe": metrics["sharpe"],
+                            "test_turnover": metrics["turnover"],
+                            "test_trades": metrics["trade_count"],
+                        }
+                    )
+
+    detail_df = pd.DataFrame(rows)
+    detail_csv = baseline_dir / "futures_cost_profile_detail.csv"
+    detail_df.to_csv(detail_csv, index=False)
+
+    if detail_df.empty:
+        summary_df = pd.DataFrame()
+    else:
+        summary_df = (
+            detail_df.groupby(["cost_profile_label", "policy"])[
+                ["test_return", "test_drawdown", "test_sharpe", "test_turnover", "test_trades"]
+            ]
+            .mean()
+            .reset_index()
+            .sort_values(["cost_profile_label", "test_return"], ascending=[True, False])
+        )
+        benchmark_rows = summary_df.loc[
+            summary_df["policy"] == "SIGNAL_E211_BANDED_68",
+            ["cost_profile_label", "test_return"],
+        ].rename(columns={"test_return": "benchmark_return"})
+        summary_df = summary_df.merge(benchmark_rows, on="cost_profile_label", how="left")
+        summary_df["excess_vs_e211"] = (
+            pd.to_numeric(summary_df["test_return"], errors="coerce")
+            - pd.to_numeric(summary_df["benchmark_return"], errors="coerce")
+        )
+
+    summary_csv = baseline_dir / "futures_cost_profile_summary.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    main_logger.info(f"[FUTURES COST AUDIT] detail saved: {detail_csv}")
+    main_logger.info(f"[FUTURES COST AUDIT] summary saved: {summary_csv}")
+    print(f"[FUTURES COST AUDIT] detail saved: {detail_csv}")
+    print(f"[FUTURES COST AUDIT] summary saved: {summary_csv}")
+    return detail_df, summary_df
+
+
 def run_signal_bucket_quality_diagnostic() -> tuple[pd.DataFrame, pd.DataFrame]:
     signal_research_dir = RESULTS_DIR / "signal_research"
     diagnostic_sources = [
@@ -7579,6 +7782,9 @@ def run_portfolio_rank_baseline(
     promoted_ids: List[str],
     top_k: int = 3,
     benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    portfolio_style: str = "long_short",
+    rebalance_every_sessions: int = 1,
+    output_stem: str = "portfolio_rank_60m_portfolio",
 ) -> pd.DataFrame:
     from signal_targets import estimate_roundtrip_cost
 
@@ -7589,9 +7795,11 @@ def run_portfolio_rank_baseline(
     if not predictions_csv.exists():
         predictions_csv = research_dir / "experiment_predictions_oos.csv"
     dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
-    summary_csv = baseline_dir / "portfolio_rank_60m_portfolio_baseline_summary.csv"
-    history_csv = baseline_dir / "portfolio_rank_60m_portfolio_rebalance_history.csv"
-    contrib_csv = baseline_dir / "portfolio_rank_60m_portfolio_ticker_contributions.csv"
+    summary_csv = baseline_dir / f"{output_stem}_baseline_summary.csv"
+    history_csv = baseline_dir / f"{output_stem}_rebalance_history.csv"
+    contrib_csv = baseline_dir / f"{output_stem}_ticker_contributions.csv"
+    portfolio_style = str(portfolio_style or "long_short").strip().lower()
+    rebalance_every_sessions = max(1, int(rebalance_every_sessions))
 
     if not predictions_csv.exists() or not dataset_csv.exists():
         main_logger.warning("[PORTFOLIO-RANK] missing predictions or dataset; no baseline rows were produced.")
@@ -7648,30 +7856,40 @@ def run_portfolio_rank_baseline(
         event_shorts: List[float] = []
         ticker_contrib: Dict[str, float] = {}
 
+        min_names_required = top_k if portfolio_style == "long_only" else 2 * top_k
         for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
             open_ts = open_times[idx]
-            next_open_ts = open_times[idx + 1]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
             current = exp_df.loc[exp_df["Date"] == open_ts].copy()
             future = exp_df.loc[exp_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
             current = current.merge(future, on="Ticker", how="inner")
             current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
-            if len(current) < 2 * top_k:
+            if len(current) < min_names_required:
                 continue
             current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
             current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
             current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
             current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
-            if len(current) < 2 * top_k:
+            if len(current) < min_names_required:
                 continue
 
             current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
             current["est_cost"] = estimate_roundtrip_cost(current)
             longs = current.head(top_k).copy()
-            shorts = current.tail(top_k).copy()
+            shorts = current.tail(top_k).copy() if portfolio_style == "long_short" else current.iloc[0:0].copy()
 
             weights: Dict[str, float] = {}
-            long_weight = 0.5 / top_k
-            short_weight = -0.5 / top_k
+            if portfolio_style == "long_only":
+                long_weight = 1.0 / top_k
+                short_weight = 0.0
+            else:
+                long_weight = 0.5 / top_k
+                short_weight = -0.5 / top_k
 
             event_return = 0.0
             long_return = 0.0
@@ -7685,14 +7903,15 @@ def run_portfolio_rank_baseline(
                 weights[ticker] = long_weight
                 ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
 
-            for _, row in shorts.iterrows():
-                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
-                contribution = short_weight * raw_ret - abs(short_weight) * float(row["est_cost"])
-                event_return += contribution
-                short_return += contribution
-                ticker = str(row["Ticker"])
-                weights[ticker] = short_weight
-                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+            if portfolio_style == "long_short":
+                for _, row in shorts.iterrows():
+                    raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                    contribution = short_weight * raw_ret - abs(short_weight) * float(row["est_cost"])
+                    event_return += contribution
+                    short_return += contribution
+                    ticker = str(row["Ticker"])
+                    weights[ticker] = short_weight
+                    ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
 
             universe = set(prev_weights) | set(weights)
             turnover = float(sum(abs(weights.get(t, 0.0) - prev_weights.get(t, 0.0)) for t in universe))
@@ -7714,7 +7933,7 @@ def run_portfolio_rank_baseline(
                     "short_contribution": short_return,
                     "turnover": turnover,
                     "long_names": ",".join(longs["Ticker"].astype(str).tolist()),
-                    "short_names": ",".join(shorts["Ticker"].astype(str).tolist()),
+                    "short_names": ",".join(shorts["Ticker"].astype(str).tolist()) if portfolio_style == "long_short" else "",
                 }
             )
 
@@ -7738,8 +7957,8 @@ def run_portfolio_rank_baseline(
         mean_return = float(np.mean(event_returns))
         row = {
             "experiment_id": experiment_id,
-            "portfolio_style": "long_short",
-            "rebalance_rule": "session_open",
+            "portfolio_style": portfolio_style,
+            "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
             "top_k": top_k,
             "rebalance_count": int(len(event_returns)),
             "portfolio_mean_return": mean_return,
@@ -7780,6 +7999,222 @@ def run_portfolio_rank_baseline(
     main_logger.info(f"[PORTFOLIO-RANK] ticker contributions saved: {contrib_csv}")
     print(f"[PORTFOLIO-RANK] summary saved: {summary_csv}")
     return summary_df
+
+
+def run_portfolio_rank_long_only_sweep(
+    promoted_ids: List[str],
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    sweep_rows: List[pd.DataFrame] = []
+
+    for top_k, rebalance_every in [(3, 1), (3, 5), (5, 1), (5, 5)]:
+        output_stem = f"portfolio_rank_60m_long_only_k{top_k}_r{rebalance_every}"
+        summary_df = run_portfolio_rank_baseline(
+            promoted_ids=promoted_ids,
+            top_k=top_k,
+            benchmark_policy=benchmark_policy,
+            portfolio_style="long_only",
+            rebalance_every_sessions=rebalance_every,
+            output_stem=output_stem,
+        ).copy()
+        if summary_df.empty:
+            continue
+        summary_df["sweep_top_k"] = int(top_k)
+        summary_df["sweep_rebalance_every_sessions"] = int(rebalance_every)
+        sweep_rows.append(summary_df)
+
+    combined = pd.concat(sweep_rows, ignore_index=True) if sweep_rows else pd.DataFrame()
+    combined_csv = baseline_dir / "portfolio_rank_60m_long_only_sweep_summary.csv"
+    combined.to_csv(combined_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-RANK] long-only sweep summary saved: {combined_csv}")
+    print(f"[PORTFOLIO-RANK] long-only sweep summary saved: {combined_csv}")
+    return combined
+
+
+def run_native_15m_holding_horizon_execution_sweep(
+    instrument_df: pd.DataFrame,
+    best_params: dict,
+    initial_balance: float,
+    stop_loss: float,
+    take_profit: float,
+    max_position_size: float,
+    max_drawdown: float,
+    annual_trading_days: int,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+
+    ensure_signal_overlay_predictions_available(
+        ["E1903", "E211"],
+        "native-15m holding-horizon execution sweep",
+    )
+
+    sweep_specs = [
+        {"variant_label": "E1903_hold4_band70", "policy": "SIGNAL_E1903_BANDED_70", "entry_threshold": 0.70, "max_holding_bars": 4},
+        {"variant_label": "E1903_hold4_band75", "policy": "SIGNAL_E1903_BANDED_75", "entry_threshold": 0.75, "max_holding_bars": 4},
+        {"variant_label": "E1903_hold4_band80", "policy": "SIGNAL_E1903_BANDED_80", "entry_threshold": 0.80, "max_holding_bars": 4},
+        {"variant_label": "E1903_hold4_band85", "policy": "SIGNAL_E1903_BANDED_85", "entry_threshold": 0.85, "max_holding_bars": 4},
+        {"variant_label": "E1903_hold8_band70", "policy": "SIGNAL_E1903_BANDED_70", "entry_threshold": 0.70, "max_holding_bars": 8},
+        {"variant_label": "E1903_hold8_band75", "policy": "SIGNAL_E1903_BANDED_75", "entry_threshold": 0.75, "max_holding_bars": 8},
+        {"variant_label": "E1903_hold8_band80", "policy": "SIGNAL_E1903_BANDED_80", "entry_threshold": 0.80, "max_holding_bars": 8},
+        {"variant_label": "E1903_hold8_band85", "policy": "SIGNAL_E1903_BANDED_85", "entry_threshold": 0.85, "max_holding_bars": 8},
+        {"variant_label": "E1903_hold16_band70", "policy": "SIGNAL_E1903_BANDED_70", "entry_threshold": 0.70, "max_holding_bars": 16},
+        {"variant_label": "E1903_hold16_band75", "policy": "SIGNAL_E1903_BANDED_75", "entry_threshold": 0.75, "max_holding_bars": 16},
+        {"variant_label": "E1903_hold16_band80", "policy": "SIGNAL_E1903_BANDED_80", "entry_threshold": 0.80, "max_holding_bars": 16},
+        {"variant_label": "E1903_hold16_band85", "policy": "SIGNAL_E1903_BANDED_85", "entry_threshold": 0.85, "max_holding_bars": 16},
+        {"variant_label": "E1903_eod_band70", "policy": "SIGNAL_E1903_BANDED_70", "entry_threshold": 0.70, "max_holding_bars": interval_to_bars_per_day("15minute")},
+        {"variant_label": "E1903_eod_band75", "policy": "SIGNAL_E1903_BANDED_75", "entry_threshold": 0.75, "max_holding_bars": interval_to_bars_per_day("15minute")},
+        {"variant_label": "E1903_eod_band80", "policy": "SIGNAL_E1903_BANDED_80", "entry_threshold": 0.80, "max_holding_bars": interval_to_bars_per_day("15minute")},
+        {"variant_label": "E1903_eod_band85", "policy": "SIGNAL_E1903_BANDED_85", "entry_threshold": 0.85, "max_holding_bars": interval_to_bars_per_day("15minute")},
+        {"variant_label": "FLAT_control", "policy": "FLAT", "entry_threshold": np.nan, "max_holding_bars": np.nan},
+        {"variant_label": "E211_incumbent", "policy": "SIGNAL_E211_BANDED_68", "entry_threshold": 0.68, "max_holding_bars": np.nan},
+    ]
+
+    detail_rows: List[dict] = []
+    baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+    total_tickers = len(baseline_tickers)
+    env_kwargs = {
+        "stop_loss": best_params.get("stop_loss", stop_loss),
+        "take_profit": best_params.get("take_profit", take_profit),
+        "max_position_size": FIXED_OVERLAY_MAX_POSITION_SIZE,
+        "max_drawdown": best_params.get("max_drawdown", max_drawdown),
+        "annual_trading_days": annual_trading_days,
+        "some_factor": best_params.get("drawdown_penalty_factor", 0.01),
+        "hold_threshold": best_params.get("hold_threshold", 0.1),
+        "reward_weights": {
+            "transaction_penalty_weight": best_params.get("transaction_penalty_weight", 1.0),
+            "forced_stop_penalty_weight": best_params.get("forced_stop_penalty_weight", 1.0),
+            "forced_tp_penalty_weight": best_params.get("forced_tp_penalty_weight", 1.0),
+            "volatility_penalty_weight": best_params.get("volatility_penalty_weight", 0.10),
+            "trade_fraction": FIXED_OVERLAY_TRADE_FRACTION,
+            "reduce_fraction": FIXED_OVERLAY_REDUCE_FRACTION,
+        },
+        "inference_buy_threshold": best_params.get("inference_buy_threshold", 0.08),
+        "inference_sell_threshold": best_params.get("inference_sell_threshold", 0.08),
+    }
+
+    for ticker_idx, ticker in enumerate(baseline_tickers, start=1):
+        print(f"[HOLD-SWEEP] ticker {ticker_idx}/{total_tickers}: {ticker} - loading data")
+        token = get_instrument_token(ticker, instrument_df)
+        if token is None:
+            continue
+        df_full = get_data_kite(kite, instrument_token=token, days=540, interval="15minute")
+        if df_full.empty:
+            continue
+
+        windows = make_walk_forward_slices(
+            df_full,
+            interval="15minute",
+            train_days=180,
+            val_days=30,
+            test_days=15,
+            step_days=15,
+        )
+        windows = windows[:3]
+        if not windows:
+            continue
+
+        for cycle_idx, (_, tr_end, va_end, te_end) in enumerate(windows, start=1):
+            val_df = df_full.iloc[tr_end:va_end].reset_index(drop=True)
+            test_df = df_full.iloc[va_end:te_end].reset_index(drop=True)
+            if val_df.empty or test_df.empty:
+                continue
+            for spec in sweep_specs:
+                env_overrides = {}
+                max_holding_bars = spec["max_holding_bars"]
+                if pd.notna(max_holding_bars):
+                    env_overrides["max_holding_bars"] = int(max_holding_bars)
+                val_res = run_baseline_backtest(
+                    val_df,
+                    ticker,
+                    initial_balance,
+                    env_kwargs,
+                    str(spec["policy"]),
+                    seed=RANDOM_SEED + cycle_idx,
+                    env_overrides=env_overrides,
+                )
+                test_res = run_baseline_backtest(
+                    test_df,
+                    ticker,
+                    initial_balance,
+                    env_kwargs,
+                    str(spec["policy"]),
+                    seed=RANDOM_SEED + 1000 + cycle_idx,
+                    env_overrides=env_overrides,
+                )
+                val_metrics = val_res["metrics"]
+                test_metrics = test_res["metrics"]
+                detail_rows.append(
+                    {
+                        "ticker": ticker,
+                        "cycle": cycle_idx,
+                        "variant_label": spec["variant_label"],
+                        "policy": spec["policy"],
+                        "entry_threshold": spec["entry_threshold"],
+                        "max_holding_bars": spec["max_holding_bars"],
+                        "val_return": val_metrics["total_return"],
+                        "val_drawdown": val_metrics["max_drawdown"],
+                        "val_sharpe": val_metrics["sharpe"],
+                        "val_turnover": val_metrics["turnover"],
+                        "val_trades": val_metrics["trade_count"],
+                        "val_avg_holding_bars": val_metrics["avg_holding_bars"],
+                        "test_return": test_metrics["total_return"],
+                        "test_drawdown": test_metrics["max_drawdown"],
+                        "test_sharpe": test_metrics["sharpe"],
+                        "test_turnover": test_metrics["turnover"],
+                        "test_trades": test_metrics["trade_count"],
+                        "test_avg_holding_bars": test_metrics["avg_holding_bars"],
+                    }
+                )
+
+    detail_df = pd.DataFrame(detail_rows)
+    detail_csv = baseline_dir / "native_15m_holding_horizon_execution_sweep_detail.csv"
+    summary_csv = baseline_dir / "native_15m_holding_horizon_execution_sweep_summary.csv"
+    detail_df.to_csv(detail_csv, index=False)
+
+    if detail_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        main_logger.warning("[HOLD-SWEEP] no rows generated for holding-horizon execution sweep.")
+        return pd.DataFrame()
+
+    summary_df = (
+        detail_df.groupby(["variant_label", "policy", "entry_threshold", "max_holding_bars"])[
+            [
+                "test_return",
+                "test_drawdown",
+                "test_sharpe",
+                "test_turnover",
+                "test_trades",
+                "test_avg_holding_bars",
+            ]
+        ]
+        .mean()
+        .reset_index()
+        .sort_values(["test_return", "test_sharpe", "test_turnover"], ascending=[False, False, True])
+        .reset_index(drop=True)
+    )
+
+    incumbent_row = summary_df.loc[summary_df["variant_label"] == "E211_incumbent", ["test_return"]].head(1)
+    incumbent_return = float(incumbent_row.iloc[0]["test_return"]) if not incumbent_row.empty else np.nan
+    summary_df["benchmark_policy"] = "SIGNAL_E211_BANDED_68"
+    summary_df["benchmark_return"] = incumbent_return
+    summary_df["excess_vs_benchmark"] = pd.to_numeric(summary_df["test_return"], errors="coerce") - incumbent_return
+    summary_df["beats_flat"] = pd.to_numeric(summary_df["test_return"], errors="coerce") > 0.0
+    summary_df["beats_benchmark"] = pd.to_numeric(summary_df["test_return"], errors="coerce") > incumbent_return
+    summary_df["promotion_verdict"] = np.where(
+        (summary_df["test_return"] > 0.0) & (summary_df["test_return"] > incumbent_return),
+        "baseline_promoted",
+        "research_only",
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    main_logger.info(f"[HOLD-SWEEP] detail saved: {detail_csv}")
+    main_logger.info(f"[HOLD-SWEEP] summary saved: {summary_csv}")
+    print(f"[HOLD-SWEEP] detail saved: {detail_csv}")
+    print(f"[HOLD-SWEEP] summary saved: {summary_csv}")
+    return summary_df
+
 
 def train_rl_on_window(
     train_df: pd.DataFrame,
@@ -8615,6 +9050,7 @@ if __name__ == "__main__":
             "signal_baseline_opening_auction_gap_liquidity",
             "signal_baseline_native_15m_session_phase",
             "signal_baseline_native_15m_holding_horizon",
+            "signal_baseline_native_15m_holding_horizon_execution_sweep",
             "signal_baseline_native_15m_breadth_event",
             "signal_baseline_native_15m_topk_event_rank",
             "signal_baseline_native_15m_mean_reversion_exhaustion",
@@ -8630,7 +9066,10 @@ if __name__ == "__main__":
             "signal_baseline_e211_intrahour_veto",
             "signal_baseline_e211_entry_audit",
             "signal_baseline_portfolio_rank_60m",
+            "signal_baseline_portfolio_rank_60m_long_only",
+            "signal_baseline_portfolio_rank_60m_long_only_sweep",
             "signal_baseline_cost_sensitivity",
+            "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
             "refresh_branch_registry",
             "refresh_setup_library_scoreboard",
@@ -9061,7 +9500,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -9148,6 +9587,32 @@ if __name__ == "__main__":
             )
             baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
             run_signal_cost_sensitivity_audit(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_futures_cost_profile":
+            main_logger.info(
+                "Starting futures cost-profile audit for the incumbent and strongest challengers. "
+                "Comparing cash-equity and stock-futures cost stacks under matched slippage settings."
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_futures_cost_profile_audit(
                 ticker_list=baseline_tickers,
                 instrument_df=instrument_df,
                 best_params=best_params,
@@ -9974,6 +10439,24 @@ if __name__ == "__main__":
                 main_logger.warning(f"[BASELINE] failed to save native 15m holding-horizon summary: {exc}")
             raise SystemExit(0)
 
+        if run_mode == "signal_baseline_native_15m_holding_horizon_execution_sweep":
+            main_logger.info(
+                "Starting native 15m holding-horizon execution sweep. "
+                "Testing E1903 threshold tightening and execution hold extension variants against FLAT and SIGNAL_E211_BANDED_68 "
+                "on the wider native-15m validation frame."
+            )
+            run_native_15m_holding_horizon_execution_sweep(
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+            )
+            raise SystemExit(0)
+
         if run_mode == "signal_baseline_native_15m_breadth_event":
             promoted_native_15m_breadth_event_ids = load_native_15m_breadth_event_promoted_ids()
             if not promoted_native_15m_breadth_event_ids:
@@ -10612,6 +11095,40 @@ if __name__ == "__main__":
             run_portfolio_rank_baseline(
                 promoted_ids=promoted_portfolio_ids,
                 top_k=3,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_long_only":
+            promoted_portfolio_ids = load_portfolio_rank_promoted_ids()
+            if not promoted_portfolio_ids:
+                promoted_portfolio_ids = ["E1002", "E1003", "E1005", "E1006"]
+            main_logger.info(
+                "Starting portfolio-rank 60m long-only baseline evaluation. "
+                "Testing low-turnover long-only rank wrappers against SIGNAL_E211_BANDED_68 and FLAT only. "
+                f"Evaluating shortlist: {', '.join(promoted_portfolio_ids)}"
+            )
+            run_portfolio_rank_baseline(
+                promoted_ids=promoted_portfolio_ids,
+                top_k=5,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                portfolio_style="long_only",
+                rebalance_every_sessions=5,
+                output_stem="portfolio_rank_60m_long_only",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_long_only_sweep":
+            promoted_portfolio_ids = load_portfolio_rank_promoted_ids()
+            if not promoted_portfolio_ids:
+                promoted_portfolio_ids = ["E1002", "E1003", "E1005", "E1006"]
+            main_logger.info(
+                "Starting portfolio-rank 60m long-only wrapper sweep. "
+                "Testing top-k and rebalance-cadence variants against SIGNAL_E211_BANDED_68 and FLAT only. "
+                f"Evaluating shortlist: {', '.join(promoted_portfolio_ids)}"
+            )
+            run_portfolio_rank_long_only_sweep(
+                promoted_ids=promoted_portfolio_ids,
                 benchmark_policy="SIGNAL_E211_BANDED_68",
             )
             raise SystemExit(0)
