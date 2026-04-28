@@ -1,14 +1,14 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB02_T01_CrossSectionalCommonalityResidual",
+  "thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
   "stage": "research_ready",
-  "started_at": "2026-04-24T14:06:59+05:30",
+  "started_at": "2026-04-25T00:40:00+05:30",
   "expected_outputs": [
-    "results/signal_research/outputs_event_conditioned_sizing_veto/latest/event_conditioned_sizing_veto_shortlist_summary.csv",
-    "results/signal_research/outputs_event_conditioned_sizing_veto/latest/event_conditioned_sizing_veto_promoted_ids.txt",
-    "results/signal_baseline/event_conditioned_sizing_veto_policy_summary.csv"
+    "results/signal_baseline/e211_entry_audit_detail.csv",
+    "results/signal_baseline/e211_entry_audit_summary.csv",
+    "results/signal_baseline/e211_entry_feature_separation.csv"
   ],
-  "log_path": "results/log_runs/signal_baseline_event_conditioned_sizing_veto_20260424_142959.log",
-  "notes": "Batch 01 is closed through T09, and T10 was not opened because no concrete new local data axis was found. TB02_T01 research and baseline wiring is implemented; lock remains released until the research run starts."
+  "log_path": "results/log_runs/",
+  "notes": "TB02_T03 is closed research_only after broad and refined event-outcome accounting failed promotion. Next step is incumbent-only E211 failure-mode audit before any new standalone thesis."
 }

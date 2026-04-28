@@ -4,6 +4,21 @@ import numpy as np
 import pandas as pd
 
 
+def infer_event_direction_proxy(df: pd.DataFrame) -> pd.Series:
+    score = (
+        1.5 * pd.to_numeric(df.get("Trend_30"), errors="coerce").fillna(0.0)
+        + 1.0 * pd.to_numeric(df.get("Trend_2h"), errors="coerce").fillna(0.0)
+        + 2.0 * pd.to_numeric(df.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
+        + 1.0 * pd.to_numeric(df.get("StockMinusMkt_1"), errors="coerce").fillna(0.0)
+        + 0.75 * pd.to_numeric(df.get("Breakout_3bar"), errors="coerce").fillna(0.0)
+        + 0.50 * pd.to_numeric(df.get("SignPersistence_5"), errors="coerce").fillna(0.0)
+    )
+    direction = pd.Series(0, index=df.index, dtype=float)
+    direction.loc[score > 0.001] = 1.0
+    direction.loc[score < -0.001] = -1.0
+    return direction
+
+
 def estimate_roundtrip_cost(
     df: pd.DataFrame,
     base_cost_bps: float = 8.0,
@@ -140,6 +155,123 @@ def make_target_t6_cross_sectional_relative_return(
     return out
 
 
+def make_target_t7_event_outcome_accounting(
+    df: pd.DataFrame,
+    horizon: int,
+    target_mult: float = 1.0,
+    stop_mult: float = 1.0,
+) -> pd.DataFrame:
+    out = generate_forward_returns(df, horizon)
+    out[f"est_cost_{horizon}"] = estimate_roundtrip_cost(out)
+
+    atr_frac = np.exp(pd.to_numeric(out["ATR20_log"], errors="coerce").clip(-20, 5)).fillna(0.0)
+    direction = infer_event_direction_proxy(out)
+
+    labels = np.full(len(out), np.nan)
+    clean_labels = np.full(len(out), np.nan)
+    payoff = np.full(len(out), np.nan)
+    barrier_outcome = np.full(len(out), np.nan)
+    time_to_target = np.full(len(out), np.nan)
+    time_to_stop = np.full(len(out), np.nan)
+    mae_before_resolution = np.full(len(out), np.nan)
+    mfe_before_resolution = np.full(len(out), np.nan)
+
+    highs = pd.to_numeric(out["High"], errors="coerce").to_numpy()
+    lows = pd.to_numeric(out["Low"], errors="coerce").to_numpy()
+    closes = pd.to_numeric(out["Close"], errors="coerce").to_numpy()
+    costs = pd.to_numeric(out[f"est_cost_{horizon}"], errors="coerce").fillna(0.0).to_numpy()
+    atr_vals = atr_frac.to_numpy()
+    dir_vals = direction.to_numpy()
+
+    for i in range(len(out) - horizon):
+        entry = closes[i]
+        dir_i = dir_vals[i]
+        atr_i = atr_vals[i]
+        if not np.isfinite(entry) or entry <= 0 or not np.isfinite(dir_i) or dir_i == 0 or not np.isfinite(atr_i):
+            continue
+
+        success_ret = target_mult * atr_i
+        stop_ret = stop_mult * atr_i
+        resolved = 0
+        max_adverse = 0.0
+        max_favorable = 0.0
+        resolution_step = horizon
+
+        for step, j in enumerate(range(i + 1, min(i + horizon + 1, len(out))), start=1):
+            high_ret = highs[j] / entry - 1.0 if np.isfinite(highs[j]) else np.nan
+            low_ret = lows[j] / entry - 1.0 if np.isfinite(lows[j]) else np.nan
+
+            if dir_i > 0:
+                favorable = high_ret
+                adverse = low_ret
+                hit_target = np.isfinite(high_ret) and high_ret >= success_ret
+                hit_stop = np.isfinite(low_ret) and low_ret <= -stop_ret
+            else:
+                favorable = -low_ret if np.isfinite(low_ret) else np.nan
+                adverse = -high_ret if np.isfinite(high_ret) else np.nan
+                hit_target = np.isfinite(low_ret) and low_ret <= -success_ret
+                hit_stop = np.isfinite(high_ret) and high_ret >= stop_ret
+
+            if np.isfinite(adverse):
+                max_adverse = min(max_adverse, adverse)
+            if np.isfinite(favorable):
+                max_favorable = max(max_favorable, favorable)
+
+            if hit_target and hit_stop:
+                resolved = -1
+                time_to_target[i] = float(step)
+                time_to_stop[i] = float(step)
+                resolution_step = step
+                break
+            if hit_target:
+                resolved = 1
+                time_to_target[i] = float(step)
+                resolution_step = step
+                break
+            if hit_stop:
+                resolved = -1
+                time_to_stop[i] = float(step)
+                resolution_step = step
+                break
+
+        if resolved == 0:
+            expiry_idx = min(i + horizon, len(out) - 1)
+            timeout_ret = dir_i * (closes[expiry_idx] / entry - 1.0) if np.isfinite(closes[expiry_idx]) else np.nan
+            gross_payoff = timeout_ret
+        elif resolved > 0:
+            gross_payoff = success_ret
+        else:
+            gross_payoff = -stop_ret
+
+        labels[i] = 1.0 if resolved > 0 else 0.0
+        barrier_outcome[i] = float(resolved)
+        payoff[i] = gross_payoff - costs[i] if np.isfinite(gross_payoff) else np.nan
+        mae_before_resolution[i] = max_adverse
+        mfe_before_resolution[i] = max_favorable
+
+        clean_success = (
+            resolved > 0
+            and np.isfinite(max_adverse)
+            and max_adverse >= -(0.50 * stop_ret)
+            and resolution_step <= max(1, int(np.ceil(horizon / 2)))
+        )
+        clean_labels[i] = 1.0 if clean_success else 0.0
+
+    out[f"event_direction_{horizon}"] = direction
+    out[f"y_t7_target_before_stop_{horizon}"] = labels
+    out[f"y_t8_clean_target_before_stop_{horizon}"] = clean_labels
+    out[f"event_path_payoff_{horizon}"] = payoff
+    out[f"event_barrier_outcome_{horizon}"] = barrier_outcome
+    out[f"time_to_target_{horizon}"] = time_to_target
+    out[f"time_to_stop_{horizon}"] = time_to_stop
+    out[f"mae_before_resolution_{horizon}"] = mae_before_resolution
+    out[f"mfe_before_resolution_{horizon}"] = mfe_before_resolution
+    out[f"clean_event_path_payoff_{horizon}"] = (
+        pd.Series(payoff, index=out.index) - 0.25 * pd.Series(np.abs(mae_before_resolution), index=out.index)
+    )
+    return out
+
+
 def build_targets(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     out = df.copy()
     out = make_target_t1_cost_aware_return(out, horizon=horizon)
@@ -147,4 +279,5 @@ def build_targets(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     out = make_target_t3_opportunity(out, horizon=horizon)
     out = make_target_t4_triple_barrier(out, horizon=horizon)
     out = make_target_t6_cross_sectional_relative_return(out, horizon=horizon)
+    out = make_target_t7_event_outcome_accounting(out, horizon=horizon)
     return out

@@ -23,6 +23,7 @@ from signal_config import (
     GENERALIZATION_WAVE2_EXPERIMENTS,
     E302_SWEEP_EXPERIMENTS,
     E102_REGIME_EXPERIMENTS,
+    EVENT_OUTCOME_ACCOUNTING_EXPERIMENTS,
     FOCUSED_EXECUTION_EXPERIMENTS,
     GENERALIZATION_EXPERIMENTS,
     MARKET_STATE_60M_EXPERIMENTS,
@@ -33,8 +34,10 @@ from signal_config import (
     NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS,
     NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS,
     NATIVE_15M_OPEN_DRIVE_EXPERIMENTS,
+    OPENING_AUCTION_GAP_LIQUIDITY_EXPERIMENTS,
     NATIVE_15M_SESSION_PHASE_EXPERIMENTS,
     NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS,
+    INTRADAY_VOLUME_LIQUIDITY_FORECAST_EXPERIMENTS,
     SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS,
     BREADTH_CONTEXT_60M_EXPERIMENTS,
     TIME_DISTRIBUTION_V2_EXPERIMENTS,
@@ -82,6 +85,8 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(MARKET_STATE_60M_EXPERIMENTS)
         + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
         + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
+        + list(INTRADAY_VOLUME_LIQUIDITY_FORECAST_EXPERIMENTS)
+        + list(EVENT_OUTCOME_ACCOUNTING_EXPERIMENTS)
         + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
         + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
         + list(NATIVE_15M_BREADTH_EVENT_EXPERIMENTS)
@@ -90,6 +95,7 @@ def all_known_experiments() -> list[ExperimentDef]:
         + list(NATIVE_15M_HOLDING_HORIZON_EXPERIMENTS)
         + list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
         + list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+        + list(OPENING_AUCTION_GAP_LIQUIDITY_EXPERIMENTS)
         + list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
         + list(NATIVE_15M_TOPK_EVENT_RANK_EXPERIMENTS)
         + list(SIXTY_MINUTE_DAILY_CONTEXT_EXPERIMENTS)
@@ -122,6 +128,10 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(CROSS_SECTIONAL_60M_EXPERIMENTS)
     if experiment_set == "cross_sectional_commonality_residual":
         return list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
+    if experiment_set == "intraday_volume_liquidity_forecast":
+        return list(INTRADAY_VOLUME_LIQUIDITY_FORECAST_EXPERIMENTS)
+    if experiment_set == "event_outcome_accounting":
+        return list(EVENT_OUTCOME_ACCOUNTING_EXPERIMENTS)
     if experiment_set == "ablation_grid":
         return list(ABLATION_GRID_EXPERIMENTS)
     if experiment_set == "setup_regimes":
@@ -142,6 +152,8 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
         return list(NATIVE_15M_MEAN_REVERSION_EXHAUSTION_EXPERIMENTS)
     if experiment_set == "native_15m_open_drive":
         return list(NATIVE_15M_OPEN_DRIVE_EXPERIMENTS)
+    if experiment_set == "opening_auction_gap_liquidity":
+        return list(OPENING_AUCTION_GAP_LIQUIDITY_EXPERIMENTS)
     if experiment_set == "native_15m_session_phase":
         return list(NATIVE_15M_SESSION_PHASE_EXPERIMENTS)
     if experiment_set == "native_15m_topk_event_rank":
@@ -168,6 +180,7 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(MARKET_STATE_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
+            + list(EVENT_OUTCOME_ACCOUNTING_EXPERIMENTS)
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(MULTISCALE_60M_EXPERIMENTS)
             + list(PORTFOLIO_RANK_60M_EXPERIMENTS)
@@ -208,6 +221,7 @@ def resolve_experiment_pool(experiment_set: str) -> list[ExperimentDef]:
             + list(MARKET_STATE_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_60M_EXPERIMENTS)
             + list(CROSS_SECTIONAL_COMMONALITY_RESIDUAL_EXPERIMENTS)
+            + list(EVENT_OUTCOME_ACCOUNTING_EXPERIMENTS)
             + list(BREADTH_CONTEXT_60M_EXPERIMENTS)
             + list(TIME_DISTRIBUTION_V2_EXPERIMENTS)
             + list(SECOND_TIMEFRAME_60M_EXPERIMENTS)
@@ -254,11 +268,23 @@ def build_target_sanity(df: pd.DataFrame, horizons: Sequence[int]) -> pd.DataFra
             f"net_alpha_fwd_{horizon}",
             f"opp_score_{horizon}",
             f"est_cost_{horizon}",
+            f"event_path_payoff_{horizon}",
+            f"clean_event_path_payoff_{horizon}",
         ]:
             if col in df.columns:
                 series = pd.to_numeric(df[col], errors="coerce")
                 row[f"{col}_mean"] = float(series.mean())
                 row[f"{col}_median"] = float(series.median())
+        for col in [
+            f"y_t7_target_before_stop_{horizon}",
+            f"y_t8_clean_target_before_stop_{horizon}",
+            f"time_to_target_{horizon}",
+            f"time_to_stop_{horizon}",
+            f"mae_before_resolution_{horizon}",
+        ]:
+            if col in df.columns:
+                series = pd.to_numeric(df[col], errors="coerce")
+                row[f"{col}_mean"] = float(series.mean())
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -1079,6 +1105,51 @@ def build_native_15m_open_drive_shortlist(compare: pd.DataFrame) -> pd.DataFrame
     return out
 
 
+def build_opening_auction_gap_liquidity_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2701": "GapLiquidityCore",
+        "E2702": "GapFollowThroughLiquidity",
+        "E2703": "RelativeGapParticipation",
+        "E2704": "StateAwareGapLiquidity",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= -0.00025)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 500)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(2, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
 def build_native_15m_session_phase_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
     if compare.empty or "ExperimentID" not in compare.columns:
         return pd.DataFrame()
@@ -1385,6 +1456,103 @@ def build_cross_sectional_commonality_residual_shortlist(compare: pd.DataFrame) 
     ).reset_index(drop=True)
     ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
     ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(3, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_intraday_volume_liquidity_forecast_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2601": "LiquidParticipationCarry",
+        "E2602": "ParticipationBurstContinuation",
+        "E2603": "BreadthConfirmedLiquidityFollowThrough",
+        "E2604": "StableLiquidityCarry",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Gap_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 300)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_Spread_TopBottom"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_Spread_TopBottom", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(2, len(ranked))
+    out = branch_df.merge(
+        ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
+        on="ExperimentID",
+        how="left",
+    )
+    out["StandalonePromoted"] = out["StandalonePromoted"].fillna(False)
+    return out
+
+
+def build_event_outcome_accounting_shortlist(compare: pd.DataFrame) -> pd.DataFrame:
+    if compare.empty or "ExperimentID" not in compare.columns:
+        return pd.DataFrame()
+    family_by_experiment = {
+        "E2801": "BreakoutPullbackReattempt",
+        "E2802": "VWAPStretchFailedContinuation",
+        "E2803": "CompressionExpansion",
+        "E2804": "LiquidityConfirmedContinuation",
+        "E2805": "E211EventOutcomeControl",
+        "E2806": "RefinedBreakoutPullbackReattempt",
+    }
+    branch_ids = set(family_by_experiment)
+    branch_df = compare.loc[compare["ExperimentID"].isin(branch_ids)].copy()
+    if branch_df.empty:
+        return pd.DataFrame()
+    branch_df["Family"] = branch_df["ExperimentID"].map(family_by_experiment)
+    branch_df["Eligible"] = (
+        (pd.to_numeric(branch_df.get("Gap_AUC"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_BalancedAccuracy"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TopDecile_NetRet"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Gap_TopDecile_NetRet"), errors="coerce") > 0)
+        & (pd.to_numeric(branch_df.get("Real_Spread_TopBottom"), errors="coerce") >= 0)
+        & (pd.to_numeric(branch_df.get("Real_TradeCount"), errors="coerce") >= 250)
+    )
+    ranked = branch_df.loc[branch_df["Eligible"]].copy()
+    if ranked.empty:
+        branch_df["ShortlistRank"] = np.nan
+        branch_df["StandalonePromoted"] = False
+        return branch_df
+    ranked["SelectionScore"] = (
+        pd.to_numeric(ranked.get("Gap_AUC"), errors="coerce").fillna(0.0)
+        + pd.to_numeric(ranked.get("Gap_BalancedAccuracy"), errors="coerce").fillna(0.0)
+        + 100.0 * pd.to_numeric(ranked.get("Real_TopDecile_NetRet"), errors="coerce").fillna(0.0)
+        + 100.0 * pd.to_numeric(ranked.get("Gap_TopDecile_NetRet"), errors="coerce").fillna(0.0)
+        + 50.0 * pd.to_numeric(ranked.get("Real_Spread_TopBottom"), errors="coerce").fillna(0.0)
+    )
+    ranked = ranked.sort_values(
+        ["SelectionScore", "Real_TopDecile_NetRet", "Real_TradeCount"],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    ranked["ShortlistRank"] = np.arange(1, len(ranked) + 1)
+    ranked["StandalonePromoted"] = ranked["ShortlistRank"] <= min(2, len(ranked))
     out = branch_df.merge(
         ranked[["ExperimentID", "ShortlistRank", "StandalonePromoted", "SelectionScore"]],
         on="ExperimentID",
@@ -1911,6 +2079,19 @@ def run_signal_pipeline(
             "\n".join(promoted_native_15m_open_drive),
             encoding="utf-8",
         )
+    opening_auction_gap_liquidity_shortlist = build_opening_auction_gap_liquidity_shortlist(compare)
+    if not opening_auction_gap_liquidity_shortlist.empty:
+        opening_auction_gap_liquidity_shortlist.to_csv(
+            run_out_dir / "opening_auction_gap_liquidity_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_opening_auction_gap_liquidity = opening_auction_gap_liquidity_shortlist.loc[
+            opening_auction_gap_liquidity_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "opening_auction_gap_liquidity_promoted_ids.txt").write_text(
+            "\n".join(promoted_opening_auction_gap_liquidity),
+            encoding="utf-8",
+        )
     native_15m_session_phase_shortlist = build_native_15m_session_phase_shortlist(compare)
     if not native_15m_session_phase_shortlist.empty:
         native_15m_session_phase_shortlist.to_csv(
@@ -2002,6 +2183,32 @@ def run_signal_pipeline(
             "\n".join(promoted_cross_sectional_commonality_residual),
             encoding="utf-8",
         )
+    intraday_volume_liquidity_forecast_shortlist = build_intraday_volume_liquidity_forecast_shortlist(compare)
+    if not intraday_volume_liquidity_forecast_shortlist.empty:
+        intraday_volume_liquidity_forecast_shortlist.to_csv(
+            run_out_dir / "intraday_volume_liquidity_forecast_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_intraday_volume_liquidity_forecast = intraday_volume_liquidity_forecast_shortlist.loc[
+            intraday_volume_liquidity_forecast_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "intraday_volume_liquidity_forecast_promoted_ids.txt").write_text(
+            "\n".join(promoted_intraday_volume_liquidity_forecast),
+            encoding="utf-8",
+        )
+    event_outcome_accounting_shortlist = build_event_outcome_accounting_shortlist(compare)
+    if not event_outcome_accounting_shortlist.empty:
+        event_outcome_accounting_shortlist.to_csv(
+            run_out_dir / "event_outcome_accounting_shortlist_summary.csv",
+            index=False,
+        )
+        promoted_event_outcome_accounting = event_outcome_accounting_shortlist.loc[
+            event_outcome_accounting_shortlist["StandalonePromoted"] == True, "ExperimentID"
+        ].tolist()
+        (run_out_dir / "event_outcome_accounting_promoted_ids.txt").write_text(
+            "\n".join(promoted_event_outcome_accounting),
+            encoding="utf-8",
+        )
     portfolio_rank_shortlist = build_portfolio_rank_60m_shortlist(compare)
     if not portfolio_rank_shortlist.empty:
         portfolio_rank_shortlist.to_csv(run_out_dir / "portfolio_rank_60m_shortlist.csv", index=False)
@@ -2060,7 +2267,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--experiment-set",
-        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "cross_sectional_commonality_residual", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "native_15m_execution", "native_15m_failed_breakout", "native_15m_open_drive", "native_15m_session_phase", "native_15m_holding_horizon", "native_15m_topk_event_rank", "native_15m_mean_reversion_exhaustion", "sixty_minute_daily_context", "all_15m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
+        choices=["default", "focused", "generalization", "generalization_next", "generalization_wave2", "e102_deepdive", "cross_sectional_60m", "cross_sectional_commonality_residual", "intraday_volume_liquidity_forecast", "event_outcome_accounting", "ablation_grid", "setup_regimes", "market_state_60m", "multiscale_60m", "second_timeframe_60m", "intrahour_path_v1", "breadth_context_60m", "time_distribution_v2", "native_15m_execution", "native_15m_failed_breakout", "native_15m_open_drive", "opening_auction_gap_liquidity", "native_15m_session_phase", "native_15m_holding_horizon", "native_15m_topk_event_rank", "native_15m_mean_reversion_exhaustion", "sixty_minute_daily_context", "all_15m", "portfolio_rank_60m", "e302_sweep", "two_track", "e004_sweep", "e102_regime", "all"],
         default="default",
         help="Named experiment bundle to use before optional --experiments filtering.",
     )

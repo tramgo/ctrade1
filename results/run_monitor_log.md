@@ -57,6 +57,24 @@
 - `2026-04-24 afternoon` Batch 01 reconciliation completed; `T07-T09` tracker state corrected and `T10` held because no concrete new local data axis was found
 - `2026-04-24 afternoon` Batch 02 planning opened; next design candidate set to `TB02_T01 CrossSectionalCommonalityResidual`
 - `2026-04-24 afternoon` `TB02_T01 CrossSectionalCommonalityResidual` implementation completed; next action is research mode `signal_research_cross_sectional_commonality_residual`
+- `2026-04-24 23:08` `TB02_T01 CrossSectionalCommonalityResidual` research rerun completed; only `E2501` earned promotion
+- `2026-04-24 23:24` `TB02_T01 CrossSectionalCommonalityResidual` baseline rerun completed after policy-universe fix; best executable policy was `SIGNAL_E2501_BANDED_66` at `1.0075225258618678e-05`
+- `2026-04-24 late night` Decision recorded: `TB02_T01 CrossSectionalCommonalityResidual -> research_only`
+- `2026-04-24 late night` Next thesis set to `TB02_T02 IntradayVolumeLiquidityForecast`
+- `2026-04-25 00:02` `TB02_T02 IntradayVolumeLiquidityForecast` research completed; only `E2601` earned promotion with strong real-vs-shuffled separation
+- `2026-04-25 00:18` `TB02_T02 IntradayVolumeLiquidityForecast` baseline completed cleanly; best executable policy was `SIGNAL_E2601_BANDED_70` at `-0.0007258334009476`
+- `2026-04-25 shortly after midnight` Decision recorded: `TB02_T02 IntradayVolumeLiquidityForecast -> research_only`
+- `2026-04-25 shortly after midnight` Next thesis set to the pre-run `TB02_T03 OpeningAuctionGapLiquidity` design
+- `2026-04-25 morning` `TB02_T03` was redesigned before run as `EventOutcomeAccounting` after reviewing the failed fixed-horizon framing
+- `2026-04-25 morning` Implemented path-aware targets `T7/T8` plus `E2801-E2804` and wired `signal_research_event_outcome_accounting`
+- `2026-04-25 morning` Wired `signal_baseline_event_outcome_accounting` against `FLAT` and `SIGNAL_E211_BANDED_68`
+- `2026-04-25 morning` Added `E2805` as an incumbent-style `E211` event-outcome control so the same run tests whether label reformulation alone helps the current benchmark logic
+- `2026-04-25 morning` Broad `E2801-E2804` event-outcome research completed with no promotions; `E2801` and `E2804` showed only weak structure and all top-decile economics stayed negative
+- `2026-04-25 morning` Added `E2806` as a quality-filtered refinement of `E2801` and wired `signal_research_event_outcome_accounting_refined` to run only `E2806` plus `E2805`
+- `2026-04-25 11:08` Refined `EventOutcomeAccounting` research completed with no promoted IDs; `E2806` was too sparse to produce valid rows
+- `2026-04-25 11:08` `E2805` control showed predictive separation but negative economics: AUC `0.5585800644447346`, top-decile net return `-0.001912395609680604`, spread `-0.00015781370424895353`
+- `2026-04-25 11:20` Decision recorded: `TB02_T03 EventOutcomeAccounting -> research_only`
+- `2026-04-25 11:20` Next thesis set to `TB02_T04 RegimeSpecificIncumbentVeto`; next action is `signal_baseline_e211_entry_audit`
 
 Notes:
 - Monitoring followed the runtime/integrity-only early-stop rule.

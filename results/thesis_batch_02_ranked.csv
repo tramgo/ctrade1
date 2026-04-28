@@ -1,8 +1,8 @@
 Rank,ThesisID,ThesisName,Interval,Status,ResearchOwner,BaselineEligible,Notes
-1,TB02_T01,CrossSectionalCommonalityResidual,60m,pending,codex,False,Use market/sector/commonality residual slices first; selector only ranks names with favorable residual pressure
-2,TB02_T02,IntradayVolumeLiquidityForecast,15m+60m,pending,codex,False,Forecast relative intraday volume/liquidity state and trade only when payoff can plausibly survive costs
-3,TB02_T03,OpeningAuctionGapLiquidity,15m,pending,codex,False,Test open gap only when opening participation and spread/volatility proxies imply tradable follow-through
-4,TB02_T04,RegimeSpecificIncumbentVeto,60m+15m,pending,codex,False,Improve E211 only inside clearly defined adverse regimes rather than replacing it
+1,TB02_T01,CrossSectionalCommonalityResidual,60m,completed_research_only,codex,True,Research promoted only E2501; best executable policy E2501_BANDED_66 stayed far below E211 so branch closed research_only
+2,TB02_T02,IntradayVolumeLiquidityForecast,15m+60m,completed_research_only,codex,True,Research promoted only E2601 but all executable variants stayed negative after costs and below E211 so branch closed research_only
+3,TB02_T03,EventOutcomeAccounting,15m,completed_research_only,codex,False,Broad E2801-E2804 failed research promotion; refined E2806 was too sparse and E2805 E211-control had strong AUC but negative economic spread
+4,TB02_T04,RegimeSpecificIncumbentVeto,60m+15m,research_ready,codex,False,Next thesis should be incumbent-only failure-mode audit and veto/entry timing, not another standalone OHLCV predictor
 5,TB02_T05,PortfolioConstructionOverlay,60m,pending,codex,False,Convert weak single-name edges into constrained portfolio decisions with turnover and concentration gates
 6,TB02_T06,RelativeVolumeLeaderLag,15m,pending,codex,False,Trade only top relative-volume leaders or laggards after cross-sectional participation confirms a favorable slice
 7,TB02_T07,VolatilityCompressionExpansion,15m+60m,pending,codex,False,Separate compression-to-expansion events from noisy continuation and require favorable liquidity state

@@ -29,6 +29,7 @@ RL stays frozen unless a branch first proves itself with:
 - cost modeling is not the main bottleneck
 - many branches improve research metrics without improving monetization
 - `E211` remains the strongest durable executable benchmark
+- Batch 01 and early Batch 02 now show that standalone OHLCV-derived short-horizon classifiers, event classifiers, and path-aware event-outcome labels are not the current highest-value alpha path
 
 ### Sharpened design rule
 
@@ -65,6 +66,18 @@ In short:
 
 > design theses around favorable economic slices first, and only then use classification or ranking as a selector inside those slices.
 
+### Batch 01 and Batch 02 update
+
+The slice-first rule remains correct, but the evidence is now sharper:
+
+- a better classifier is not enough
+- a better event label is not enough
+- target-before-stop labels are not enough if the event slice has negative path payoff
+- quality filters that become too sparse are not tradable evidence
+- the next useful role for prediction is audit, veto, sizing, timing, and portfolio construction around the incumbent
+
+So the research program should not keep widening standalone OHLCV predictor families until a materially new information axis is available.
+
 ## Strategic Direction
 
 ### Deprioritized
@@ -80,13 +93,11 @@ These are not the best next moves now:
 
 These are the better directions now:
 
-- native `15m` event systems
-- session-aware event systems
-- regime-aware event systems
-- holding-horizon-specific `15m` designs
-- top-k event selection
-- materially new context layers such as `60m + daily`
-- slice-first designs that begin from favorable liquidity, participation, cross-sectional leadership, or volatility states
+- incumbent-specific failure-mode audit
+- execution timing, veto, and sizing overlays on `SIGNAL_E211_BANDED_68`
+- portfolio construction overlays that control concentration and turnover
+- materially new external or microstructure information if a real feed exists
+- only after those, a small number of event/state theses whose favorable slice has positive absolute economics before classification begins
 
 ## Program Structure
 
@@ -162,32 +173,33 @@ Each thesis ends as one of:
 
 ### Current next thesis
 
-- `SixtyMinuteDailyContext`
-  - materially new context layer beyond the current `60m` families
-  - next thesis to implement after `Native15mMeanReversionExhaustion` failed broader validation
+- `TB02_T04 RegimeSpecificIncumbentVeto`
+  - incumbent-only failure-mode audit before any new standalone alpha family
+  - next command: `run_mode.bat signal_baseline_e211_entry_audit`
 
 ## Immediate Plan
 
 Implement next:
 
-- wire `SixtyMinuteDailyContext`
-- then run its research mode once implementation is complete
+- run the existing `E211` entry audit
+- inspect loser regimes, entry timing, and adverse path behavior
+- only then decide whether a veto, delay, or sizing overlay is justified
 
 Decision rule:
 
-- if research is alive:
-  - baseline only the strongest survivor or two
-- if research is weak:
-  - close quickly and move to the next ranked thesis
+- if losing regimes are clearly separable:
+  - build the smallest incumbent overlay that avoids or resizes those entries
+- if losing regimes are not separable:
+  - do not rescue with another classifier; move toward portfolio construction or a real new data axis
 
 ## Short-Term Queue
 
 Continue in this order:
 
-1. `SixtyMinuteDailyContext`
-2. `Native15mBreadthEvent`
-3. `EventConditionedSizingVeto`
-4. `NewDataAxisIfAvailable`
+1. `TB02_T04 RegimeSpecificIncumbentVeto`
+2. `TB02_T05 PortfolioConstructionOverlay`
+3. `TB02_T08 ExecutionCostAwareEntryDelay`
+4. `TB02_T10 NewExternalDataAxis`, only when a real local feed exists
 
 ## Source Of Truth
 
@@ -233,17 +245,23 @@ Batch 01 is closed / held:
 
 Batch 02 is now the active planning batch.
 
-### Next branch
+### Current branch
 
-Start with:
+Batch 02 has completed:
 
-- `TB02_T01 CrossSectionalCommonalityResidual`
+- `TB02_T01 CrossSectionalCommonalityResidual`: closed `research_only`
+- `TB02_T02 IntradayVolumeLiquidityForecast`: closed `research_only`
+- `TB02_T03 EventOutcomeAccounting`: closed `research_only`
+
+The active branch is now:
+
+- `TB02_T04 RegimeSpecificIncumbentVeto`
 
 Rationale:
 
-- Batch 01 showed that single-name prediction quality is not enough
-- recent intraday evidence favors cross-sectional/commonality and liquidity-aware structure
-- the current repo already has market and sector context, so this is feasible without inventing a vague new data feed
+- Batch 02 confirmed that better OHLCV-derived prediction and better event labels still do not guarantee positive executable economics
+- `E211` remains the only durable executable benchmark
+- improving or auditing the incumbent is now higher value than launching another standalone classifier family
 
 ### Batch 02 artifact set
 

@@ -562,6 +562,34 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
         ],
         "Signal_E1704",
     ),
+    "E2701": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2701",
+    ),
+    "E2702": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2702",
+    ),
+    "E2703": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2703",
+    ),
+    "E2704": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2704",
+    ),
     "E1801": (
         [
             BASE_DIR / "results" / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "promoted_predictions_oos.csv",
@@ -757,6 +785,76 @@ SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
             BASE_DIR / "results" / "signal_research" / "outputs_cross_sectional_commonality_residual" / "latest" / "experiment_predictions_oos.csv",
         ],
         "Signal_E2504",
+    ),
+    "E2601": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2601",
+    ),
+    "E2602": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2602",
+    ),
+    "E2603": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2603",
+    ),
+    "E2604": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2604",
+    ),
+    "E2801": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2801",
+    ),
+    "E2802": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2802",
+    ),
+    "E2803": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2803",
+    ),
+    "E2804": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2804",
+    ),
+    "E2805": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2805",
+    ),
+    "E2806": (
+        [
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "promoted_predictions_oos.csv",
+            BASE_DIR / "results" / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "experiment_predictions_oos.csv",
+        ],
+        "Signal_E2806",
     ),
 }
 SIGNAL_OVERLAY_EXPERIMENT_ID = "E102"
@@ -1072,6 +1170,18 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E1704_Pred", 0.5),
         ("Signal_E1704_Edge", 0.0),
         ("Signal_E1704_HighConf", 0.0),
+        ("Signal_E2701_Pred", 0.5),
+        ("Signal_E2701_Edge", 0.0),
+        ("Signal_E2701_HighConf", 0.0),
+        ("Signal_E2702_Pred", 0.5),
+        ("Signal_E2702_Edge", 0.0),
+        ("Signal_E2702_HighConf", 0.0),
+        ("Signal_E2703_Pred", 0.5),
+        ("Signal_E2703_Edge", 0.0),
+        ("Signal_E2703_HighConf", 0.0),
+        ("Signal_E2704_Pred", 0.5),
+        ("Signal_E2704_Edge", 0.0),
+        ("Signal_E2704_HighConf", 0.0),
         ("Signal_E1801_Pred", 0.5),
         ("Signal_E1801_Edge", 0.0),
         ("Signal_E1801_HighConf", 0.0),
@@ -1156,6 +1266,36 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
         ("Signal_E2504_Pred", 0.5),
         ("Signal_E2504_Edge", 0.0),
         ("Signal_E2504_HighConf", 0.0),
+        ("Signal_E2601_Pred", 0.5),
+        ("Signal_E2601_Edge", 0.0),
+        ("Signal_E2601_HighConf", 0.0),
+        ("Signal_E2602_Pred", 0.5),
+        ("Signal_E2602_Edge", 0.0),
+        ("Signal_E2602_HighConf", 0.0),
+        ("Signal_E2603_Pred", 0.5),
+        ("Signal_E2603_Edge", 0.0),
+        ("Signal_E2603_HighConf", 0.0),
+        ("Signal_E2604_Pred", 0.5),
+        ("Signal_E2604_Edge", 0.0),
+        ("Signal_E2604_HighConf", 0.0),
+        ("Signal_E2801_Pred", 0.5),
+        ("Signal_E2801_Edge", 0.0),
+        ("Signal_E2801_HighConf", 0.0),
+        ("Signal_E2802_Pred", 0.5),
+        ("Signal_E2802_Edge", 0.0),
+        ("Signal_E2802_HighConf", 0.0),
+        ("Signal_E2803_Pred", 0.5),
+        ("Signal_E2803_Edge", 0.0),
+        ("Signal_E2803_HighConf", 0.0),
+        ("Signal_E2804_Pred", 0.5),
+        ("Signal_E2804_Edge", 0.0),
+        ("Signal_E2804_HighConf", 0.0),
+        ("Signal_E2805_Pred", 0.5),
+        ("Signal_E2805_Edge", 0.0),
+        ("Signal_E2805_HighConf", 0.0),
+        ("Signal_E2806_Pred", 0.5),
+        ("Signal_E2806_Edge", 0.0),
+        ("Signal_E2806_HighConf", 0.0),
     ]
     default_map = dict(overlay_defaults)
     if not ticker or "Date" not in out.columns:
@@ -3978,6 +4118,12 @@ def run_signal_research_workflow(
             "[SIGNAL RESEARCH] Native 15m open-drive events enabled. "
             "Testing opening-range and open-drive event structures directly on 15m bars instead of another ported ranking family."
         )
+    elif experiment_set == "opening_auction_gap_liquidity":
+        output_dir_name = "outputs_opening_auction_gap_liquidity"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Opening auction gap-liquidity thesis enabled. "
+            "Testing only gap events where early participation and opening liquidity imply that follow-through can plausibly survive intraday costs."
+        )
     elif experiment_set == "native_15m_session_phase":
         output_dir_name = "outputs_native_15m_session_phase"
         main_logger.info(
@@ -4019,6 +4165,19 @@ def run_signal_research_workflow(
         main_logger.info(
             "[SIGNAL RESEARCH] Cross-sectional commonality-residual thesis enabled. "
             "Testing whether stock-specific residual leadership after market and sector context defines a tradable 60m slice."
+        )
+    elif experiment_set == "intraday_volume_liquidity_forecast":
+        output_dir_name = "outputs_intraday_volume_liquidity_forecast"
+        include_second_timeframe_context = True
+        main_logger.info(
+            "[SIGNAL RESEARCH] Intraday volume-liquidity forecast thesis enabled. "
+            "Testing whether 15m participation and liquidity state can isolate 60m slices that survive costs against the E211 benchmark."
+        )
+    elif experiment_set == "event_outcome_accounting":
+        output_dir_name = "outputs_event_outcome_accounting"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Event-outcome accounting thesis enabled. "
+            "Testing event slices on whether target is reached before stop in the live trade direction, not on generic fixed-horizon return."
         )
     elif experiment_set == "all_15m":
         output_dir_name = "outputs_all_15m"
@@ -5879,6 +6038,20 @@ def load_native_15m_open_drive_promoted_ids() -> List[str]:
     return ids
 
 
+def load_opening_auction_gap_liquidity_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_opening_auction_gap_liquidity" / "latest" / "opening_auction_gap_liquidity_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read opening auction gap-liquidity promoted IDs: {exc}")
+        return []
+    return ids[:2]
+
+
 def load_native_15m_session_phase_promoted_ids() -> List[str]:
     promoted_path = (
         RESULTS_DIR / "signal_research" / "outputs_native_15m_session_phase" / "latest" / "native_15m_session_phase_promoted_ids.txt"
@@ -5988,6 +6161,34 @@ def load_cross_sectional_commonality_residual_promoted_ids() -> List[str]:
         ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     except Exception as exc:
         main_logger.warning(f"[BASELINE] failed to read cross-sectional commonality-residual promoted IDs: {exc}")
+        return []
+    return ids[:2]
+
+
+def load_intraday_volume_liquidity_forecast_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_intraday_volume_liquidity_forecast" / "latest" / "intraday_volume_liquidity_forecast_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read intraday volume-liquidity promoted IDs: {exc}")
+        return []
+    return ids[:2]
+
+
+def load_event_outcome_accounting_promoted_ids() -> List[str]:
+    promoted_path = (
+        RESULTS_DIR / "signal_research" / "outputs_event_outcome_accounting" / "latest" / "event_outcome_accounting_promoted_ids.txt"
+    )
+    if not promoted_path.exists():
+        return []
+    try:
+        ids = [line.strip() for line in promoted_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except Exception as exc:
+        main_logger.warning(f"[BASELINE] failed to read event-outcome accounting promoted IDs: {exc}")
         return []
     return ids[:2]
 
@@ -6316,6 +6517,15 @@ def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
             "candidate_ids": ["E1701", "E1702", "E1703", "E1704"],
         },
         {
+            "branch": "OpeningAuctionGapLiquidity",
+            "research_summary": signal_research_dir / "outputs_opening_auction_gap_liquidity" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_opening_auction_gap_liquidity" / "latest" / "opening_auction_gap_liquidity_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "opening_auction_gap_liquidity_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E270"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E2701", "E2702", "E2703", "E2704"],
+        },
+        {
             "branch": "Native15mSessionPhase",
             "research_summary": signal_research_dir / "outputs_native_15m_session_phase" / "latest" / "experiment_summary_real_vs_shuffled.csv",
             "shortlist": signal_research_dir / "outputs_native_15m_session_phase" / "latest" / "native_15m_session_phase_shortlist_summary.csv",
@@ -6368,6 +6578,24 @@ def build_experiment_branch_registry() -> tuple[pd.DataFrame, pd.DataFrame]:
             "policy_prefixes": ["SIGNAL_E250"],
             "benchmark_policy": "SIGNAL_E211_BANDED_68",
             "candidate_ids": ["E2501", "E2502", "E2503", "E2504"],
+        },
+        {
+            "branch": "IntradayVolumeLiquidityForecast",
+            "research_summary": signal_research_dir / "outputs_intraday_volume_liquidity_forecast" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_intraday_volume_liquidity_forecast" / "latest" / "intraday_volume_liquidity_forecast_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "intraday_volume_liquidity_forecast_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E260"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E2601", "E2602", "E2603", "E2604"],
+        },
+        {
+            "branch": "EventOutcomeAccounting",
+            "research_summary": signal_research_dir / "outputs_event_outcome_accounting" / "latest" / "experiment_summary_real_vs_shuffled.csv",
+            "shortlist": signal_research_dir / "outputs_event_outcome_accounting" / "latest" / "event_outcome_accounting_shortlist_summary.csv",
+            "baseline_summary": signal_baseline_dir / "event_outcome_accounting_policy_summary.csv",
+            "policy_prefixes": ["SIGNAL_E280"],
+            "benchmark_policy": "SIGNAL_E211_BANDED_68",
+            "candidate_ids": ["E2801", "E2802", "E2803", "E2804", "E2805", "E2806"],
         },
     ]
 
@@ -6730,6 +6958,8 @@ def run_signal_baseline_suite(
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E1701", "E1702", "E1703", "E1704"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E2701", "E2702", "E2703", "E2704"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E1801", "E1802", "E1803", "E1804"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E1901", "E1902", "E1903", "E1904"]:
@@ -6742,10 +6972,20 @@ def run_signal_baseline_suite(
         policy_names.extend(build_signal_policy_family(experiment_id))
     for experiment_id in ["E2301", "E2302", "E2303", "E2304"]:
         policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E2501", "E2502", "E2503", "E2504"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E2601", "E2602", "E2603", "E2604"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
+    for experiment_id in ["E2801", "E2802", "E2803", "E2804", "E2805", "E2806"]:
+        policy_names.extend(build_signal_policy_family(experiment_id))
     policy_names.extend(EVENT_CONDITIONED_SIZING_VETO_POLICY_NAMES)
     if policy_filter:
         wanted = {policy.strip() for policy in policy_filter if policy and policy.strip()}
         policy_names = [policy for policy in policy_names if policy in wanted]
+        print(
+            "[BASELINE] evaluating policies: "
+            + (", ".join(policy_names) if policy_names else "<none>")
+        )
     rows = []
     coverage_rows = []
     total_tickers = len(ticker_list)
@@ -8337,6 +8577,7 @@ if __name__ == "__main__":
             "signal_research_native_15m_execution",
             "signal_research_native_15m_failed_breakout",
             "signal_research_native_15m_open_drive",
+            "signal_research_opening_auction_gap_liquidity",
             "signal_research_native_15m_session_phase",
             "signal_research_native_15m_holding_horizon",
             "signal_research_native_15m_topk_event_rank",
@@ -8344,6 +8585,9 @@ if __name__ == "__main__":
             "signal_research_native_15m_mean_reversion_exhaustion",
             "signal_research_sixty_minute_daily_context",
             "signal_research_cross_sectional_commonality_residual",
+            "signal_research_intraday_volume_liquidity_forecast",
+            "signal_research_event_outcome_accounting",
+            "signal_research_event_outcome_accounting_refined",
             "signal_research_event_conditioned_sizing_veto",
             "signal_research_all_15m",
             "signal_research_portfolio_rank_60m",
@@ -8368,6 +8612,7 @@ if __name__ == "__main__":
             "signal_baseline_native_15m_execution_top_compare",
             "signal_baseline_native_15m_failed_breakout",
             "signal_baseline_native_15m_open_drive",
+            "signal_baseline_opening_auction_gap_liquidity",
             "signal_baseline_native_15m_session_phase",
             "signal_baseline_native_15m_holding_horizon",
             "signal_baseline_native_15m_breadth_event",
@@ -8377,6 +8622,9 @@ if __name__ == "__main__":
             "signal_baseline_native_15m_mean_reversion_exhaustion_validate",
             "signal_baseline_sixty_minute_daily_context",
             "signal_baseline_cross_sectional_commonality_residual",
+            "signal_baseline_intraday_volume_liquidity_forecast",
+            "signal_baseline_event_outcome_accounting",
+            "signal_baseline_event_outcome_accounting_refined",
             "signal_baseline_event_conditioned_sizing_veto",
             "signal_baseline_all_15m_top2",
             "signal_baseline_e211_intrahour_veto",
@@ -8682,6 +8930,8 @@ if __name__ == "__main__":
             experiment_set = "native_15m_failed_breakout"
         elif run_mode == "signal_research_native_15m_open_drive":
             experiment_set = "native_15m_open_drive"
+        elif run_mode == "signal_research_opening_auction_gap_liquidity":
+            experiment_set = "opening_auction_gap_liquidity"
         elif run_mode == "signal_research_native_15m_session_phase":
             experiment_set = "native_15m_session_phase"
         elif run_mode == "signal_research_native_15m_holding_horizon":
@@ -8696,6 +8946,13 @@ if __name__ == "__main__":
             experiment_set = "sixty_minute_daily_context"
         elif run_mode == "signal_research_cross_sectional_commonality_residual":
             experiment_set = "cross_sectional_commonality_residual"
+        elif run_mode == "signal_research_intraday_volume_liquidity_forecast":
+            experiment_set = "intraday_volume_liquidity_forecast"
+        elif run_mode == "signal_research_event_outcome_accounting":
+            experiment_set = "event_outcome_accounting"
+        elif run_mode == "signal_research_event_outcome_accounting_refined":
+            experiment_set = "event_outcome_accounting"
+            experiment_ids = ["E2806", "E2805"]
         elif run_mode == "signal_research_all_15m":
             experiment_set = "all_15m"
         elif run_mode == "signal_research_portfolio_rank_60m":
@@ -8707,9 +8964,9 @@ if __name__ == "__main__":
         run_signal_research_workflow(
             ticker_list=ticker_list,
             instrument_df=instrument_df,
-            interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_all_15m"} else TICKINT,
-            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
-            window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_all_15m"} else 20,
+            interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else TICKINT,
+            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
+            window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else 20,
             experiment_ids=experiment_ids,
             experiment_set=experiment_set,
             max_window_pairs=(
@@ -8804,7 +9061,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_cost_sensitivity", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -9564,6 +9821,57 @@ if __name__ == "__main__":
                 main_logger.warning(f"[BASELINE] failed to save native 15m open-drive summary: {exc}")
             raise SystemExit(0)
 
+        if run_mode == "signal_baseline_opening_auction_gap_liquidity":
+            promoted_opening_gap_ids = load_opening_auction_gap_liquidity_promoted_ids()
+            if not promoted_opening_gap_ids:
+                promoted_opening_gap_ids = ["E2701", "E2702", "E2703", "E2704"]
+            ensure_signal_overlay_predictions_available(
+                promoted_opening_gap_ids,
+                "opening auction gap-liquidity baseline",
+            )
+            opening_gap_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_opening_gap_ids:
+                opening_gap_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting opening auction gap-liquidity baseline evaluation. "
+                "Testing promoted early-gap event survivors against FLAT and SIGNAL_E211_BANDED_68 on the wider native-15m validation frame. "
+                f"Evaluating shortlist: {', '.join(promoted_opening_gap_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=opening_gap_filter,
+            )
+            opening_gap_policy_csv = RESULTS_DIR / "signal_baseline" / "opening_auction_gap_liquidity_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    opening_gap_df = pd.read_csv(policy_csv)
+                    opening_gap_df = opening_gap_df.loc[
+                        opening_gap_df["policy"].isin(opening_gap_filter)
+                    ].copy()
+                    opening_gap_df.to_csv(opening_gap_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] opening auction gap-liquidity summary saved: {opening_gap_policy_csv}")
+                    print(f"[BASELINE] opening auction gap-liquidity summary saved: {opening_gap_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save opening auction gap-liquidity summary: {exc}")
+            raise SystemExit(0)
+
         if run_mode == "signal_baseline_native_15m_session_phase":
             promoted_native_15m_session_phase_ids = load_native_15m_session_phase_promoted_ids()
             if not promoted_native_15m_session_phase_ids:
@@ -10017,6 +10325,112 @@ if __name__ == "__main__":
                     print(f"[BASELINE] cross-sectional commonality-residual summary saved: {residual_policy_csv}")
             except Exception as exc:
                 main_logger.warning(f"[BASELINE] failed to save cross-sectional commonality-residual summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_intraday_volume_liquidity_forecast":
+            promoted_volume_liquidity_ids = load_intraday_volume_liquidity_forecast_promoted_ids()
+            if not promoted_volume_liquidity_ids:
+                promoted_volume_liquidity_ids = ["E2601", "E2602", "E2603", "E2604"]
+            ensure_signal_overlay_predictions_available(
+                promoted_volume_liquidity_ids,
+                "intraday volume-liquidity forecast baseline",
+            )
+            volume_liquidity_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_volume_liquidity_ids:
+                volume_liquidity_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting IntradayVolumeLiquidityForecast baseline evaluation. "
+                "Testing 60m survivors conditioned on 15m participation and liquidity state against SIGNAL_E211_BANDED_68. "
+                f"Evaluating shortlist: {', '.join(promoted_volume_liquidity_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval=TICKINT,
+                history_days=max(TRAIN_HISTORY_DAYS, 1095),
+                train_days=730,
+                val_days=90,
+                test_days=30,
+                step_days=30,
+                max_windows_per_ticker=1,
+                policy_filter=volume_liquidity_filter,
+            )
+            volume_liquidity_policy_csv = RESULTS_DIR / "signal_baseline" / "intraday_volume_liquidity_forecast_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    volume_liquidity_df = pd.read_csv(policy_csv)
+                    volume_liquidity_df = volume_liquidity_df.loc[
+                        volume_liquidity_df["policy"].isin(volume_liquidity_filter)
+                    ].copy()
+                    volume_liquidity_df.to_csv(volume_liquidity_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] intraday volume-liquidity summary saved: {volume_liquidity_policy_csv}")
+                    print(f"[BASELINE] intraday volume-liquidity summary saved: {volume_liquidity_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save intraday volume-liquidity summary: {exc}")
+            raise SystemExit(0)
+
+        if run_mode in {"signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined"}:
+            promoted_event_outcome_ids = load_event_outcome_accounting_promoted_ids()
+            if not promoted_event_outcome_ids:
+                promoted_event_outcome_ids = (
+                    ["E2806", "E2805"]
+                    if run_mode == "signal_baseline_event_outcome_accounting_refined"
+                    else ["E2801", "E2802", "E2803", "E2804", "E2805", "E2806"]
+                )
+            ensure_signal_overlay_predictions_available(
+                promoted_event_outcome_ids,
+                "event-outcome accounting baseline",
+            )
+            event_outcome_filter = ["FLAT", "SIGNAL_E211_BANDED_68"]
+            for experiment_id in promoted_event_outcome_ids:
+                event_outcome_filter.extend(build_signal_policy_family(experiment_id))
+            main_logger.info(
+                "Starting EventOutcomeAccounting baseline evaluation. "
+                "Testing path-aware 15m event survivors on target-before-stop economics against SIGNAL_E211_BANDED_68. "
+                f"Evaluating shortlist: {', '.join(promoted_event_outcome_ids)}"
+            )
+            baseline_tickers = NSE_LIQUID_UNIVERSE.copy()
+            run_signal_baseline_suite(
+                ticker_list=baseline_tickers,
+                instrument_df=instrument_df,
+                best_params=best_params,
+                initial_balance=INITIAL_BALANCE,
+                stop_loss=STOP_LOSS,
+                take_profit=TAKE_PROFIT,
+                max_position_size=MAX_POSITION_SIZE,
+                max_drawdown=MAX_DRAWDOWN,
+                annual_trading_days=ANNUAL_TRADING_DAYS,
+                interval="15minute",
+                history_days=540,
+                train_days=180,
+                val_days=30,
+                test_days=15,
+                step_days=15,
+                max_windows_per_ticker=3,
+                policy_filter=event_outcome_filter,
+            )
+            event_outcome_policy_csv = RESULTS_DIR / "signal_baseline" / "event_outcome_accounting_policy_summary.csv"
+            try:
+                policy_csv = RESULTS_DIR / "signal_baseline" / "baseline_policy_summary.csv"
+                if policy_csv.exists():
+                    event_outcome_df = pd.read_csv(policy_csv)
+                    event_outcome_df = event_outcome_df.loc[
+                        event_outcome_df["policy"].isin(event_outcome_filter)
+                    ].copy()
+                    event_outcome_df.to_csv(event_outcome_policy_csv, index=False)
+                    main_logger.info(f"[BASELINE] event-outcome accounting summary saved: {event_outcome_policy_csv}")
+                    print(f"[BASELINE] event-outcome accounting summary saved: {event_outcome_policy_csv}")
+            except Exception as exc:
+                main_logger.warning(f"[BASELINE] failed to save event-outcome accounting summary: {exc}")
             raise SystemExit(0)
 
         if run_mode == "signal_baseline_all_15m_top2":

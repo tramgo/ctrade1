@@ -91,6 +91,14 @@ def trim_experiment_frame(df: pd.DataFrame, experiment: ExperimentDef) -> pd.Dat
         "Close",
         "ATR20_log",
         "MktRet_1",
+        "Trend_30",
+        "Trend_2h",
+        "StockMinusMkt_1",
+        "StockMinusMkt_3",
+        "Breakout_3bar",
+        "SignPersistence_5",
+        "XS_Rank_StockMinusMkt_3",
+        "BreadthTrendPressure",
     }
     keep_cols = [col for col in sorted(required_cols.union(feature_cols)) if col in df.columns]
     return df[keep_cols].copy()
@@ -119,6 +127,12 @@ def get_target_column(experiment: ExperimentDef) -> Tuple[str, str]:
 
     if experiment.target_id == "T6":
         return f"xs_rel_fwd_ret_{horizon}", f"xs_rel_fwd_ret_{horizon}"
+
+    if experiment.target_id == "T7":
+        return f"y_t7_target_before_stop_{horizon}", f"event_path_payoff_{horizon}"
+
+    if experiment.target_id == "T8":
+        return f"y_t8_clean_target_before_stop_{horizon}", f"clean_event_path_payoff_{horizon}"
 
     raise ValueError(f"Unknown target_id: {experiment.target_id}")
 

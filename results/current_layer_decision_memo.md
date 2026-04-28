@@ -447,4 +447,72 @@ Batch 02 should move away from nearby native-`15m` classifier variants and towar
 - incumbent-aware veto or entry timing overlays
 - portfolio construction constraints that explicitly control turnover and concentration
 
-The first planned branch is `TB02_T01 CrossSectionalCommonalityResidual`, because it is both literature-aligned and feasible with the current price/market/sector feature stack.
+`TB02_T01 CrossSectionalCommonalityResidual` is now closed `research_only`.
+
+- research:
+  - only `E2501` survived promotion
+  - research separation was real but weak
+- executable:
+  - best policy `SIGNAL_E2501_BANDED_66 = 1.0075225258618678e-05`
+  - incumbent `SIGNAL_E211_BANDED_68 = 0.0001012555869542`
+  - executable breadth was sparse at `1` positive, `25` zero, `1` negative
+- interpretation:
+  - residual/commonality slicing can produce a cleaner research candidate
+  - but this first formulation did not isolate a strong enough economic slice to survive the executable gate
+
+`TB02_T02 IntradayVolumeLiquidityForecast` is now closed `research_only`.
+
+- research:
+  - only `E2601` survived promotion
+  - research separation was materially stronger than `TB02_T01`
+- executable:
+  - best policy `SIGNAL_E2601_BANDED_70 = -0.0007258334009476`
+  - incumbent `SIGNAL_E211_BANDED_68 = 0.0001012555869542`
+  - breadth was mixed at `5` positive, `12` zero, `10` negative
+- interpretation:
+  - adding participation and liquidity state improves research discrimination
+  - but the branch still does not create a post-cost tradable edge, so "more liquidity filters" by themselves are not enough
+
+The pre-run `TB02_T03 OpeningAuctionGapLiquidity` design has now been superseded.
+
+The active `TB02_T03` branch is `EventOutcomeAccounting`.
+
+Why this pivot:
+
+- event/state ideas were already present in the repo
+- the narrower remaining gap is that we still kept scoring them mostly as fixed-horizon return labels
+- the next useful test is whether an event actually resolves in a tradable way, not whether it predicts a generic return statistic
+
+So the next branch now asks:
+
+- did the event hit target before stop in the live trade direction
+- did it do so with a clean enough path to be executable
+- and do the resulting simple baseline policies beat `SIGNAL_E211_BANDED_68`
+
+`TB02_T03 EventOutcomeAccounting` is now closed `research_only`.
+
+- broad research:
+  - `E2801-E2804` produced no promoted IDs
+  - the broad event definitions were too noisy
+  - `E2801` and `E2804` showed only weak structure, not executable economics
+- refined research:
+  - `E2806` attempted to tighten `E2801` into a high-quality breakout, pullback, and reattempt pattern
+  - the filter became too sparse and produced no valid experiment rows
+  - `E2805`, the `E211`-style event-outcome control, was the only valid refined-run group
+- `E2805` read:
+  - AUC: `0.5585800644447346`
+  - balanced accuracy: `0.5438344743187962`
+  - top-decile net return: `-0.001912395609680604`
+  - top-minus-bottom spread: `-0.00015781370424895353`
+  - real-vs-shuffled spread gap: `-0.00015285913114700461`
+
+This is a useful negative result.
+
+It shows that the current stack can still classify path-aware outcomes, but the selected trades do not have positive expected payoff. So the next useful question is not another standalone OHLCV predictor. The next useful question is whether the incumbent's realized losers can be audited and avoided.
+
+Next active thesis:
+
+- `TB02_T04 RegimeSpecificIncumbentVeto`
+  - run `signal_baseline_e211_entry_audit`
+  - inspect where `SIGNAL_E211_BANDED_68` loses money
+  - only build a veto, delay, or sizing rule if the losing regimes are clearly separable

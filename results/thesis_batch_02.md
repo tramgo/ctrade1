@@ -41,10 +41,10 @@ Hypothesis: many signals fail because they trigger during poor liquidity or exha
 
 Success gate: lower turnover-adjusted loss than prior event systems in research, and positive executable return in baseline.
 
-### 3. `TB02_T03` OpeningAuctionGapLiquidity
+### 3. `TB02_T03` EventOutcomeAccounting
 Interval: `15m`
 
-Hypothesis: open gaps are only tradable when participation confirms the move. This tests gap direction only after opening liquidity and relative volume create a favorable slice.
+Hypothesis: event/state ideas were not the real gap; event outcome accounting was. This branch keeps the slice-first event framing, but changes the label to whether the move actually reaches target before stop in the live trade direction and with a clean enough path.
 
 Success gate: positive post-cost baseline over multiple names, not just a few opening-window outliers.
 
@@ -99,16 +99,29 @@ Success gate: do not open until a concrete local feed exists, such as options op
 
 ## Immediate Batch 02 Plan
 
-Start with `TB02_T01 CrossSectionalCommonalityResidual`.
+`TB02_T01 CrossSectionalCommonalityResidual`, `TB02_T02 IntradayVolumeLiquidityForecast`, and `TB02_T03 EventOutcomeAccounting` are now closed `research_only`.
+
+Next active branch: `TB02_T04 RegimeSpecificIncumbentVeto`.
 
 Reason:
 
-- it is closest to the strongest paper-backed direction
-- it uses data we likely already have enough structure to derive
-- it is materially different from the failed native `15m` standalone classifier families
-- it keeps `E211` as the executable benchmark
+- `TB02_T03` showed that path-aware event labels can still classify while failing economically
+- the refined `E2806` quality filter became too sparse to test, which means the current event definition has no useful middle ground between noisy and absent
+- `E2805` proved the key lesson: an `E211`-style model can separate target-before-stop outcomes while its selected top bucket still loses money after costs
+- the next highest-value question is therefore not "can we find another standalone predictor", but "can we isolate and avoid the incumbent's specific losing regimes"
+- this keeps the research close to the only durable executable benchmark instead of widening back into generic OHLCV classifier discovery
 
 Do not start `TB02_T10` until a real new data source exists locally.
+
+## Batch 02 Lesson So Far
+
+The first three Batch 02 theses reinforce the Batch 01 conclusion:
+
+- OHLCV-derived research structure exists
+- better labels and cleaner slices improve diagnosis
+- none of the standalone branches have produced robust positive executable economics
+- prediction remains useful as an audit, veto, sizing, or execution-control tool
+- prediction should not be treated as the primary alpha generator unless a thesis first defines a slice with positive absolute economics
 
 ## Batch Rules
 

@@ -38,3 +38,10 @@
 - Reconciled Batch 01 tracker CSVs after `T07-T09` completion and marked `TB01_T10` as not opened because no concrete new local data axis was found
 - Opened Batch 02 planning artifacts with `TB02_T01 CrossSectionalCommonalityResidual` as the next design candidate
 - Implemented `TB02_T01 CrossSectionalCommonalityResidual` research and baseline wiring with `E2501-E2504`
+- Recorded `TB02_T01 CrossSectionalCommonalityResidual` executable verdict: branch closed as `research_only`
+- Implemented `TB02_T02 IntradayVolumeLiquidityForecast` research and baseline wiring with `E2601-E2604`
+- Recorded `TB02_T02 IntradayVolumeLiquidityForecast` executable verdict: branch closed as `research_only`
+- Redesigned `TB02_T03` before run as `EventOutcomeAccounting` and implemented path-aware target wiring with `E2801-E2805`, including an `E211`-logic control
+- Recorded first `EventOutcomeAccounting` research read: `E2801-E2804` did not promote, so the next pass narrows to quality-filtered `E2806` plus `E2805`
+- Recorded final `TB02_T03 EventOutcomeAccounting` verdict: branch closed `research_only` after `E2806` was too sparse and `E2805` showed predictive separation with negative economic spread
+- Updated Batch 02 and grand plan documents so `TB02_T04 RegimeSpecificIncumbentVeto` is now the next action, focused on auditing incumbent `E211` failure modes rather than launching another standalone OHLCV predictor

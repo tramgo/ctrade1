@@ -4,11 +4,11 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB02",
-  "active_thesis": "TB02_T01_CrossSectionalCommonalityResidual",
+  "active_thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
   "active_stage": "research_ready",
-  "last_completed_thesis": "TB01_T10_NewDataAxisIfAvailable",
-  "last_completed_verdict": "not_opened_no_new_data",
-  "next_thesis": "TB02_T01_CrossSectionalCommonalityResidual",
+  "last_completed_thesis": "TB02_T03_EventOutcomeAccounting",
+  "last_completed_verdict": "research_only",
+  "next_thesis": "TB02_T04_RegimeSpecificIncumbentVeto",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -38,5 +38,5 @@
     "Do not start a new thesis while run_lock.json is locked.",
     "Use E211 as incumbent benchmark until displaced by executable validation."
   ],
-  "last_updated_by": "codex_tb02_t01_wiring_2026-04-24"
+  "last_updated_by": "codex_tb02_t03_closeout_2026-04-25"
 }
