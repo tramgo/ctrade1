@@ -2,12 +2,12 @@
 
 Date: 2026-04-25
 
-Status: `TB02_T01`, `TB02_T02`, and `TB02_T03` completed and closed `research_only`; `TB02_T04` is next.
+Status: `TB02_T01-TB02_T04` completed as diagnostic work; no branch promoted.
 
 ## Open Items
 
-- `TB02_T04 RegimeSpecificIncumbentVeto`: next action is incumbent-only entry audit via `signal_baseline_e211_entry_audit`
 - `TB02_T10 NewExternalDataAxis`: blocked until a real new local data source exists
+- portfolio and execution-timing ideas remain live, but the active queue has moved to Batch 03 cost-and-wrapper calibration
 
 ## `TB02_T03` EventOutcomeAccounting
 
@@ -45,16 +45,19 @@ Reason: event-outcome accounting improved the realism of the label, but the cand
 ## `TB02_T04` RegimeSpecificIncumbentVeto
 
 - status:
-  - next active thesis
-- immediate action:
-  - run `signal_baseline_e211_entry_audit`
+  - diagnostic complete
 - thesis logic:
   - start from actual `SIGNAL_E211_BANDED_68` entries
   - audit losing regimes and path risk
   - build a veto, delay, or sizing overlay only if the failure modes are clearly separable
+- artifact read:
+  - entry-audit summaries now exist under `results/signal_baseline`
+  - incumbent trade count remains very small
+  - the available separation output did not yet justify forcing an immediate overlay promotion
 - reason:
   - `E211` remains the only durable executable benchmark
   - Batch 01 and early Batch 02 suggest improving the incumbent may be higher value than replacing it with another standalone classifier
+  - the next highest-value checkpoint is broader cost-and-wrapper calibration before any new overlay family is expanded
 
 ## `TB02_T01` CrossSectionalCommonalityResidual
 
@@ -98,3 +101,12 @@ Reason: liquidity-conditioned research separation was real, but once traded the 
 
 - incumbent: `SIGNAL_E211_BANDED_68`
 - RL status: frozen
+
+## Batch 02 Final Read
+
+Batch 02 was useful and honest.
+
+- it confirmed that the current stack can still find real predictive structure
+- it also confirmed that changing labels alone does not repair the executable economics
+- the correct next move is not another broad predictor family
+- the correct next move is a calibration batch focused on slippage, instrument cost, holding horizon, and portfolio wrapper design

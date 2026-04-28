@@ -54,6 +54,20 @@ Purpose:
 run_mode.bat signal_baseline_native_15m_holding_horizon_execution_sweep
 ```
 
+## Already Wired Next
+
+After `TB03_T05` finishes, the next queued mode is:
+
+```powershell
+run_mode.bat signal_baseline_portfolio_rank_60m_long_only_cadence_sweep
+```
+
+Purpose:
+
+- walk the winning weekly wrapper down through rebalance cadence `5 -> 4 -> 3 -> 2 -> 1`
+- test both `top_k = 3` and `top_k = 5`
+- identify the shortest surviving multi-day cadence before the economics break
+
 ## Do Not Do
 
 - Do not reopen broad new signal research yet.

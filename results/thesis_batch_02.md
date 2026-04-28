@@ -123,6 +123,21 @@ The first three Batch 02 theses reinforce the Batch 01 conclusion:
 - prediction remains useful as an audit, veto, sizing, or execution-control tool
 - prediction should not be treated as the primary alpha generator unless a thesis first defines a slice with positive absolute economics
 
+## Batch 02 Close-State
+
+As of `2026-04-28`, Batch 02 is treated as the completed diagnostic batch.
+
+Why:
+
+- the first four theses answered the key strategic question already
+- better standalone prediction and better event labels did not produce a new executable winner
+- the remaining highest-value work is now cost calibration, wrapper redesign, and cheaper-instrument testing rather than another standalone predictor family
+
+Forward linkage:
+
+- `TB02_T05 PortfolioConstructionOverlay` and `TB02_T08 ExecutionCostAwareEntryDelay` remain valid ideas
+- they now continue as supporting inputs to the new Batch 03 execution-and-cost calibration program instead of remaining the primary active queue here
+
 ## Batch Rules
 
 - No RL.

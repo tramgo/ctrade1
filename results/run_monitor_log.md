@@ -75,6 +75,11 @@
 - `2026-04-25 11:08` `E2805` control showed predictive separation but negative economics: AUC `0.5585800644447346`, top-decile net return `-0.001912395609680604`, spread `-0.00015781370424895353`
 - `2026-04-25 11:20` Decision recorded: `TB02_T03 EventOutcomeAccounting -> research_only`
 - `2026-04-25 11:20` Next thesis set to `TB02_T04 RegimeSpecificIncumbentVeto`; next action is `signal_baseline_e211_entry_audit`
+- `2026-04-28` Planning checkpoint completed after reviewing cost-stack and wrapper evidence; active queue pivoted to Batch 03 execution-cost calibration
+- `2026-04-28` Next thesis set to `TB03_T01 SlippageSensitivityCalibration`; next action is `signal_baseline_cost_sensitivity`
+- `2026-04-28 15:32` `TB03_T01 SlippageSensitivityCalibration` completed cleanly; lower friction improved `E211` and `E801`, but plausible cash-equity friction relief did not overturn the incumbent
+- `2026-04-28 15:32` Decision recorded: defer `TB03_T02 LiquidityTieredSlippageMap` as a lower-value immediate follow-up
+- `2026-04-28 15:32` Next thesis set to `TB03_T03 FuturesCostProfilePort`; next action is wiring a futures cost-profile baseline mode
 
 Notes:
 - Monitoring followed the runtime/integrity-only early-stop rule.

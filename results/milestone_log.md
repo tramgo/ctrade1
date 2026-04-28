@@ -45,3 +45,15 @@
 - Recorded first `EventOutcomeAccounting` research read: `E2801-E2804` did not promote, so the next pass narrows to quality-filtered `E2806` plus `E2805`
 - Recorded final `TB02_T03 EventOutcomeAccounting` verdict: branch closed `research_only` after `E2806` was too sparse and `E2805` showed predictive separation with negative economic spread
 - Updated Batch 02 and grand plan documents so `TB02_T04 RegimeSpecificIncumbentVeto` is now the next action, focused on auditing incumbent `E211` failure modes rather than launching another standalone OHLCV predictor
+
+## 2026-04-28
+
+- Reframed the active plan around execution-cost calibration after reviewing the cost-model, slippage sensitivity, and portfolio-wrapper evidence
+- Updated `grand_plan.md`, `codex_next_action.md`, and Batch 02 close-state docs so the next active branch is `TB03_T01 SlippageSensitivityCalibration`
+- Opened Batch 03 planning artifacts centered on slippage calibration, futures cost profiles, portfolio-rank long-only wrapping, and holding-horizon rechecks
+- Recorded `TB03_T01 SlippageSensitivityCalibration` result: lower friction improved `E211` and `E801` materially, but plausible cash-equity slippage relief alone did not create a meaningful new challenger
+- Updated Batch 03 trackers so the next active thesis is `TB03_T03 FuturesCostProfilePort`
+- Wired `signal_baseline_futures_cost_profile` into `ssell1.py` with an explicit `stock_futures` cost profile and baseline summary outputs
+- Added `revalidation_matrix_2026-04-28.csv` to record branch-by-branch revalidation decisions across the tracked result set
+- Recorded `TB03_T03 FuturesCostProfilePort` result: stock-futures cost assumptions improved economics only modestly and did not displace `E211`
+- Wired `signal_baseline_portfolio_rank_60m_long_only` as a dedicated low-turnover long-only weekly wrapper experiment for the next active branch

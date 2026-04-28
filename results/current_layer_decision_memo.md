@@ -516,3 +516,26 @@ Next active thesis:
   - run `signal_baseline_e211_entry_audit`
   - inspect where `SIGNAL_E211_BANDED_68` loses money
   - only build a veto, delay, or sizing rule if the losing regimes are clearly separable
+
+### Execution-cost recalibration checkpoint
+
+The newer review of Batch 01 and Batch 02 changes the immediate priority, but not the honesty standard.
+
+What changed:
+
+- the fee stack itself looks correctly modeled
+- the current global slippage default is likely doing too much work in the final economics
+- the `PortfolioRank60m` branch looks more like a wrapper failure than a signal failure
+- several near-boundary branches still failed honestly, but they are close enough to justify a narrow cost-calibration pass
+
+What did not change:
+
+- there is still no confirmed executable winner
+- we should not reopen broad standalone predictor discovery yet
+- lower-friction or cheaper-instrument positives still need the same breadth and benchmark discipline as any other challenger
+
+So the next operating step becomes:
+
+- start `TB03_T01 SlippageSensitivityCalibration`
+- use the existing cost-sensitivity baseline mode
+- then decide whether Batch 03 should move next toward tiered slippage, futures cost profiles, portfolio-rank long-only, or an incumbent timing overlay
