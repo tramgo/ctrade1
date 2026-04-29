@@ -61,6 +61,12 @@
     - fold 2 = fold 1 reference median
     - fold 3 = fold 2 reference median
   - rerun the same mode once more before treating the strategy as fully validated
+- Fresh benchmark warning:
+  - the missing comparison is equal-weight buy-and-hold of the same universe
+  - a new walk-forward benchmark mode is now wired to compare:
+    - `E1006 every_10 top_k=3 score_weighted` ungated
+    - `E1006 every_10 top_k=3 score_weighted dispersion_sized`
+    - against equal-weight buy-and-hold of the same universe across the same folds
 
 ## Fresh Result Read
 
@@ -109,6 +115,17 @@ Purpose:
 - log size multipliers, reference-source metadata, dispersion percentiles, and liquidity-bucket exposure inside each fold
 
 ## Then Run
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward
+```
+
+Purpose:
+
+- compare the active strategy variants against equal-weight buy-and-hold of the same universe across the same 3 folds
+- determine whether rotation is really adding value after costs or just paying to reshuffle
+
+## Then Close
 
 ```powershell
 python -u -B ssell1.py --mode signal_baseline_native_15m_holding_horizon_execution_sweep

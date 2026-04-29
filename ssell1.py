@@ -9969,6 +9969,347 @@ def run_portfolio_rank_dispersion_sizing_walkforward(
     return combined
 
 
+def run_portfolio_rank_buyhold_benchmark_walkforward(
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+    benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-BH] missing predictions or dataset; no benchmark rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = "[PORTFOLIO-BH] empty predictions or dataset; no benchmark rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        pd.DataFrame().to_csv(out_csv, index=False)
+        msg = f"[PORTFOLIO-BH] no rows for {experiment_id}; no benchmark rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    trade_dates = sorted(pd.Series(merged["Date"].dt.normalize().dropna().unique()).tolist())
+    date_folds = [fold.tolist() for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), 3) if len(fold) > 0]
+
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    manifest_rows: List[dict] = []
+    print(
+        f"[PORTFOLIO-BH] starting buy-and-hold benchmark walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_start = pd.Timestamp(fold_dates[0])
+        fold_end = pd.Timestamp(fold_dates[-1])
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["Date"].dt.normalize().isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = (
+            fold_df.groupby("TradeDate")["Date"]
+            .min()
+            .dropna()
+            .sort_values()
+            .tolist()
+        )
+        if len(open_times) < 2:
+            continue
+
+        start_ts = open_times[0]
+        end_ts = open_times[-1]
+        start_snapshot = fold_df.loc[fold_df["Date"] == start_ts].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == end_ts, ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        if bh_df.empty:
+            continue
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_df["est_cost"] = estimate_roundtrip_cost(bh_df) / 2.0
+        bh_weight = 1.0 / max(len(bh_df), 1)
+        bh_return = float(
+            sum(
+                bh_weight * ((float(row["EndClose"]) / max(float(row["Close"]), 1e-9)) - 1.0) - bh_weight * float(row["est_cost"])
+                for _, row in bh_df.iterrows()
+            )
+        )
+        bh_name_count = int(len(bh_df))
+
+        # Ungated score-weighted top-3 strategy on the same fold
+        prev_weights: Dict[str, float] = {}
+        base_returns: List[float] = []
+        disp_returns: List[float] = []
+        disp_spreads: List[float] = []
+        snapshots: Dict[pd.Timestamp, pd.DataFrame] = {}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            snapshots[open_ts] = current
+            disp_spreads.append(float(current.iloc[0]["Prediction"] - current.iloc[4]["Prediction"]))
+
+        if not snapshots:
+            continue
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            if open_ts not in snapshots:
+                continue
+            current = snapshots[open_ts].copy()
+            longs = current.head(top_k).copy()
+            centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+            centered = centered + 1e-6
+            denom = float(centered.sum())
+            if not np.isfinite(denom) or denom <= 0.0:
+                longs["alloc_weight"] = 1.0 / top_k
+            else:
+                longs["alloc_weight"] = centered / denom
+
+            # base ungated
+            event_base_return = 0.0
+            for _, row in longs.iterrows():
+                w = float(row["alloc_weight"])
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                event_base_return += w * raw_ret - abs(w) * float(row["est_cost"])
+            base_returns.append(event_base_return)
+
+        # dispersion-sized with current final semantics
+        if fold_idx == 1:
+            ref_spreads = []
+            ref_source = "fold1_constant_1p0"
+            disp_median = np.nan
+        else:
+            ref_spreads = []
+            for prior_fold_dates in date_folds[: fold_idx - 1]:
+                prior_date_index = pd.to_datetime(pd.Series(prior_fold_dates)).dt.normalize().unique()
+                prior_df = merged.loc[merged["Date"].dt.normalize().isin(prior_date_index)].copy()
+                prior_open_times = (
+                    prior_df.groupby("TradeDate")["Date"]
+                    .min()
+                    .dropna()
+                    .sort_values()
+                    .tolist()
+                )
+                for idx in range(len(prior_open_times) - 1):
+                    if idx % rebalance_every_sessions != 0:
+                        continue
+                    open_ts = prior_open_times[idx]
+                    next_idx = min(idx + rebalance_every_sessions, len(prior_open_times) - 1)
+                    next_open_ts = prior_open_times[next_idx]
+                    if next_open_ts == open_ts:
+                        continue
+                    snap = prior_df.loc[prior_df["Date"] == open_ts].copy()
+                    fut = prior_df.loc[prior_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+                    snap = snap.merge(fut, on="Ticker", how="inner")
+                    snap = snap.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+                    snap["Prediction"] = pd.to_numeric(snap["Prediction"], errors="coerce")
+                    snap = snap.dropna(subset=["Prediction"]).copy()
+                    if len(snap) < 5:
+                        continue
+                    snap = snap.sort_values("Prediction", ascending=False).reset_index(drop=True)
+                    ref_spreads.append(float(snap.iloc[0]["Prediction"] - snap.iloc[4]["Prediction"]))
+            ref_source = f"prefold_{fold_idx - 1}"
+            disp_median = float(np.median(ref_spreads)) if ref_spreads else np.nan
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            if open_ts not in snapshots:
+                continue
+            current = snapshots[open_ts].copy()
+            longs = current.head(top_k).copy()
+            centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+            centered = centered + 1e-6
+            denom = float(centered.sum())
+            if not np.isfinite(denom) or denom <= 0.0:
+                longs["alloc_weight"] = 1.0 / top_k
+            else:
+                longs["alloc_weight"] = centered / denom
+
+            disp = float(current.iloc[0]["Prediction"] - current.iloc[4]["Prediction"])
+            if ref_source == "fold1_constant_1p0":
+                size_multiplier = 1.0
+            elif not np.isfinite(disp_median) or disp_median <= 0.0:
+                size_multiplier = 1.0
+            else:
+                size_multiplier = float(np.clip(disp / disp_median, 0.0, 1.5))
+            longs["alloc_weight"] = longs["alloc_weight"] * size_multiplier
+            event_disp_return = 0.0
+            for _, row in longs.iterrows():
+                w = float(row["alloc_weight"])
+                raw_ret = (float(row["NextClose"]) / max(float(row["Close"]), 1e-9)) - 1.0
+                event_disp_return += w * raw_ret - abs(w) * float(row["est_cost"])
+            disp_returns.append(event_disp_return)
+
+        if not base_returns or not disp_returns:
+            continue
+
+        base_mean = float(np.mean(base_returns))
+        disp_mean = float(np.mean(disp_returns))
+        periods_per_year = max(1.0, 250.0 / float(rebalance_every_sessions))
+        base_ann = float((1.0 + base_mean) ** periods_per_year - 1.0) if base_mean > -0.999999 else np.nan
+        disp_ann = float((1.0 + disp_mean) ** periods_per_year - 1.0) if disp_mean > -0.999999 else np.nan
+        fold_days = max(1, len(fold_dates))
+        bh_ann = float((1.0 + bh_return) ** (250.0 / float(fold_days)) - 1.0) if bh_return > -0.999999 else np.nan
+
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "fold_id": int(fold_idx),
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+                "strategy_variant": "score_weighted_top3_ungated",
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "portfolio_mean_return": base_mean,
+                "approx_annualized_return": base_ann,
+                "buyhold_universe_mode": "equal_weight_full_universe",
+                "buyhold_name_count": bh_name_count,
+                "buyhold_total_return": bh_return,
+                "buyhold_annualized_return": bh_ann,
+                "excess_vs_buyhold_annualized": base_ann - bh_ann if np.isfinite(base_ann) and np.isfinite(bh_ann) else np.nan,
+                "beats_buyhold_annualized": bool(np.isfinite(base_ann) and np.isfinite(bh_ann) and base_ann > bh_ann),
+                "benchmark_policy": benchmark_policy,
+            }
+        )
+        summary_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "fold_id": int(fold_idx),
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+                "strategy_variant": "score_weighted_top3_dispersion_sized",
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "portfolio_mean_return": disp_mean,
+                "approx_annualized_return": disp_ann,
+                "buyhold_universe_mode": "equal_weight_full_universe",
+                "buyhold_name_count": bh_name_count,
+                "buyhold_total_return": bh_return,
+                "buyhold_annualized_return": bh_ann,
+                "excess_vs_buyhold_annualized": disp_ann - bh_ann if np.isfinite(disp_ann) and np.isfinite(bh_ann) else np.nan,
+                "beats_buyhold_annualized": bool(np.isfinite(disp_ann) and np.isfinite(bh_ann) and disp_ann > bh_ann),
+                "benchmark_policy": benchmark_policy,
+            }
+        )
+        history_rows.append(
+            {
+                "fold_id": int(fold_idx),
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "buyhold_name_count": bh_name_count,
+                "buyhold_total_return": bh_return,
+                "buyhold_annualized_return": bh_ann,
+                "strategy_ungated_mean_return": base_mean,
+                "strategy_ungated_annualized": base_ann,
+                "strategy_dispersion_sized_mean_return": disp_mean,
+                "strategy_dispersion_sized_annualized": disp_ann,
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    summary_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    aggregate_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_aggregate.csv"
+    history_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_history.csv"
+    manifest_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_manifest.csv"
+    pd.DataFrame(history_rows).to_csv(history_csv, index=False)
+    pd.DataFrame(manifest_rows).to_csv(manifest_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby(["experiment_id", "strategy_variant", "rebalance_rule"], dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_of_fold_returns=("portfolio_mean_return", "mean"),
+                mean_of_fold_annualized=("approx_annualized_return", "mean"),
+                min_fold_annualized=("approx_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                min_buyhold_annualized=("buyhold_annualized_return", "min"),
+                folds_beating_buyhold=("beats_buyhold_annualized", "sum"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate = aggregate.sort_values(
+            ["mean_of_fold_annualized", "min_fold_annualized"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+    main_logger.info(f"[PORTFOLIO-BH] buy-hold benchmark summary saved: {summary_csv}")
+    main_logger.info(f"[PORTFOLIO-BH] buy-hold benchmark aggregate saved: {aggregate_csv}")
+    print(f"[PORTFOLIO-BH] buy-hold benchmark summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -11181,6 +11522,7 @@ if __name__ == "__main__":
             "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward",
             "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep",
             "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward",
+            "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -11613,7 +11955,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -13405,6 +13747,19 @@ if __name__ == "__main__":
                 experiment_id="E1006",
                 top_k=3,
                 rebalance_every_sessions=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward":
+            main_logger.info(
+                "Starting portfolio-rank 60m buy-and-hold benchmark walk-forward. "
+                "Comparing E1006 every_10 top_k=3 score-weighted base and dispersion-sized variants against equal-weight buy-and-hold of the same universe across the same 3 folds."
+            )
+            run_portfolio_rank_buyhold_benchmark_walkforward(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
             )
             raise SystemExit(0)
 
