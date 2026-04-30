@@ -4,14 +4,20 @@ import numpy as np
 import pandas as pd
 
 
+def _numeric_feature(df: pd.DataFrame, col: str, default: float = 0.0) -> pd.Series:
+    if col in df.columns:
+        return pd.to_numeric(df[col], errors="coerce").fillna(default)
+    return pd.Series(default, index=df.index, dtype="float32")
+
+
 def infer_event_direction_proxy(df: pd.DataFrame) -> pd.Series:
     score = (
-        1.5 * pd.to_numeric(df.get("Trend_30"), errors="coerce").fillna(0.0)
-        + 1.0 * pd.to_numeric(df.get("Trend_2h"), errors="coerce").fillna(0.0)
-        + 2.0 * pd.to_numeric(df.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
-        + 1.0 * pd.to_numeric(df.get("StockMinusMkt_1"), errors="coerce").fillna(0.0)
-        + 0.75 * pd.to_numeric(df.get("Breakout_3bar"), errors="coerce").fillna(0.0)
-        + 0.50 * pd.to_numeric(df.get("SignPersistence_5"), errors="coerce").fillna(0.0)
+        1.5 * _numeric_feature(df, "Trend_30")
+        + 1.0 * _numeric_feature(df, "Trend_2h")
+        + 2.0 * _numeric_feature(df, "StockMinusMkt_3")
+        + 1.0 * _numeric_feature(df, "StockMinusMkt_1")
+        + 0.75 * _numeric_feature(df, "Breakout_3bar")
+        + 0.50 * _numeric_feature(df, "SignPersistence_5")
     )
     direction = pd.Series(0, index=df.index, dtype=float)
     direction.loc[score > 0.001] = 1.0

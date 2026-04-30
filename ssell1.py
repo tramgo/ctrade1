@@ -70,9 +70,11 @@ torch.manual_seed(RANDOM_SEED)
 BASE_DIR = Path('.').resolve()
 load_local_env(BASE_DIR / ".env")
 RESULTS_DIR = BASE_DIR / 'results'
+DATA_DIR = BASE_DIR / 'data'
 PLOTS_DIR = BASE_DIR / 'plots'
 TB_LOG_DIR = BASE_DIR / 'tensorboard_logs'
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 TB_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -141,6 +143,14 @@ SECTOR_PROXY_MAP = {
 }
 
 MARKET_PROXY_SYMBOL = "NIFTYBEES"
+# Zerodha 60m availability observed during 10y validation fetch on 2026-04-30.
+# ITBEES starts later than the market/bank proxies, so pre-2020 IT-sector
+# relative context should be treated as unavailable rather than true zero signal.
+CONTEXT_SYMBOL_FIRST_60M_BAR = {
+    "NIFTYBEES": pd.Timestamp("2016-05-03 09:15:00"),
+    "BANKBEES": pd.Timestamp("2016-05-03 09:15:00"),
+    "ITBEES": pd.Timestamp("2020-07-01 09:15:00"),
+}
 SIGNAL_OVERLAY_SOURCES: Dict[str, tuple[list[Path], str]] = {
     "E102": (
         [
@@ -1502,10 +1512,11 @@ def get_authenticated_kite() -> KiteConnect:
 def build_local_instrument_df() -> pd.DataFrame:
     rows = []
     seen_symbols = set()
-    for csv_path in sorted(RESULTS_DIR.glob("data_fetched_*.csv")):
+    cache_paths = list(DATA_DIR.glob("data_fetched_*.csv")) + list(RESULTS_DIR.glob("data_fetched_*.csv"))
+    for csv_path in sorted(cache_paths):
         symbol = csv_path.stem.replace("data_fetched_", "", 1)
-        if symbol.endswith("_15m"):
-            symbol = symbol[:-4]
+        symbol = re.sub(r"_(?:1m|3m|5m|10m|15m|30m|60m)(?:_\d+d)?$", "", symbol)
+        symbol = re.sub(r"_\d+d$", "", symbol)
         symbol = symbol.strip()
         if not symbol or symbol in seen_symbols:
             continue
@@ -2030,7 +2041,11 @@ def _contextualize_with_market(
     sector = _prepare_context(sector_df, "Sector")
     if sector is not None:
         out = pd.merge_asof(out, sector[["Date", "SectorRet_3"]], on="Date", direction="backward")
-    if "SectorRet_3" not in out.columns:
+    if "SectorRet_3" in out.columns:
+        out["SectorContextAvailable"] = out["SectorRet_3"].notna().astype(float)
+        out["SectorRet_3"] = out["SectorRet_3"].fillna(out["MktRet_3"])
+    else:
+        out["SectorContextAvailable"] = 0.0
         out["SectorRet_3"] = out["MktRet_3"]
 
     out["StockMinusMkt_1"] = out.get("LagRet_1", 0.0) - out["MktRet_1"]
@@ -2296,16 +2311,21 @@ def get_data_kite(
     tickerval = get_ticker_from_token(instrument_token, instrument_df)
     interval_key = str(interval).lower().strip()
     interval_safe = interval_key.replace("minute", "m").replace(" ", "")
-    csv_path = (
-        RESULTS_DIR / f"data_fetched_{tickerval}.csv"
-        if interval_key == "60minute"
-        else RESULTS_DIR / f"data_fetched_{tickerval}_{interval_safe}.csv"
-    )
+    legacy_csv_path = None
+    if interval_key == "60minute" and int(days) == int(TRAIN_HISTORY_DAYS):
+        csv_path = DATA_DIR / f"data_fetched_{tickerval}.csv"
+        legacy_csv_path = RESULTS_DIR / f"data_fetched_{tickerval}.csv"
+    else:
+        # Keep long-history pulls isolated so a 10y validation cannot reuse a
+        # shorter 3y cache with the same ticker/interval name.
+        csv_path = DATA_DIR / f"data_fetched_{tickerval}_{interval_safe}_{int(days)}d.csv"
+        legacy_csv_path = RESULTS_DIR / f"data_fetched_{tickerval}_{interval_safe}_{int(days)}d.csv"
     
     # Check if cached data exists.
-    if csv_path.exists():
-        print(f"Loading cached data from: {csv_path}")
-        df = pd.read_csv(csv_path)
+    load_csv_path = csv_path if csv_path.exists() else legacy_csv_path if legacy_csv_path is not None and legacy_csv_path.exists() else None
+    if load_csv_path is not None:
+        print(f"Loading cached data from: {load_csv_path}")
+        df = pd.read_csv(load_csv_path)
         if 'Date' in df.columns:
             df['Date'] = pd.to_datetime(df['Date'])
         benchmark_df = None
@@ -2323,7 +2343,17 @@ def get_data_kite(
         return df
     
     # ---------- 1) pull raw bars ------------------------------------------------
-    max_days_per_call = 30 if "minute" in interval else 100
+    interval_limits = {
+        "minute": 60,
+        "3minute": 100,
+        "5minute": 100,
+        "10minute": 100,
+        "15minute": 200,
+        "30minute": 200,
+        "60minute": 390,
+        "day": 1900,
+    }
+    max_days_per_call = interval_limits.get(interval_key, 30 if "minute" in interval_key else 100)
     tz  = pytz.timezone(tz_name)
     end = datetime.now(tz)
     beg = end - timedelta(days=days)
@@ -3677,17 +3707,22 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
     out = out.sort_values(["Ticker", "Date"]).reset_index(drop=True)
 
-    close = pd.to_numeric(out.get("Close"), errors="coerce")
-    mkt_ret_6 = pd.to_numeric(out.get("MktRet_6"), errors="coerce").fillna(0.0)
-    real_vol = np.exp(pd.to_numeric(out.get("RealVol20_log"), errors="coerce").fillna(np.log(1e-6)))
+    def _numeric_feature(col: str, default: float = 0.0) -> pd.Series:
+        if col in out.columns:
+            return pd.to_numeric(out[col], errors="coerce").fillna(default)
+        return pd.Series(default, index=out.index, dtype="float32")
+
+    close = _numeric_feature("Close")
+    mkt_ret_6 = _numeric_feature("MktRet_6")
+    real_vol = np.exp(_numeric_feature("RealVol20_log", np.log(1e-6)))
     real_vol = pd.Series(real_vol, index=out.index).replace([np.inf, -np.inf], np.nan).clip(lower=1e-6).fillna(1e-6)
 
     out["StockMinusMkt_6"] = close.groupby(out["Ticker"]).pct_change(6).fillna(0.0) - mkt_ret_6
     out["VolAdjStockMinusMkt_1"] = (
-        pd.to_numeric(out.get("StockMinusMkt_1"), errors="coerce").fillna(0.0) / real_vol
+        _numeric_feature("StockMinusMkt_1") / real_vol
     ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-10.0, 10.0)
     out["VolAdjStockMinusMkt_3"] = (
-        pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0) / real_vol
+        _numeric_feature("StockMinusMkt_3") / real_vol
     ).replace([np.inf, -np.inf], 0.0).fillna(0.0).clip(-10.0, 10.0)
 
     rank_inputs = {
@@ -3700,7 +3735,7 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
         "XS_Rank_VolAdjStockMinusMkt_3": "VolAdjStockMinusMkt_3",
     }
     for feature_col, source_col in rank_inputs.items():
-        source = pd.to_numeric(out.get(source_col), errors="coerce")
+        source = _numeric_feature(source_col, np.nan)
         out[feature_col] = source.groupby(out["Date"]).rank(method="average", pct=True).fillna(0.5)
 
     out["XS_LeaderSpread_3"] = (
@@ -3718,8 +3753,8 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     out["XS_LaggardPersist_6"] = bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(6, min_periods=1).sum()).fillna(0.0)
     out["XS_Rank_Change_3"] = out.groupby("Ticker")["XS_Rank_StockMinusMkt_3"].diff(3).fillna(0.0)
 
-    stock_minus_mkt_3 = pd.to_numeric(out.get("StockMinusMkt_3"), errors="coerce").fillna(0.0)
-    sector_minus_mkt_3 = pd.to_numeric(out.get("SectorMinusMkt_3"), errors="coerce").fillna(0.0)
+    stock_minus_mkt_3 = _numeric_feature("StockMinusMkt_3")
+    sector_minus_mkt_3 = _numeric_feature("SectorMinusMkt_3")
     out["SectorResidual_3"] = stock_minus_mkt_3 - sector_minus_mkt_3
     out["VolAdjSectorResidual_3"] = (
         out["SectorResidual_3"] / real_vol
@@ -3741,10 +3776,10 @@ def add_cross_sectional_research_features(dataset: pd.DataFrame) -> pd.DataFrame
     out["ResidualLeaderPersist_3"] = residual_top20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
     out["ResidualLaggardPersist_3"] = residual_bottom20.groupby(out["Ticker"]).transform(lambda s: s.rolling(3, min_periods=1).sum()).fillna(0.0)
 
-    mkt_ret_1 = pd.to_numeric(out.get("MktRet_1"), errors="coerce").fillna(0.0)
-    lag_ret_1 = pd.to_numeric(out.get("LagRet_1"), errors="coerce").fillna(0.0)
-    stock_minus_mkt_1 = pd.to_numeric(out.get("StockMinusMkt_1"), errors="coerce").fillna(0.0)
-    relative_volume = pd.to_numeric(out.get("RelativeVolumeTime"), errors="coerce").fillna(0.0)
+    mkt_ret_1 = _numeric_feature("MktRet_1")
+    lag_ret_1 = _numeric_feature("LagRet_1")
+    stock_minus_mkt_1 = _numeric_feature("StockMinusMkt_1")
+    relative_volume = _numeric_feature("RelativeVolumeTime")
     sign_stock = np.sign(lag_ret_1)
     sign_mkt = np.sign(mkt_ret_1)
     participation = np.where(sign_mkt == 0.0, 0.5, (sign_stock == sign_mkt).astype(float))
@@ -4001,6 +4036,7 @@ def build_signal_research_dataset(
     window_days: int = 20,
     include_second_timeframe_context: bool = False,
     out_csv: Optional[Path] = None,
+    keep_cols: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     frames = []
     for ticker in ticker_list:
@@ -4022,6 +4058,9 @@ def build_signal_research_dataset(
             )
         df_ticker = assign_research_window_ids(df_ticker, interval=interval, window_days=window_days)
         df_ticker["Ticker"] = ticker
+        if keep_cols is not None:
+            selected_cols = [col for col in keep_cols if col in df_ticker.columns]
+            df_ticker = df_ticker[selected_cols].copy()
         frames.append(compact_research_concat_frame(df_ticker))
 
     dataset = pd.DataFrame()
@@ -4118,6 +4157,13 @@ def run_signal_research_workflow(
         main_logger.info(
             "[SIGNAL RESEARCH] Portfolio-rank 60m discovery enabled. "
             "Testing universe-level cross-sectional ranking on the 60m base while E211 remains the frozen benchmark and RL stays out of scope."
+        )
+    elif experiment_set == "portfolio_rank_60m_10y":
+        output_dir_name = "outputs_portfolio_rank_60m_10y"
+        dataset_path = signal_dir / "research_dataset_portfolio_rank_60m_10y.csv"
+        main_logger.info(
+            "[SIGNAL RESEARCH] Portfolio-rank 60m 10y validation enabled. "
+            "Fetching isolated long-history 60m caches, regenerating E100x predictions, and keeping outputs separate from the 3y research artifacts."
         )
     elif experiment_set == "second_timeframe_60m":
         output_dir_name = "outputs_second_timeframe_60m"
@@ -4238,6 +4284,25 @@ def run_signal_research_workflow(
         output_dir_name = "outputs_two_track"
     elif experiment_set == "focused":
         output_dir_name = "outputs_focused"
+    long_portfolio_rank_keep_cols = None
+    if experiment_set == "portfolio_rank_60m_10y":
+        long_portfolio_rank_keep_cols = [
+            "Ticker", "Date", "WindowID",
+            "Open", "High", "Low", "Close", "Volume",
+            "LagRet_1",
+            "ATR20_log", "RealVol20_log", "VolRegime",
+            "MktRet_1", "MktRet_3", "MktRet_6", "MktVolRank",
+            "StockMinusMkt_1", "StockMinusMkt_3", "SectorMinusMkt_3",
+            "RelativeVolumeTime", "VWAP_Dist", "SessionOpenDist_ATR",
+            "OpeningRangeBreakout", "TimeSinceNewHigh", "TimeSinceNewLow",
+            "IntradayVolPercentile", "MinuteNorm",
+            "BodyToRange", "UpperWickRatio", "LowerWickRatio",
+            "CloseLocation_3", "RetSkew_5",
+            "MarketStateBullCalm", "MarketStateBullStress",
+            "MarketStateBearCalm", "MarketStateBearStress",
+            "MarketStateTransition", "MarketStateTrendScore",
+            "MarketStateVolPressure", "SectorContextAvailable",
+        ]
     dataset = build_signal_research_dataset(
         ticker_list=ticker_list,
         instrument_df=instrument_df,
@@ -4246,15 +4311,21 @@ def run_signal_research_workflow(
         window_days=window_days,
         include_second_timeframe_context=include_second_timeframe_context,
         out_csv=dataset_path,
+        keep_cols=long_portfolio_rank_keep_cols,
     )
     if dataset.empty:
         main_logger.warning("[SIGNAL RESEARCH] dataset is empty, skipping pipeline.")
         return pd.DataFrame()
 
+    pipeline_experiment_set = (
+        "portfolio_rank_60m"
+        if experiment_set == "portfolio_rank_60m_10y"
+        else experiment_set
+    )
     _, _, compare = run_signal_pipeline(
         df=dataset,
         out_dir=signal_dir / output_dir_name,
-        experiments=resolve_experiment_pool(experiment_set),
+        experiments=resolve_experiment_pool(pipeline_experiment_set),
         experiment_ids=experiment_ids,
         max_window_pairs=max_window_pairs,
     )
@@ -9974,20 +10045,25 @@ def run_portfolio_rank_buyhold_benchmark_walkforward(
     top_k: int = 3,
     rebalance_every_sessions: int = 10,
     benchmark_policy: str = "SIGNAL_E211_BANDED_68",
+    research_output_dir_name: str = "outputs_portfolio_rank_60m",
+    dataset_filename: str = "research_dataset.csv",
+    output_prefix: str = "portfolio_rank_60m_buyhold_benchmark_walkforward",
+    fold_count: int = 3,
+    min_trade_date: Optional[str] = None,
 ) -> pd.DataFrame:
     from signal_targets import estimate_roundtrip_cost
 
     baseline_dir = RESULTS_DIR / "signal_baseline"
     baseline_dir.mkdir(parents=True, exist_ok=True)
-    research_dir = RESULTS_DIR / "signal_research" / "outputs_portfolio_rank_60m" / "latest"
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
     predictions_csv = research_dir / "promoted_predictions_oos.csv"
     if not predictions_csv.exists():
         predictions_csv = research_dir / "experiment_predictions_oos.csv"
-    dataset_csv = RESULTS_DIR / "signal_research" / "research_dataset.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
     if not predictions_csv.exists() or not dataset_csv.exists():
-        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        out_csv = baseline_dir / f"{output_prefix}_summary.csv"
         pd.DataFrame().to_csv(out_csv, index=False)
-        msg = "[PORTFOLIO-BH] missing predictions or dataset; no benchmark rows were produced."
+        msg = f"[PORTFOLIO-BH] missing predictions or dataset for {research_output_dir_name}; no benchmark rows were produced."
         main_logger.warning(msg)
         print(msg, flush=True)
         return pd.DataFrame()
@@ -9995,7 +10071,7 @@ def run_portfolio_rank_buyhold_benchmark_walkforward(
     pred_df = pd.read_csv(predictions_csv)
     data_df = pd.read_csv(dataset_csv)
     if pred_df.empty or data_df.empty:
-        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        out_csv = baseline_dir / f"{output_prefix}_summary.csv"
         pd.DataFrame().to_csv(out_csv, index=False)
         msg = "[PORTFOLIO-BH] empty predictions or dataset; no benchmark rows were produced."
         main_logger.warning(msg)
@@ -10014,22 +10090,31 @@ def run_portfolio_rank_buyhold_benchmark_walkforward(
     merged["TradeDate"] = merged["Date"].dt.normalize()
     merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
     merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if min_trade_date:
+        min_ts = pd.Timestamp(min_trade_date).normalize()
+        merged = merged.loc[merged["TradeDate"] >= min_ts].copy()
     if merged.empty:
-        out_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+        out_csv = baseline_dir / f"{output_prefix}_summary.csv"
         pd.DataFrame().to_csv(out_csv, index=False)
-        msg = f"[PORTFOLIO-BH] no rows for {experiment_id}; no benchmark rows were produced."
+        date_msg = f" on or after {min_trade_date}" if min_trade_date else ""
+        msg = f"[PORTFOLIO-BH] no rows for {experiment_id}{date_msg}; no benchmark rows were produced."
         main_logger.warning(msg)
         print(msg, flush=True)
         return pd.DataFrame()
 
     trade_dates = sorted(pd.Series(merged["Date"].dt.normalize().dropna().unique()).tolist())
-    date_folds = [fold.tolist() for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), 3) if len(fold) > 0]
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
 
     summary_rows: List[dict] = []
     history_rows: List[dict] = []
     manifest_rows: List[dict] = []
     print(
-        f"[PORTFOLIO-BH] starting buy-and-hold benchmark walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions}",
+        f"[PORTFOLIO-BH] starting buy-and-hold benchmark walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} folds={len(date_folds)} source={research_output_dir_name}"
+        + (f" min_trade_date={min_trade_date}" if min_trade_date else ""),
         flush=True,
     )
 
@@ -10275,11 +10360,11 @@ def run_portfolio_rank_buyhold_benchmark_walkforward(
         )
 
     summary_df = pd.DataFrame(summary_rows)
-    summary_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
     summary_df.to_csv(summary_csv, index=False)
-    aggregate_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_aggregate.csv"
-    history_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_history.csv"
-    manifest_csv = baseline_dir / "portfolio_rank_60m_buyhold_benchmark_walkforward_manifest.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    history_csv = baseline_dir / f"{output_prefix}_history.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
     pd.DataFrame(history_rows).to_csv(history_csv, index=False)
     pd.DataFrame(manifest_rows).to_csv(manifest_csv, index=False)
     if summary_df.empty:
@@ -11468,6 +11553,7 @@ if __name__ == "__main__":
             "signal_research_event_conditioned_sizing_veto",
             "signal_research_all_15m",
             "signal_research_portfolio_rank_60m",
+            "signal_research_portfolio_rank_60m_10y",
             "signal_research_e302",
             "signal_research_two_track",
             "signal_baseline",
@@ -11523,6 +11609,8 @@ if __name__ == "__main__":
             "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep",
             "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward",
             "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward",
+            "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold",
+            "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -11851,15 +11939,27 @@ if __name__ == "__main__":
             experiment_set = "all_15m"
         elif run_mode == "signal_research_portfolio_rank_60m":
             experiment_set = "portfolio_rank_60m"
+        elif run_mode == "signal_research_portfolio_rank_60m_10y":
+            experiment_set = "portfolio_rank_60m_10y"
+            experiment_ids = ["E1006"]
         elif run_mode == "signal_research_e302":
             experiment_set = "e302_sweep"
         elif run_mode == "signal_research_two_track":
             experiment_set = "two_track"
+        signal_history_days = (
+            3650
+            if run_mode == "signal_research_portfolio_rank_60m_10y"
+            else (
+                365
+                if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"}
+                else max(TRAIN_HISTORY_DAYS, 1095)
+            )
+        )
         run_signal_research_workflow(
             ticker_list=ticker_list,
             instrument_df=instrument_df,
             interval="15minute" if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else TICKINT,
-            history_days=365 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else max(TRAIN_HISTORY_DAYS, 1095),
+            history_days=signal_history_days,
             window_days=10 if run_mode in {"signal_research_native_15m_execution", "signal_research_native_15m_failed_breakout", "signal_research_native_15m_open_drive", "signal_research_opening_auction_gap_liquidity", "signal_research_native_15m_session_phase", "signal_research_native_15m_holding_horizon", "signal_research_native_15m_topk_event_rank", "signal_research_native_15m_breadth_event", "signal_research_native_15m_mean_reversion_exhaustion", "signal_research_event_outcome_accounting", "signal_research_event_outcome_accounting_refined", "signal_research_all_15m"} else 20,
             experiment_ids=experiment_ids,
             experiment_set=experiment_set,
@@ -11955,7 +12055,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -13760,6 +13860,41 @@ if __name__ == "__main__":
                 top_k=3,
                 rebalance_every_sessions=10,
                 benchmark_policy="SIGNAL_E211_BANDED_68",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold":
+            main_logger.info(
+                "Starting portfolio-rank 60m 10y buy-and-hold benchmark multi-fold validation. "
+                "Reading the isolated 10y E1006 prediction artifacts and comparing score-weighted/dispersion-sized every_10 top_k=3 against equal-weight buy-and-hold over 10 folds."
+            )
+            run_portfolio_rank_buyhold_benchmark_walkforward(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="portfolio_rank_60m_10y_buyhold_multifold",
+                fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold":
+            main_logger.info(
+                "Starting portfolio-rank 60m post-2020 full-context buy-and-hold benchmark multi-fold validation. "
+                "Reading the isolated 10y E1006 prediction artifacts, filtering to full ITBEES-context dates, and comparing score-weighted/dispersion-sized every_10 top_k=3 against equal-weight buy-and-hold over 6 folds."
+            )
+            run_portfolio_rank_buyhold_benchmark_walkforward(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                benchmark_policy="SIGNAL_E211_BANDED_68",
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="portfolio_rank_60m_post2020_buyhold_multifold",
+                fold_count=6,
+                min_trade_date="2020-07-01",
             )
             raise SystemExit(0)
 
