@@ -22,8 +22,8 @@ Pure "another classifier on different features" theses are closed for this batch
 | `TB06_T08` | `OIChangeAugmentedScore` | Adds positioning data through F&O open-interest change | NSE F&O bhavcopy | data-required artifact wired |
 | `TB06_T09` | `BreadthGate` | Uses Nifty 500 breadth as a strategy on/off switch | Nifty 500 constituent OHLCV | data-required artifact wired |
 | `TB06_T10` | `SmallCapMomentum` | Tests the same idea on a less-efficient mid/smallcap universe | Midcap-150 or Smallcap-250 OHLCV | data-required artifact wired |
-| `TB06_Z04` | `ETFMomentumRotation` | Rotates cached ETF sleeves instead of individual stocks | Zerodha ETF OHLCV cache | wired |
-| `TB06_Z05` | `ETFLowVolRotation` | Uses ETF volatility as a non-momentum sleeve selector | Zerodha ETF OHLCV cache | wired |
+| `TB06_Z04` | `ETFMomentumRotation` | Rotates cached ETF sleeves instead of individual stocks | Zerodha ETF OHLCV cache | completed, failed |
+| `TB06_Z05` | `ETFLowVolRotation` | Uses ETF volatility as a non-momentum sleeve selector | Zerodha ETF OHLCV cache | completed, failed |
 
 ## Completed Results
 
@@ -61,6 +61,8 @@ python -u -B ssell1.py --mode signal_baseline_tb06_zerodha_only_extensions
 | `TB06_Z01` | `BuyHoldMomentumThrottle` | `14.01%` | `17.12%` | `4 / 10` | `-26.33%` | fail |
 | `TB06_Z02` | `WinnerRetentionRotation` | `7.00%` | `17.12%` | `3 / 10` | `-43.37%` | fail |
 | `TB06_Z03` | `LoserAvoidanceOverlay` | `8.95%` | `17.12%` | `0 / 10` | `-20.71%` | fail |
+| `TB06_Z04` | `ETFMomentumRotation` | `7.02%` | `15.51%` | `1 / 10` | `-32.21%` | fail |
+| `TB06_Z05` | `ETFLowVolRotation` | `12.18%` | `15.51%` | `2 / 10` | `-32.21%` | fail |
 
 ## Guardrail Overlay
 
@@ -105,6 +107,21 @@ This tests the cached Zerodha ETF universe:
 |---|---|---|
 | `TB06_Z04` | `ETFMomentumRotation` | rank `NIFTYBEES`, `BANKBEES`, `ITBEES`, `PHARMABEES` by trailing 60-session return, hold top 2 every 10 sessions |
 | `TB06_Z05` | `ETFLowVolRotation` | hold the 2 lowest-realized-vol ETFs every 10 sessions |
+
+## ETF Rotation Result
+
+ETF rotation is not a deployable rescue. It is structurally different from the large-cap stock ranker, but it still fails the passive benchmark.
+
+| ID | Strategy | Mean Ann. | Buy-Hold Ann. | Worst Fold | Folds Beat Buy-Hold | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| `TB06_Z04` | `ETFMomentumRotation` | `7.02%` | `15.51%` | `-32.21%` | `1 / 10` | fail |
+| `TB06_Z05` | `ETFLowVolRotation` | `12.18%` | `15.51%` | `-32.21%` | `2 / 10` | fail |
+
+Closeout: the low-vol ETF variant is less weak than ETF momentum, but neither clears mean return or fold robustness against equal-weight ETF buy-hold.
+
+## Remaining Zerodha-Only Research Path
+
+The only remaining Zerodha-only path with a credible edge rationale is `TB06_T10 SmallCapMomentum`: a less-efficient midcap/smallcap universe. This requires a defined ticker list and cached Zerodha candles; it does not require delivery, OI, earnings, breadth, or paid L2/TBT feeds.
 
 ## Expected Artifacts
 

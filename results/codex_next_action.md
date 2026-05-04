@@ -145,3 +145,24 @@ Expected artifacts:
 - `results/signal_baseline/tb06_zerodha_etf_rotation_summary.csv`
 - `results/signal_baseline/tb06_zerodha_etf_rotation_events.csv`
 - `results/signal_baseline/tb06_zerodha_etf_rotation_aggregate.csv`
+
+## Fresh ETF Rotation Result
+
+The ETF rotation proxy is also closed as a deployable candidate. The low-vol ETF sleeve is better than ETF momentum, but neither beats passive ETF buy-hold robustly.
+
+| ID | Strategy | Mean Ann. | Buy-Hold Ann. | Worst Fold | Folds Beat Buy-Hold | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| `TB06_Z04` | `ETFMomentumRotation` | `7.02%` | `15.51%` | `-32.21%` | `1 / 10` | fail |
+| `TB06_Z05` | `ETFLowVolRotation` | `12.18%` | `15.51%` | `-32.21%` | `2 / 10` | fail |
+
+Implementation note: the first ETF run exposed a missing `ATR20_log` cost-input issue. The fix now gives ETF rows a high/low-derived ATR proxy and makes `estimate_roundtrip_cost()` safely fall back to the regulatory floor when `ATR20_log` is absent.
+
+## Next Practical Path
+
+The large-cap stock OHLCV line and ETF rotation line are both closed. The only Zerodha-only path still worth testing is a less-efficient universe:
+
+1. Define a 30-50 name midcap/smallcap universe with a liquidity floor.
+2. Fetch 60m Zerodha candles into `data/data_fetched_<TICKER>_60m_3650d.csv`.
+3. Run a cached-universe momentum/low-vol baseline against buy-hold.
+
+Do not reopen another large-cap or ETF guardrail rescue cycle unless the benchmark or universe changes materially.

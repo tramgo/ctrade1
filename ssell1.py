@@ -11516,16 +11516,22 @@ def run_tb06_zerodha_etf_rotation(
         if path is None:
             missing_files.append(symbol)
             continue
-        df = pd.read_csv(path, usecols=lambda col: col in {"Date", "Close"})
+        df = pd.read_csv(path, usecols=lambda col: col in {"Date", "High", "Low", "Close", "ATR20_log"})
         if "Date" not in df.columns or "Close" not in df.columns:
             missing_files.append(symbol)
             continue
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
         df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+        df["High"] = pd.to_numeric(df.get("High", df["Close"]), errors="coerce").fillna(df["Close"])
+        df["Low"] = pd.to_numeric(df.get("Low", df["Close"]), errors="coerce").fillna(df["Close"])
+        if "ATR20_log" in df.columns:
+            df["ATR20_log"] = pd.to_numeric(df["ATR20_log"], errors="coerce")
+        else:
+            df["ATR20_log"] = np.nan
         df = df.dropna(subset=["Date", "Close"]).copy()
         df["Ticker"] = symbol
         df["TradeDate"] = df["Date"].dt.normalize()
-        frames.append(df[["Ticker", "Date", "TradeDate", "Close"]])
+        frames.append(df[["Ticker", "Date", "TradeDate", "High", "Low", "Close", "ATR20_log"]])
 
     if not frames:
         out = pd.DataFrame(
@@ -11545,8 +11551,22 @@ def run_tb06_zerodha_etf_rotation(
     daily = (
         raw.sort_values(["Ticker", "Date"])
         .groupby(["Ticker", "TradeDate"], as_index=False)
-        .agg(Close=("Close", "last"), LastTs=("Date", "max"))
+        .agg(
+            High=("High", "max"),
+            Low=("Low", "min"),
+            Close=("Close", "last"),
+            ATR20_log=("ATR20_log", "last"),
+            LastTs=("Date", "max"),
+        )
     )
+    range_pct = ((daily["High"] - daily["Low"]) / daily["Close"].replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    daily["ATR20_proxy"] = (
+        range_pct.groupby(daily["Ticker"])
+        .transform(lambda x: x.rolling(20, min_periods=3).mean())
+        .clip(lower=1e-8)
+        .pipe(np.log)
+    )
+    daily["ATR20_log"] = pd.to_numeric(daily["ATR20_log"], errors="coerce").fillna(daily["ATR20_proxy"]).fillna(-20.0)
     daily["Score"] = daily.groupby("Ticker")["Close"].pct_change(int(lookback_sessions))
     trade_dates = sorted(pd.Series(daily["TradeDate"].dropna().unique()).tolist())
     date_folds = [

@@ -31,7 +31,7 @@ def estimate_roundtrip_cost(
     atr_cost_multiplier: float = 0.25,
 ) -> pd.Series:
     base = base_cost_bps / 10000.0
-    atr_component = atr_cost_multiplier * np.exp(df["ATR20_log"].clip(-20, 5))
+    atr_component = atr_cost_multiplier * np.exp(_numeric_feature(df, "ATR20_log", -20.0).clip(-20, 5))
     cost = base + atr_component
     return pd.Series(cost, index=df.index).fillna(base)
 

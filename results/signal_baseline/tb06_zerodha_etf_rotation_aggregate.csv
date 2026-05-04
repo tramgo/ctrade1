@@ -1,0 +1,3 @@
+thesis_id,fold_count,mean_strategy_annualized,min_strategy_annualized,mean_buyhold_annualized,folds_beating_buyhold,all_folds_beat_buyhold
+TB06_Z04_ETFMomentumRotation,10,0.07023348400692501,-0.32205505816579816,0.1550719921491523,1,False
+TB06_Z05_ETFLowVolRotation,10,0.1217791511630781,-0.32205505816579816,0.1550719921491523,2,False
