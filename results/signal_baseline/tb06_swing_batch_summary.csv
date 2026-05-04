@@ -1,0 +1,27 @@
+thesis_id,thesis_name,status,fold_id,fold_start_date,fold_end_date,buyhold_annualized_return,strategy_total_return,strategy_annualized_return,excess_vs_buyhold_ann,beats_buyhold,required_file,data_note
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,1.0,2016-05-03,2017-05-02,0.1748225505963268,0.05953423221711618,0.060028478404735575,-0.11479407219159121,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,2.0,2017-05-03,2018-04-30,0.1899332145875985,0.2656894520979194,0.2680967218761079,0.0781635072885094,True,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,3.0,2018-05-02,2019-05-03,0.1143940850206222,-0.04095329143780635,-0.04127664834427791,-0.15567073336490012,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,4.0,2019-05-06,2020-05-07,-0.12384337494048903,0.011620046917908633,0.011714303725488984,0.135557678665978,True,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,5.0,2020-05-08,2021-05-04,0.6136945911288969,0.40699924177759006,0.4108790400290405,-0.20281555109985638,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,6.0,2021-05-05,2022-05-04,0.14804660218083177,0.0030246352974672153,0.0030490646667498122,-0.14499753751408195,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,7.0,2022-05-05,2023-05-04,0.10576115919293927,0.1813932345119873,0.18298246130623053,0.07722130211329126,True,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,8.0,2023-05-05,2024-05-03,0.3648087134241853,0.15588837809809397,0.15723959171185165,-0.20756912171233366,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,9.0,2024-05-06,2025-05-02,0.10239514183887088,0.03424342398165625,0.034666463714729145,-0.06772867812414174,False,,
+TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,evaluated,10.0,2025-05-05,2026-04-30,0.0014560385331043868,-0.12868111595665588,-0.13013765167731528,-0.13159369021041967,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,1.0,2016-05-03,2017-05-02,0.1748225505963268,-0.006145403881004596,-0.006194809766543852,-0.18101736036287064,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,2.0,2017-05-03,2018-04-30,0.1899332145875985,-0.07399620089438752,-0.07457012248368688,-0.26450333707128537,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,3.0,2018-05-02,2019-05-03,0.1143940850206222,-0.006899113337567764,-0.006954557431221309,-0.12134864245184351,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,4.0,2019-05-06,2020-05-07,-0.12384337494048903,-0.06185718036180232,-0.06234014721213077,0.061503227728358256,True,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,5.0,2020-05-08,2021-05-04,0.6136945911288969,0.8013108105033562,0.8098803056921979,0.19618571456330103,True,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,6.0,2021-05-05,2022-05-04,0.14804660218083177,-0.13506503549020143,-0.13607656365858622,-0.284123165839418,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,7.0,2022-05-05,2023-05-04,0.10576115919293927,0.00525352911259902,0.005296008274566555,-0.10046515091837271,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,8.0,2023-05-05,2024-05-03,0.3648087134241853,0.49493523640467374,0.49979058699382306,0.13498187356963776,True,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,9.0,2024-05-06,2025-05-02,0.10239514183887088,-0.031532615965618294,-0.03190942709775113,-0.13430456893662202,False,,
+TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,evaluated,10.0,2025-05-05,2026-04-30,0.0014560385331043868,-0.14232397000654096,-0.14392180777064645,-0.14537784630375084,False,,
+TB06_T04_EarningsCalendarOverlay,EarningsCalendarOverlay,data_required,,,,,,,,,data/earnings_calendar.csv,NSE/BSE earnings dates with ticker and announcement_date
+TB06_T06_SectorRotationLongOnly,SectorRotationLongOnly,data_required,,,,,,,,,data/sector_indices_60m_or_daily.csv,11 NSE sector index or ETF histories
+TB06_T07_FAndODeliveryFiltered,FAndODeliveryFiltered,data_required,,,,,,,,,data/nse_delivery_bhavcopy.csv,NSE delivery percent by ticker and date
+TB06_T08_OIChangeAugmentedScore,OIChangeAugmentedScore,data_required,,,,,,,,,data/nse_fno_bhavcopy_oi.csv,F&O open interest change by ticker and date
+TB06_T09_BreadthGate,BreadthGate,data_required,,,,,,,,,data/nifty500_daily_ohlcv.csv,Nifty 500 constituents daily OHLCV for advance-decline breadth
+TB06_T10_SmallCapMomentum,SmallCapMomentum,data_required,,,,,,,,,data/nse_midcap_smallcap_60m.csv,Midcap-150 or Smallcap-250 OHLCV history with liquidity filters
