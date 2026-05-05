@@ -2,6 +2,23 @@
 
 Date: 2026-03-27
 
+## 2026-05-05 Status Update
+
+The broad external-data rescue program has now been tested enough to tighten the plan.
+
+- `TB07_T01 DeliveryPercentRegime`: completed, failed same-universe buy-hold
+- `TB07_T02 FOOpenInterestPositioning`: completed, failed same-universe buy-hold
+- `TB07_T04 BreadthConfirmationGate`: completed, failed same-universe buy-hold
+- `TB07_T03 EarningsEventRisk`: template-only; not populated from Zerodha
+- `TB08` retail-feasible pairs / relative-value scan: completed, decisively negative
+
+Updated planning rule:
+
+1. do not open another broad OHLCV selector, wrapper, or market-wide gate branch on this retail stack
+2. treat delivery, OI, and breadth as possible conditioning signals, not as proven standalone alpha engines
+3. if research continues, the next branch should be a narrow incumbent overlay such as `TB09_T01 DeliveryAwareIncumbentOverlay`
+4. if that overlay also fails, stop autonomous systematic research on this stack rather than widening the branch family again
+
 ## Objective
 
 Build a sound intraday trading engine that is:
@@ -141,6 +158,30 @@ Each thesis ends as one of:
 
 ## Current Frontier
 
+### Batch 06 closeout
+
+Date: 2026-05-04
+
+`TB06` is closed as `research_only`.
+
+The batch tested Zerodha-only OHLCV swing rescue paths after the `PortfolioRank60m E1006` long-window failure:
+
+- large-cap stock rotation
+- passive-plus-active throttle
+- winner retention
+- loser avoidance
+- ETF momentum and ETF low-vol rotation
+- mid/small-cap momentum and low-vol rotation
+- RL-style drawdown guardrail overlays
+
+None beat same-universe buy-hold with adequate fold robustness. The strongest guarded profile reached `16.79%` against `17.12%` buy-hold with only `4 / 10` folds won. The mid/small-cap test was especially decisive: buy-hold averaged `33.17%`, while the best rotation variant reached only `12.52%`.
+
+Conclusion:
+
+- do not reopen pure OHLCV rotation or guardrail-rescue theses in this cycle
+- guardrails remain useful only as risk controls after alpha exists
+- the next real research move must add a new information axis
+
 ### Incumbent
 
 - benchmark: `SIGNAL_E211_BANDED_68`
@@ -174,38 +215,36 @@ Each thesis ends as one of:
 
 ### Current next thesis
 
-- `TB03_T05 HoldingHorizonE1903Sweep`
-  - `TB03_T01` and `TB03_T03` completed as diagnostics and improved economics without overturning the incumbent
-  - `TB03_T04` completed as the first true executable breakthrough, with `PortfolioRank60m` long-only weekly wrappers turning strongly positive
-  - next command: `run_mode.bat signal_baseline_native_15m_holding_horizon_execution_sweep`
+- `TB07 ExternalDataAxisReadiness`
+  - first command: `python -u -B ssell1.py --mode signal_diagnostic_tb07_external_data_readiness`
+  - purpose: check whether delivery percentage, F&O OI, earnings calendar, or breadth files are locally available with usable schemas
+  - do not open another OHLCV-only thesis unless the universe, benchmark, or data axis changes materially
 
 ## Immediate Plan
 
 Implement next:
 
-- run the dedicated `E1903` execution-hold sweep
-- confirm whether threshold tightening plus longer holding rescues the strongest holding-horizon research survivor
-- keep explicit comparison to `FLAT` and `SIGNAL_E211_BANDED_68`
-- if `E1903` still fails, treat portfolio construction rather than single-name holding-horizon rescue as the cleaner executable path
+- run `TB07` external-data readiness
+- if a file is ready, wire only that thesis first
+- if no file is ready, pause model work and prepare the missing data file before opening another strategy run
 
 Decision rule:
 
-- if one or more near-boundary policies flips positive under plausible liquid-name friction:
-  - prioritize tiered slippage, cheaper-instrument baselines, and low-turnover wrapper work
-- if nothing flips and the gap stays wide even under lower friction:
-  - do not rescue with another classifier; move back toward incumbent overlays or a real new data axis
+- if a new information axis is available:
+  - test it against same-universe buy-hold, not just against `E211`
+- if no new information axis is available:
+  - do not run another OHLCV selector; the evidence base is exhausted for this cycle
 
 ## Short-Term Queue
 
 Continue in this order:
 
-1. `TB03_T05 HoldingHorizonE1903Sweep`
-2. `TB03_T06 BenchmarkSuiteRefresh`
-3. `TB03_T07 CostAwareSelectionScore`
-4. `TB03_T08 InstrumentAwareCostDashboard`
-5. `TB03_T09 IncumbentLiquidSubsetAudit`
-6. `TB02_T08 ExecutionCostAwareEntryDelay`
-7. `TB02_T10 NewExternalDataAxis`, only when a real local feed exists
+1. `TB07_T00 ExternalDataAxisReadiness`
+2. `TB07_T01 DeliveryPercentRegime`, only if `data/nse_delivery_bhavcopy.csv` is ready
+3. `TB07_T02 FOOpenInterestPositioning`, only if `data/nse_fno_bhavcopy_oi.csv` is ready
+4. `TB07_T03 EarningsEventRisk`, only if `data/earnings_calendar.csv` is ready
+5. `TB07_T04 BreadthConfirmationGate`, only if `data/nifty500_daily_ohlcv.csv` is ready
+6. Deployment/risk guardrails only after a strategy beats buy-hold
 
 ## Source Of Truth
 

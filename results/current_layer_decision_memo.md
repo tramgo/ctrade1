@@ -2,6 +2,53 @@
 
 Date: 2026-03-24
 
+## 2026-05-05 Update
+
+`TB07` is now effectively closed on the current retail-accessible stack.
+
+Decision:
+
+- close `TB07_T01 DeliveryPercentRegime` as `research_only`
+- close `TB07_T02 FOOpenInterestPositioning` as `research_only`
+- close `TB07_T04 BreadthConfirmationGate` as `research_only`
+- keep `TB07_T03 EarningsEventRisk` as `template_only`
+- close the first retail-feasible `TB08` pairs / relative-value scan as `research_only`
+- do not open another broad standalone OHLCV or market-wide gate branch on this stack
+- if research continues, narrow the scope to a delivery-aware overlay on `SIGNAL_E211_BANDED_68`
+
+Key evidence:
+
+| Thesis | Best Variant | Mean Ann. | Benchmark | Folds Beating Benchmark | Verdict |
+|---|---|---:|---:|---:|---|
+| `TB07_T01 Delivery %` | `delivery_rising` | `4.42%` | `17.95%` buy-hold | `4 / 10` | fail |
+| `TB07_T02 F&O OI` | `oi_rising_and_pos` | `8.91%` | `19.02%` buy-hold | `3 / 10` | fail |
+| `TB07_T04 Breadth gate` | `breadth_strong` | `2.67%` | `16.96%` buy-hold | `1 / 10` | fail |
+| `TB08 Pairs` | `ICICIBANK|LT z120 e2.0` | `-52.57%` | `0%` flat | `0 / 2106` positive cells | fail |
+
+Practical conclusion: under the current data ceiling, new information axes mainly improved participation or drawdown shape, not alpha. The only honest next systematic branch is a narrow incumbent overlay rather than another standalone selector family.
+
+## 2026-05-04 Update
+
+`TB06` is closed. The Zerodha-only OHLCV swing rescue path failed across large-cap stocks, ETFs, and the 30-name mid/small-cap universe.
+
+Decision:
+
+- keep `SIGNAL_E211_BANDED_68` as incumbent
+- keep RL frozen
+- stop opening pure OHLCV rotation / wrapper / guardrail rescue theses
+- move to `TB07 ExternalDataAxisReadiness`
+
+Key evidence:
+
+| Strategy Group | Best Mean Ann. | Buy-Hold Ann. | Best Fold Wins | Verdict |
+|---|---:|---:|---:|---|
+| Large-cap OHLCV variants | `14.01%` | `17.12%` | `4 / 10` | fail |
+| ETF rotation variants | `12.18%` | `15.51%` | `2 / 10` | fail |
+| Mid/small-cap OHLCV variants | `12.52%` | `33.17%` | `3 / 10` | fail |
+| Guardrail overlays | `16.79%` | `17.12%` | `4 / 10` | fail |
+
+Practical conclusion: guardrails can reduce risk, but they are not alpha. The next strategy work must use a new information axis such as delivery percentage, F&O OI, earnings calendar, or market breadth.
+
 ### Decision
 
 The current `60m` signal-discovery layer is now explored enough for this cycle.

@@ -1,0 +1,4 @@
+experiment_id,variant,fold_count,mean_strategy_annualized,min_strategy_annualized,mean_buyhold_annualized,folds_beating_buyhold,mean_eligibility_rate,all_folds_beat_buyhold
+E1006,ungated,10,0.1552443872348219,-0.28834379629327556,0.1902419940171221,2,1.0,False
+E1006,oi_rising_and_pos,10,0.08914004888621338,-0.2248988905426036,0.1902419940171221,3,0.1639241622574956,False
+E1006,oi_rising,10,0.03310302055560418,-0.248820321884773,0.1902419940171221,2,0.28007054673721343,False

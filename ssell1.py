@@ -126,6 +126,20 @@ NSE_LIQUID_UNIVERSE = [
     "BHARTIARTL"
 ]
 
+TB06_MIDSMALL_UNIVERSE = [
+    "PERSISTENT", "COFORGE", "MPHASIS", "KPITTECH", "LTTS", "TATAELXSI",
+    "CROMPTON", "VOLTAS", "BLUESTARCO",
+    "PHOENIXLTD", "OBEROIRLTY", "PRESTIGE",
+    "SUNDARMFIN", "MANAPPURAM", "IIFL", "FEDERALBNK", "IDFCFIRSTB",
+    "AFFLE", "ZOMATO", "POLICYBZR", "DELHIVERY",
+    "INDUSTOWER",
+    "NHPC", "SJVN", "IRFC", "HUDCO",
+    "INDIANHOTEL", "LEMONTREE",
+    "CDSL", "ANGELONE",
+]
+
+TB07_BREADTH_TICKER_TEMPLATE_COLUMNS = ["Ticker"]
+
 SECTOR_PROXY_MAP = {
     "HDFCBANK": "BANKBEES",
     "ICICIBANK": "BANKBEES",
@@ -1531,13 +1545,13 @@ def build_local_instrument_df() -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["tradingsymbol", "instrument_token", "exchange"])
 
 
-def load_instrument_df() -> pd.DataFrame:
+def load_instrument_df(force_live: bool = False) -> pd.DataFrame:
     required_symbols = set(NSE_LIQUID_UNIVERSE)
     required_symbols.add(MARKET_PROXY_SYMBOL)
     required_symbols.update(SECTOR_PROXY_MAP.values())
     local_df = build_local_instrument_df()
     local_symbols = set(local_df["tradingsymbol"].astype(str)) if not local_df.empty else set()
-    if required_symbols.issubset(local_symbols):
+    if (not force_live) and required_symbols.issubset(local_symbols):
         main_logger.info(
             "[DATA] Using cached local instrument map with %s symbols; Kite instrument dump skipped.",
             len(local_symbols),
@@ -1550,8 +1564,9 @@ def load_instrument_df() -> pd.DataFrame:
         if not local_df.empty:
             missing_symbols = sorted(required_symbols - local_symbols)
             main_logger.warning(
-                "[DATA] Kite instrument dump unavailable; falling back to cached local instrument map. Missing local symbols: %s. Error: %s",
+                "[DATA] Kite instrument dump unavailable; falling back to cached local instrument map. Missing local symbols: %s. force_live=%s Error: %s",
                 ", ".join(missing_symbols) if missing_symbols else "none",
+                force_live,
                 exc,
             )
             return local_df
@@ -1660,8 +1675,10 @@ tokken = get_access_token()
 kite.set_access_token(tokken)
 main_logger.info("Logged in. Kite profile:", kite.profile()) """
 
-# Get dump of all NSE instruments using Kite when needed, otherwise reuse local cached symbols.
-instrument_df = load_instrument_df()
+# Default to the local cached symbol map so non-RL / offline research modes do not
+# trigger Zerodha auth or network calls at import time. Specific modes can still call
+# load_instrument_df() later if they truly need a fuller live instrument dump.
+instrument_df = build_local_instrument_df()
 
 def get_instrument_token(ticker: str, instrument_df: pd.DataFrame) -> Optional[int]:
     # Assumes the instrument_df contains a 'tradingsymbol' column for ticker symbols
@@ -1703,6 +1720,13 @@ def get_zerodha_nse_tradingsymbols(instrument_df: pd.DataFrame) -> list[str]:
     )
     symbols = symbols[symbols != ""]
     return sorted(symbols.unique().tolist())
+
+
+def normalize_zerodha_nse_symbol(symbol: str) -> str:
+    out = str(symbol).strip().upper()
+    if out.endswith(".NS"):
+        out = out[:-3]
+    return out
 
 
 def extract_latest_walk_forward_test_rows(log_path: Path) -> pd.DataFrame:
@@ -2405,6 +2429,78 @@ def get_data_kite(
         print(f"[get_data_kite] Failed to write CSV: {e}")
 
     _DATA_KITE_CACHE[cache_key] = df.copy()
+    return df
+
+
+def get_raw_ohlcv_kite(
+    kite,
+    instrument_token: int,
+    ticker: str,
+    days: int = 3650,
+    interval: str = "day",
+    tz_name: str = "Asia/Kolkata",
+) -> pd.DataFrame:
+    interval_key = str(interval).lower().strip()
+    interval_safe = interval_key.replace("minute", "m").replace(" ", "")
+    ticker_safe = normalize_zerodha_nse_symbol(ticker)
+    csv_path = DATA_DIR / f"data_fetched_{ticker_safe}_{interval_safe}_{int(days)}d.csv"
+    legacy_csv_path = RESULTS_DIR / f"data_fetched_{ticker_safe}_{interval_safe}_{int(days)}d.csv"
+    load_csv_path = csv_path if csv_path.exists() else legacy_csv_path if legacy_csv_path.exists() else None
+    if load_csv_path is not None:
+        print(f"Loading cached data from: {load_csv_path}")
+        df = pd.read_csv(load_csv_path)
+        if "Date" in df.columns:
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce").dt.tz_localize(None)
+        return df
+
+    interval_limits = {
+        "minute": 60,
+        "3minute": 100,
+        "5minute": 100,
+        "10minute": 100,
+        "15minute": 200,
+        "30minute": 200,
+        "60minute": 390,
+        "day": 1900,
+    }
+    max_days_per_call = interval_limits.get(interval_key, 30 if "minute" in interval_key else 100)
+    tz = pytz.timezone(tz_name)
+    end = datetime.now(tz)
+    beg = end - timedelta(days=days)
+
+    kite_client = get_authenticated_kite()
+    rows, cur = [], beg
+    while cur < end:
+        nxt = min(cur + timedelta(days=max_days_per_call), end)
+        rows.extend(
+            kite_client.historical_data(
+                instrument_token,
+                cur.strftime("%Y-%m-%d %H:%M:%S"),
+                nxt.strftime("%Y-%m-%d %H:%M:%S"),
+                interval,
+            )
+        )
+        cur = nxt + timedelta(seconds=1)
+        time.sleep(0.35)
+
+    if not rows:
+        return pd.DataFrame(columns=["Date", "Open", "High", "Low", "Close", "Volume"])
+
+    df = (
+        pd.DataFrame(rows)
+        .rename(columns={"date": "Date", "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
+        .assign(Date=lambda x: pd.to_datetime(x["Date"], errors="coerce").dt.tz_localize(None))
+        .drop_duplicates("Date")
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+    keep_cols = [col for col in ["Date", "Open", "High", "Low", "Close", "Volume"] if col in df.columns]
+    df = df[keep_cols].copy()
+    try:
+        df.to_csv(csv_path, index=False)
+        print(f"Data successfully saved to: {csv_path}")
+    except Exception as exc:
+        print(f"[get_raw_ohlcv_kite] Failed to write CSV: {exc}")
     return df
 
 class SingleStockTradingEnv(gym.Env):
@@ -11746,6 +11842,2015 @@ def run_tb06_zerodha_etf_rotation(
     return summary_df
 
 
+def run_tb06_midcap_smallcap_fetch(
+    ticker_list: Optional[List[str]] = None,
+    interval: str = "60minute",
+    history_days: int = 3650,
+    output_prefix: str = "tb06_midcap_smallcap_fetch_inventory",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    ticker_list = ticker_list or TB06_MIDSMALL_UNIVERSE
+    rows: List[dict] = []
+    print(f"[TB06-MIDFETCH] checking/fetching {len(ticker_list)} symbols", flush=True)
+    for idx, ticker in enumerate(ticker_list, start=1):
+        cache_path = DATA_DIR / f"data_fetched_{ticker}_60m_{int(history_days)}d.csv"
+        legacy_path = RESULTS_DIR / f"data_fetched_{ticker}_60m_{int(history_days)}d.csv"
+        if cache_path.exists() or legacy_path.exists():
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "status": "cached",
+                    "cache_path": str(cache_path if cache_path.exists() else legacy_path),
+                }
+            )
+            continue
+        token_rows = instrument_df.loc[
+            (instrument_df.get("tradingsymbol", pd.Series(dtype=str)).astype(str).str.upper() == ticker.upper())
+            & (instrument_df.get("exchange", pd.Series(dtype=str)).astype(str).str.upper() == "NSE")
+        ].copy()
+        if token_rows.empty:
+            rows.append({"ticker": ticker, "status": "instrument_not_found", "cache_path": ""})
+            print(f"[TB06-MIDFETCH] {idx}/{len(ticker_list)} {ticker}: instrument_not_found", flush=True)
+            continue
+        token = int(token_rows.iloc[0]["instrument_token"])
+        try:
+            df = get_data_kite(
+                kite,
+                token,
+                days=int(history_days),
+                interval=interval,
+                include_relative_context=False,
+            )
+            status = "fetched" if isinstance(df, pd.DataFrame) and not df.empty else "empty_fetch"
+            rows.append({"ticker": ticker, "status": status, "rows": int(len(df)) if isinstance(df, pd.DataFrame) else 0, "cache_path": str(cache_path)})
+            print(f"[TB06-MIDFETCH] {idx}/{len(ticker_list)} {ticker}: {status}", flush=True)
+        except Exception as exc:
+            rows.append({"ticker": ticker, "status": "fetch_error", "error": str(exc), "cache_path": str(cache_path)})
+            print(f"[TB06-MIDFETCH] {idx}/{len(ticker_list)} {ticker}: fetch_error {exc}", flush=True)
+    out = pd.DataFrame(rows)
+    out_csv = baseline_dir / f"{output_prefix}.csv"
+    out.to_csv(out_csv, index=False)
+    print(f"[TB06-MIDFETCH] inventory saved: {out_csv}", flush=True)
+    return out
+
+
+def run_tb07_prepare_breadth_ticker_template(
+    output_prefix: str = "tb07_breadth_ticker_template_inventory",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    ticker_csv = DATA_DIR / "nifty500_tickers.csv"
+    inventory_csv = baseline_dir / f"{output_prefix}.csv"
+
+    if ticker_csv.exists():
+        try:
+            existing = pd.read_csv(ticker_csv)
+            rows = [
+                {
+                    "status": "already_present",
+                    "path": str(ticker_csv),
+                    "row_count": int(len(existing)),
+                    "columns": "|".join(map(str, existing.columns.tolist())),
+                    "note": "Edit this file if you want a different breadth universe.",
+                }
+            ]
+        except Exception as exc:
+            rows = [
+                {
+                    "status": "read_error",
+                    "path": str(ticker_csv),
+                    "row_count": 0,
+                    "columns": "",
+                    "note": str(exc),
+                }
+            ]
+        out = pd.DataFrame(rows)
+        out.to_csv(inventory_csv, index=False)
+        print(f"[TB07-BREADTH-TEMPLATE] inventory saved: {inventory_csv}", flush=True)
+        return out
+
+    local_symbols = sorted(
+        {
+            normalize_zerodha_nse_symbol(sym)
+            for sym in get_zerodha_nse_tradingsymbols(instrument_df)
+            if str(sym).strip()
+        }
+    )
+    template_df = pd.DataFrame({"Ticker": local_symbols})
+    template_df.to_csv(ticker_csv, index=False)
+    out = pd.DataFrame(
+        [
+            {
+                "status": "template_created",
+                "path": str(ticker_csv),
+                "row_count": int(len(template_df)),
+                "columns": "Ticker",
+                "note": "This is a Zerodha NSE tradingsymbol template, not a verified historical Nifty500 membership file. Trim it to the breadth universe you want to fetch.",
+            }
+        ]
+    )
+    out.to_csv(inventory_csv, index=False)
+    print(f"[TB07-BREADTH-TEMPLATE] template saved: {ticker_csv}", flush=True)
+    print(f"[TB07-BREADTH-TEMPLATE] inventory saved: {inventory_csv}", flush=True)
+    return out
+
+
+def run_tb07_fetch_breadth_from_zerodha(
+    interval: str = "day",
+    history_days: int = 3650,
+    output_prefix: str = "tb07_breadth_fetch_inventory",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    ticker_csv = DATA_DIR / "nifty500_tickers.csv"
+    output_csv = DATA_DIR / "nifty500_daily_ohlcv.csv"
+    inventory_csv = baseline_dir / f"{output_prefix}.csv"
+    poisoned_none_cache = DATA_DIR / f"data_fetched_None_{str(interval).lower().strip().replace('minute', 'm').replace(' ', '')}_{int(history_days)}d.csv"
+    if poisoned_none_cache.exists():
+        print(f"[TB07-BREADTH-FETCH] ignoring poisoned cache artifact: {poisoned_none_cache}", flush=True)
+
+    if not ticker_csv.exists():
+        pd.DataFrame(
+            [
+                {
+                    "status": "ticker_file_missing",
+                    "path": str(ticker_csv),
+                    "note": "Run signal_prepare_tb07_breadth_ticker_template first, then trim the list to the breadth universe you actually want.",
+                }
+            ]
+        ).to_csv(inventory_csv, index=False)
+        print(f"[TB07-BREADTH-FETCH] ticker file missing: {ticker_csv}", flush=True)
+        print(f"[TB07-BREADTH-FETCH] inventory saved: {inventory_csv}", flush=True)
+        return pd.DataFrame()
+
+    tickers_df = pd.read_csv(ticker_csv)
+    ticker_col = next((col for col in tickers_df.columns if str(col).strip().lower() in {"ticker", "symbol", "tradingsymbol"}), None)
+    if ticker_col is None:
+        pd.DataFrame(
+            [
+                {
+                    "status": "ticker_file_invalid",
+                    "path": str(ticker_csv),
+                    "note": "Expected one of Ticker, Symbol, or Tradingsymbol columns.",
+                }
+            ]
+        ).to_csv(inventory_csv, index=False)
+        print(f"[TB07-BREADTH-FETCH] invalid ticker file schema: {ticker_csv}", flush=True)
+        print(f"[TB07-BREADTH-FETCH] inventory saved: {inventory_csv}", flush=True)
+        return pd.DataFrame()
+
+    fetch_instrument_df = load_instrument_df(force_live=True)
+    if fetch_instrument_df.empty or "instrument_token" not in fetch_instrument_df.columns:
+        pd.DataFrame(
+            [
+                {
+                    "status": "instrument_dump_unavailable",
+                    "path": "",
+                    "note": "Could not load a live Zerodha instrument dump. Breadth fetch cannot proceed without real instrument tokens.",
+                }
+            ]
+        ).to_csv(inventory_csv, index=False)
+        print("[TB07-BREADTH-FETCH] live instrument dump unavailable; no rows produced.", flush=True)
+        print(f"[TB07-BREADTH-FETCH] inventory saved: {inventory_csv}", flush=True)
+        return pd.DataFrame()
+    token_sample = pd.to_numeric(fetch_instrument_df["instrument_token"], errors="coerce")
+    if token_sample.notna().any() and bool((token_sample.dropna() >= 10_000_000).all()):
+        pd.DataFrame(
+            [
+                {
+                    "status": "local_placeholder_tokens_detected",
+                    "path": "",
+                    "note": "The fetch path only has placeholder local tokens, not a live Zerodha instrument dump. Breadth fetch would fail with invalid token.",
+                }
+            ]
+        ).to_csv(inventory_csv, index=False)
+        print("[TB07-BREADTH-FETCH] placeholder local tokens detected; refusing live fetch.", flush=True)
+        print(f"[TB07-BREADTH-FETCH] inventory saved: {inventory_csv}", flush=True)
+        return pd.DataFrame()
+
+    ticker_list = sorted(
+        {
+            normalize_zerodha_nse_symbol(t)
+            for t in tickers_df[ticker_col].dropna().astype(str).tolist()
+            if str(t).strip()
+        }
+    )
+    rows: List[dict] = []
+    frames: List[pd.DataFrame] = []
+    print(f"[TB07-BREADTH-FETCH] fetching daily breadth history for {len(ticker_list)} tickers", flush=True)
+
+    for idx, ticker in enumerate(ticker_list, start=1):
+        cache_path = DATA_DIR / f"data_fetched_{ticker}_{interval}_{int(history_days)}d.csv"
+        legacy_path = RESULTS_DIR / f"data_fetched_{ticker}_{interval}_{int(history_days)}d.csv"
+        load_path = cache_path if cache_path.exists() else legacy_path if legacy_path.exists() else None
+        try:
+            if load_path is None:
+                token_rows = fetch_instrument_df.loc[
+                    (fetch_instrument_df.get("tradingsymbol", pd.Series(dtype=str)).astype(str).str.upper() == ticker.upper())
+                    & (fetch_instrument_df.get("exchange", pd.Series(dtype=str)).astype(str).str.upper() == "NSE")
+                ].copy()
+                if token_rows.empty:
+                    rows.append({"ticker": ticker, "status": "instrument_not_found", "rows": 0, "cache_path": ""})
+                    print(f"[TB07-BREADTH-FETCH] {idx}/{len(ticker_list)} {ticker}: instrument_not_found", flush=True)
+                    continue
+                token = int(token_rows.iloc[0]["instrument_token"])
+                df = get_raw_ohlcv_kite(
+                    kite,
+                    instrument_token=token,
+                    ticker=ticker,
+                    days=int(history_days),
+                    interval=interval,
+                )
+                load_path = cache_path if cache_path.exists() else legacy_path if legacy_path.exists() else None
+                status = "fetched"
+            else:
+                df = pd.read_csv(load_path)
+                status = "cached"
+
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                rows.append({"ticker": ticker, "status": "empty_fetch", "rows": 0, "cache_path": str(load_path) if load_path else ""})
+                print(f"[TB07-BREADTH-FETCH] {idx}/{len(ticker_list)} {ticker}: empty_fetch", flush=True)
+                continue
+
+            if "Date" not in df.columns or "Close" not in df.columns:
+                rows.append({"ticker": ticker, "status": "schema_error", "rows": int(len(df)), "cache_path": str(load_path) if load_path else ""})
+                print(f"[TB07-BREADTH-FETCH] {idx}/{len(ticker_list)} {ticker}: schema_error", flush=True)
+                continue
+
+            one = df.copy()
+            one["Date"] = pd.to_datetime(one["Date"], errors="coerce").dt.normalize()
+            one["Ticker"] = ticker
+            keep_cols = [col for col in ["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"] if col in one.columns]
+            one = one[keep_cols].dropna(subset=["Date", "Close"]).copy()
+            frames.append(one)
+            rows.append({"ticker": ticker, "status": status, "rows": int(len(one)), "cache_path": str(load_path) if load_path else str(cache_path)})
+            print(f"[TB07-BREADTH-FETCH] {idx}/{len(ticker_list)} {ticker}: {status}", flush=True)
+        except Exception as exc:
+            rows.append({"ticker": ticker, "status": "fetch_error", "rows": 0, "cache_path": str(cache_path), "error": str(exc)})
+            print(f"[TB07-BREADTH-FETCH] {idx}/{len(ticker_list)} {ticker}: fetch_error {exc}", flush=True)
+
+    inventory_df = pd.DataFrame(rows)
+    inventory_df.to_csv(inventory_csv, index=False)
+    if frames:
+        breadth_df = pd.concat(frames, ignore_index=True)
+        breadth_df = breadth_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+        breadth_df.to_csv(output_csv, index=False)
+        print(f"[TB07-BREADTH-FETCH] breadth csv saved: {output_csv} rows={len(breadth_df)} tickers={breadth_df['Ticker'].nunique()}", flush=True)
+    else:
+        pd.DataFrame(columns=["Date", "Ticker", "Open", "High", "Low", "Close", "Volume"]).to_csv(output_csv, index=False)
+        print(f"[TB07-BREADTH-FETCH] no breadth rows produced; empty csv saved: {output_csv}", flush=True)
+    print(f"[TB07-BREADTH-FETCH] inventory saved: {inventory_csv}", flush=True)
+    return inventory_df
+
+
+def run_tb07_prepare_earnings_calendar_template(
+    output_prefix: str = "tb07_earnings_template_status",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    template_csv = DATA_DIR / "earnings_calendar.csv"
+    status_csv = baseline_dir / f"{output_prefix}.csv"
+    note_path = RESULTS_DIR / "tb07_earnings_calendar_note.md"
+
+    if not template_csv.exists():
+        pd.DataFrame(columns=["Date", "Ticker", "EventDate"]).to_csv(template_csv, index=False)
+
+    note_text = (
+        "# TB07 Earnings Calendar Note\n\n"
+        "- Zerodha does not provide a historical or forward earnings calendar feed through the candle/instrument path used in this repo.\n"
+        "- `data/earnings_calendar.csv` must be populated from a non-Zerodha source or manual process.\n"
+        "- Expected columns: `Date`, `Ticker`, `EventDate`.\n"
+        "- `Date` can be the file/import date; `EventDate` is the actual earnings announcement date used by the strategy filter.\n"
+    )
+    note_path.write_text(note_text, encoding="utf-8")
+
+    status_df = pd.DataFrame(
+        [
+            {
+                "status": "zerodha_unsupported_for_earnings_calendar",
+                "template_path": str(template_csv),
+                "note_path": str(note_path),
+                "required_columns": "Date|Ticker|EventDate",
+                "note": "Template created. Populate this from a non-Zerodha source; Zerodha candles/instruments do not expose earnings-calendar history.",
+            }
+        ]
+    )
+    status_df.to_csv(status_csv, index=False)
+    print(f"[TB07-EARN-TEMPLATE] template saved: {template_csv}", flush=True)
+    print(f"[TB07-EARN-TEMPLATE] note saved: {note_path}", flush=True)
+    print(f"[TB07-EARN-TEMPLATE] status saved: {status_csv}", flush=True)
+    return status_df
+
+
+def run_tb06_midcap_smallcap_momentum(
+    ticker_list: Optional[List[str]] = None,
+    rebalance_every_sessions: int = 10,
+    top_k: int = 5,
+    lookback_sessions: int = 60,
+    output_prefix: str = "tb06_midcap_smallcap_momentum",
+    fold_count: int = 10,
+) -> pd.DataFrame:
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    ticker_list = ticker_list or TB06_MIDSMALL_UNIVERSE
+    frames: List[pd.DataFrame] = []
+    missing_symbols: List[str] = []
+    for ticker in ticker_list:
+        candidates = [
+            DATA_DIR / f"data_fetched_{ticker}_60m_3650d.csv",
+            RESULTS_DIR / f"data_fetched_{ticker}_60m_3650d.csv",
+        ]
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            missing_symbols.append(ticker)
+            continue
+        df = pd.read_csv(path, usecols=lambda col: col in {"Date", "High", "Low", "Close", "ATR20_log"})
+        if "Date" not in df.columns or "Close" not in df.columns:
+            missing_symbols.append(ticker)
+            continue
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+        df["High"] = pd.to_numeric(df.get("High", df["Close"]), errors="coerce").fillna(df["Close"])
+        df["Low"] = pd.to_numeric(df.get("Low", df["Close"]), errors="coerce").fillna(df["Close"])
+        if "ATR20_log" in df.columns:
+            df["ATR20_log"] = pd.to_numeric(df["ATR20_log"], errors="coerce")
+        else:
+            df["ATR20_log"] = np.nan
+        df = df.dropna(subset=["Date", "Close"]).copy()
+        df["Ticker"] = ticker
+        df["TradeDate"] = df["Date"].dt.normalize()
+        frames.append(df[["Ticker", "Date", "TradeDate", "High", "Low", "Close", "ATR20_log"]])
+
+    if len(frames) < max(5, int(top_k)):
+        out = pd.DataFrame(
+            [
+                {
+                    "thesis_id": "TB06_T10_SmallCapMomentum",
+                    "status": "data_missing",
+                    "cached_symbol_count": int(len(frames)),
+                    "required_min_symbols": int(max(5, top_k)),
+                    "missing_symbols": "|".join(missing_symbols),
+                    "next_command": "python -u -B ssell1.py --mode signal_fetch_tb06_midcap_smallcap_universe",
+                }
+            ]
+        )
+        out.to_csv(baseline_dir / f"{output_prefix}_summary.csv", index=False)
+        out.to_csv(baseline_dir / f"{output_prefix}_aggregate.csv", index=False)
+        print(f"[TB06-MIDSMALL] insufficient cached data: {len(frames)} symbols", flush=True)
+        return out
+
+    raw = pd.concat(frames, ignore_index=True)
+    daily = (
+        raw.sort_values(["Ticker", "Date"])
+        .groupby(["Ticker", "TradeDate"], as_index=False)
+        .agg(
+            High=("High", "max"),
+            Low=("Low", "min"),
+            Close=("Close", "last"),
+            ATR20_log=("ATR20_log", "last"),
+            LastTs=("Date", "max"),
+        )
+    )
+    range_pct = ((daily["High"] - daily["Low"]) / daily["Close"].replace(0, np.nan)).replace([np.inf, -np.inf], np.nan)
+    daily["ATR20_proxy"] = (
+        range_pct.groupby(daily["Ticker"])
+        .transform(lambda x: x.rolling(20, min_periods=3).mean())
+        .clip(lower=1e-8)
+        .pipe(np.log)
+    )
+    daily["ATR20_log"] = pd.to_numeric(daily["ATR20_log"], errors="coerce").fillna(daily["ATR20_proxy"]).fillna(-20.0)
+    daily["MomentumScore"] = daily.groupby("Ticker")["Close"].pct_change(int(lookback_sessions))
+    daily["DailyRet"] = daily.groupby("Ticker")["Close"].pct_change()
+    daily["RealizedVol"] = daily.groupby("Ticker")["DailyRet"].transform(lambda x: x.rolling(int(lookback_sessions), min_periods=10).std())
+
+    trade_dates = sorted(pd.Series(daily["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+
+    def _annualize_total(total_return: float, fold_days: int) -> float:
+        if not np.isfinite(total_return) or total_return <= -0.999999:
+            return np.nan
+        return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+    def _compound(returns: List[float]) -> float:
+        if not returns:
+            return np.nan
+        return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+    def _score_weighted_return(longs: pd.DataFrame, score_col: str, inverse: bool = False) -> float:
+        if longs.empty:
+            return 0.0
+        score = pd.to_numeric(longs[score_col], errors="coerce")
+        if inverse:
+            score = -score
+        centered = score - float(score.min())
+        centered = centered + 1e-6
+        denom = float(centered.sum())
+        longs = longs.copy()
+        longs["alloc_weight"] = (1.0 / len(longs)) if not np.isfinite(denom) or denom <= 0.0 else centered / denom
+        longs["est_cost"] = estimate_roundtrip_cost(longs)
+        return float((longs["alloc_weight"] * longs["raw_interval_return"] - longs["alloc_weight"] * longs["est_cost"]).sum())
+
+    summary_rows: List[dict] = []
+    event_rows: List[dict] = []
+    print(
+        f"[TB06-MIDSMALL] starting small/midcap OHLCV baseline cached_symbols={len(frames)} top_k={top_k}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_dates_sorted = sorted(pd.Series(fold_date_index).tolist())
+        if len(fold_dates_sorted) < 2:
+            continue
+        fold_df = daily.loc[daily["TradeDate"].isin(fold_date_index)].copy()
+        available_symbols = sorted(fold_df["Ticker"].dropna().unique().tolist())
+        if len(available_symbols) < max(5, top_k):
+            continue
+        start_snapshot = fold_df.loc[fold_df["TradeDate"] == fold_dates_sorted[0]].copy()
+        end_snapshot = (
+            fold_df.loc[fold_df["TradeDate"] == fold_dates_sorted[-1], ["Ticker", "Close"]]
+            .rename(columns={"Close": "EndClose"})
+        )
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner").dropna(subset=["Close", "EndClose"])
+        buyhold_total = float(np.mean((bh_df["EndClose"] / bh_df["Close"]) - 1.0)) if not bh_df.empty else np.nan
+        buyhold_ann = _annualize_total(buyhold_total, len(fold_dates_sorted))
+        returns_by_variant: Dict[str, List[float]] = {
+            "TB06_T10_MidSmallMomentumTopK": [],
+            "TB06_T10_MidSmallLowVolTopK": [],
+        }
+        for idx in range(len(fold_dates_sorted) - 1):
+            if idx % int(rebalance_every_sessions) != 0:
+                continue
+            trade_date = fold_dates_sorted[idx]
+            next_idx = min(idx + int(rebalance_every_sessions), len(fold_dates_sorted) - 1)
+            next_trade_date = fold_dates_sorted[next_idx]
+            if next_trade_date == trade_date:
+                continue
+            current = fold_df.loc[fold_df["TradeDate"] == trade_date].copy()
+            future = (
+                fold_df.loc[fold_df["TradeDate"] == next_trade_date, ["Ticker", "Close"]]
+                .rename(columns={"Close": "NextClose"})
+            )
+            current = current.merge(future, on="Ticker", how="inner").dropna(subset=["Close", "NextClose"]).copy()
+            if len(current) < max(5, top_k):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+            mom = current.dropna(subset=["MomentumScore"]).sort_values("MomentumScore", ascending=False).head(top_k).copy()
+            if len(mom) >= top_k:
+                event_return = _score_weighted_return(mom, "MomentumScore")
+                returns_by_variant["TB06_T10_MidSmallMomentumTopK"].append(event_return)
+                event_rows.append(
+                    {
+                        "thesis_id": "TB06_T10_MidSmallMomentumTopK",
+                        "fold_id": int(fold_idx),
+                        "rebalance_date": trade_date,
+                        "next_rebalance_date": next_trade_date,
+                        "selected_symbols": "|".join(map(str, mom["Ticker"].tolist())),
+                        "event_return": event_return,
+                        "available_symbol_count": int(len(current)),
+                    }
+                )
+            lowvol = current.dropna(subset=["RealizedVol"]).sort_values("RealizedVol", ascending=True).head(top_k).copy()
+            if len(lowvol) >= top_k:
+                event_return = _score_weighted_return(lowvol, "RealizedVol", inverse=True)
+                returns_by_variant["TB06_T10_MidSmallLowVolTopK"].append(event_return)
+                event_rows.append(
+                    {
+                        "thesis_id": "TB06_T10_MidSmallLowVolTopK",
+                        "fold_id": int(fold_idx),
+                        "rebalance_date": trade_date,
+                        "next_rebalance_date": next_trade_date,
+                        "selected_symbols": "|".join(map(str, lowvol["Ticker"].tolist())),
+                        "event_return": event_return,
+                        "available_symbol_count": int(len(current)),
+                    }
+                )
+
+        for thesis_id, returns in returns_by_variant.items():
+            if not returns:
+                continue
+            total_return = _compound(returns)
+            ann_return = _annualize_total(total_return, len(fold_dates_sorted))
+            summary_rows.append(
+                {
+                    "thesis_id": thesis_id,
+                    "status": "evaluated",
+                    "fold_id": int(fold_idx),
+                    "fold_start_date": pd.Timestamp(fold_dates_sorted[0]),
+                    "fold_end_date": pd.Timestamp(fold_dates_sorted[-1]),
+                    "available_symbol_count": int(len(available_symbols)),
+                    "buyhold_annualized_return": buyhold_ann,
+                    "strategy_total_return": total_return,
+                    "strategy_annualized_return": ann_return,
+                    "excess_vs_buyhold_ann": ann_return - buyhold_ann if np.isfinite(ann_return) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold": bool(np.isfinite(ann_return) and np.isfinite(buyhold_ann) and ann_return > buyhold_ann),
+                    "event_count": int(len(returns)),
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    events_df = pd.DataFrame(event_rows)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    events_csv = baseline_dir / f"{output_prefix}_events.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    events_df.to_csv(events_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby("thesis_id", dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_strategy_annualized=("strategy_annualized_return", "mean"),
+                min_strategy_annualized=("strategy_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                folds_beating_buyhold=("beats_buyhold", "sum"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate.to_csv(aggregate_csv, index=False)
+    print(f"[TB06-MIDSMALL] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb07_external_data_readiness(
+    output_prefix: str = "tb07_external_data_readiness",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    required_specs = [
+        {
+            "thesis_id": "TB07_T01_DeliveryPercentRegime",
+            "data_axis": "NSE delivery percentage",
+            "path": DATA_DIR / "nse_delivery_bhavcopy.csv",
+            "required_columns": "date|symbol|deliv_pct",
+            "reason": "tests whether high-delivery accumulation improves swing selection quality",
+        },
+        {
+            "thesis_id": "TB07_T02_FOOpenInterestPositioning",
+            "data_axis": "F&O open interest",
+            "path": DATA_DIR / "nse_fno_bhavcopy_oi.csv",
+            "required_columns": "date|symbol|oi|chg_in_oi",
+            "reason": "tests whether positioning confirms or vetoes OHLCV momentum",
+        },
+        {
+            "thesis_id": "TB07_T03_EarningsEventRisk",
+            "data_axis": "earnings calendar",
+            "path": DATA_DIR / "earnings_calendar.csv",
+            "required_columns": "Date|Ticker|EventDate",
+            "reason": "drops or de-risks names near earnings events",
+        },
+        {
+            "thesis_id": "TB07_T04_BreadthConfirmationGate",
+            "data_axis": "market breadth",
+            "path": DATA_DIR / "nifty500_daily_ohlcv.csv",
+            "required_columns": "Date|Ticker|Close",
+            "reason": "builds an advance-decline regime gate from broad-market participation",
+        },
+    ]
+    rows: List[dict] = []
+    for spec in required_specs:
+        path = Path(spec["path"])
+        status = "missing"
+        row_count = 0
+        present_columns = ""
+        missing_columns = spec["required_columns"]
+        if path.exists():
+            try:
+                preview = pd.read_csv(path, nrows=25)
+                row_count = int(sum(1 for _ in open(path, "r", encoding="utf-8", errors="ignore")) - 1)
+                original_cols = [str(col) for col in preview.columns.tolist()]
+                normalized_present = {str(col).strip().lower() for col in original_cols}
+                required_list = [str(col) for col in str(spec["required_columns"]).split("|")]
+                normalized_required = {str(col).strip().lower() for col in required_list}
+                missing = sorted(req for req in required_list if str(req).strip().lower() not in normalized_present)
+                if missing:
+                    status = "schema_mismatch"
+                elif row_count <= 0:
+                    status = "template_only"
+                else:
+                    status = "ready"
+                present_columns = "|".join(original_cols)
+                missing_columns = "|".join(missing)
+            except Exception as exc:
+                status = f"read_error: {exc}"
+        rows.append(
+            {
+                "thesis_id": spec["thesis_id"],
+                "data_axis": spec["data_axis"],
+                "status": status,
+                "path": str(path),
+                "row_count": row_count,
+                "required_columns": spec["required_columns"],
+                "present_columns": present_columns,
+                "missing_columns": missing_columns,
+                "reason": spec["reason"],
+            }
+        )
+    out = pd.DataFrame(rows)
+    out_csv = baseline_dir / f"{output_prefix}.csv"
+    out.to_csv(out_csv, index=False)
+    print(f"[TB07-DATA] readiness saved: {out_csv}", flush=True)
+    return out
+
+
+def run_tb07_equity_cache_audit(
+    output_prefix: str = "tb07_equity_cache_audit",
+    start_date: str = "2015-01-01",
+    end_date: Optional[str] = None,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    end_ts = pd.Timestamp(end_date).normalize() if end_date else pd.Timestamp.today().normalize()
+    start_ts = pd.Timestamp(start_date).normalize()
+
+    business_dates = pd.bdate_range(start=start_ts, end=end_ts, freq="B")
+    delivery_dates: set[pd.Timestamp] = set()
+    legacy_dates: set[pd.Timestamp] = set()
+
+    for csv_path in sorted((DATA_DIR / "nse_equity_bhavcopy").rglob("sec_bhavdata_full_*.csv")):
+        date_str = csv_path.stem.replace("sec_bhavdata_full_", "")
+        try:
+            delivery_dates.add(pd.Timestamp(datetime.strptime(date_str, "%d%m%Y").date()).normalize())
+        except Exception:
+            continue
+
+    for zip_path in sorted((DATA_DIR / "nse_equity_bhavcopy").rglob("cm*bhav.csv.zip")):
+        name = zip_path.name
+        if not (name.lower().startswith("cm") and name.lower().endswith("bhav.csv.zip")):
+            continue
+        stem = name[2:-12]
+        try:
+            legacy_dates.add(pd.Timestamp(datetime.strptime(stem.upper(), "%d%b%Y").date()).normalize())
+        except Exception:
+            continue
+
+    rows: List[dict] = []
+    for trade_date in business_dates:
+        has_delivery = trade_date in delivery_dates
+        has_legacy = trade_date in legacy_dates
+        if has_delivery and has_legacy:
+            status = "both_delivery_and_legacy"
+        elif has_delivery:
+            status = "delivery_cache"
+        elif has_legacy:
+            status = "legacy_price_cache_only"
+        else:
+            status = "no_equity_cache"
+        rows.append(
+            {
+                "trade_date": trade_date,
+                "status": status,
+                "has_delivery_cache": bool(has_delivery),
+                "has_legacy_price_cache": bool(has_legacy),
+            }
+        )
+
+    out = pd.DataFrame(rows)
+    summary = (
+        out.groupby("status", dropna=False)
+        .agg(days=("trade_date", "count"))
+        .reset_index()
+        .sort_values("status")
+        .reset_index(drop=True)
+    )
+    out_csv = baseline_dir / f"{output_prefix}.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    out.to_csv(out_csv, index=False)
+    summary.to_csv(summary_csv, index=False)
+    print(f"[TB07-AUDIT] equity cache audit saved: {out_csv}", flush=True)
+    print(f"[TB07-AUDIT] equity cache audit summary saved: {summary_csv}", flush=True)
+    return out
+
+
+def run_tb07_delivery_filtered(
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+    research_output_dir_name: str = "outputs_portfolio_rank_60m_10y",
+    dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
+    output_prefix: str = "tb07_delivery_filtered",
+    fold_count: int = 10,
+    min_delivery_floor: float = 50.0,
+) -> pd.DataFrame:
+    from signal_nse_features import load_delivery_feature_frame
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    delivery_csv = DATA_DIR / "nse_delivery_bhavcopy.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    history_csv = baseline_dir / f"{output_prefix}_history.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
+
+    if not predictions_csv.exists() or not dataset_csv.exists() or not delivery_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-DELIV] missing predictions, dataset, or delivery csv; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    delivery_df = load_delivery_feature_frame(delivery_csv, min_5d_ma=min_delivery_floor)
+    if pred_df.empty or data_df.empty or delivery_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-DELIV] empty predictions, dataset, or delivery features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged["Ticker"] = merged["Ticker"].astype(str).str.strip().str.upper()
+    merged["Prediction"] = pd.to_numeric(merged["Prediction"], errors="coerce")
+    merged["Close"] = pd.to_numeric(merged["Close"], errors="coerce")
+    merged = merged.dropna(subset=["TradeDate", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = f"[TB07-DELIV] no merged rows for {experiment_id}; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    delivery_df["Ticker"] = delivery_df["Ticker"].astype(str).str.strip().str.upper()
+    delivery_df["TradeDate"] = pd.to_datetime(delivery_df["TradeDate"], errors="coerce").dt.normalize()
+    merged = merged.merge(
+        delivery_df,
+        on=["Ticker", "TradeDate"],
+        how="left",
+    )
+    merged = merged.loc[merged["TradeDate"].between(delivery_df["TradeDate"].min(), delivery_df["TradeDate"].max())].copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-DELIV] no overlap between predictions and delivery features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    trade_dates = sorted(pd.Series(merged["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+
+    def _annualize_total(total_return: float, fold_days: int) -> float:
+        if not np.isfinite(total_return) or total_return <= -0.999999:
+            return np.nan
+        return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+    def _compound(returns: List[float]) -> float:
+        if not returns:
+            return np.nan
+        return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+    def _score_weighted_top_return(current: pd.DataFrame) -> tuple[float, str]:
+        longs = current.sort_values("Prediction", ascending=False).head(top_k).copy()
+        if longs.empty:
+            return (0.0, "")
+        centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+        centered = centered + 1e-6
+        denom = float(centered.sum())
+        longs["alloc_weight"] = (1.0 / len(longs)) if not np.isfinite(denom) or denom <= 0.0 else centered / denom
+        longs["est_cost"] = estimate_roundtrip_cost(longs)
+        ret = float((longs["alloc_weight"] * longs["raw_interval_return"] - longs["alloc_weight"].abs() * longs["est_cost"]).sum())
+        names = "|".join(map(str, longs["Ticker"].tolist()))
+        return (ret, names)
+
+    filter_specs = [
+        ("ungated", None),
+        ("delivery_rising", "deliv_rising"),
+        ("delivery_rising_above_floor", "deliv_rising_above_floor"),
+        ("delivery_rising_and_zpos", "deliv_rising_and_zpos"),
+    ]
+
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    manifest_rows: List[dict] = []
+    print(
+        f"[TB07-DELIV] starting delivery-filtered walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} folds={len(date_folds)}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["TradeDate"].isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": pd.Timestamp(fold_dates[0]),
+                "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = fold_df.groupby("TradeDate")["Date"].min().dropna().sort_values().tolist()
+        if len(open_times) < 2:
+            continue
+
+        start_snapshot = fold_df.loc[fold_df["Date"] == open_times[0]].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == open_times[-1], ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_df["est_cost"] = estimate_roundtrip_cost(bh_df) / 2.0
+        bh_weight = 1.0 / max(len(bh_df), 1)
+        buyhold_total = float(
+            sum(
+                bh_weight * ((float(row["EndClose"]) / max(float(row["Close"]), 1e-9)) - 1.0) - bh_weight * float(row["est_cost"])
+                for _, row in bh_df.iterrows()
+            )
+        ) if not bh_df.empty else np.nan
+        buyhold_ann = _annualize_total(buyhold_total, len(fold_dates))
+
+        returns_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs}
+        eligibility_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs if name != "ungated"}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+
+            ungated_ret, ungated_names = _score_weighted_top_return(current)
+            returns_by_variant["ungated"].append(ungated_ret)
+            history_rows.append(
+                {
+                    "fold_id": fold_idx,
+                    "variant": "ungated",
+                    "rebalance_ts": open_ts,
+                    "next_rebalance_ts": next_open_ts,
+                    "event_return": ungated_ret,
+                    "eligible_count": int(len(current)),
+                    "eligibility_rate": 1.0,
+                    "selected_names": ungated_names,
+                }
+            )
+
+            for variant_name, filter_col in filter_specs[1:]:
+                eligible = current.loc[current[filter_col].fillna(False)].copy()
+                eligibility_rate = float(len(eligible) / max(len(current), 1))
+                eligibility_by_variant[variant_name].append(eligibility_rate)
+                if len(eligible) < top_k:
+                    returns_by_variant[variant_name].append(0.0)
+                    history_rows.append(
+                        {
+                            "fold_id": fold_idx,
+                            "variant": variant_name,
+                            "rebalance_ts": open_ts,
+                            "next_rebalance_ts": next_open_ts,
+                            "event_return": 0.0,
+                            "eligible_count": int(len(eligible)),
+                            "eligibility_rate": eligibility_rate,
+                            "selected_names": "",
+                        }
+                    )
+                    continue
+                event_ret, selected_names = _score_weighted_top_return(eligible)
+                returns_by_variant[variant_name].append(event_ret)
+                history_rows.append(
+                    {
+                        "fold_id": fold_idx,
+                        "variant": variant_name,
+                        "rebalance_ts": open_ts,
+                        "next_rebalance_ts": next_open_ts,
+                        "event_return": event_ret,
+                        "eligible_count": int(len(eligible)),
+                        "eligibility_rate": eligibility_rate,
+                        "selected_names": selected_names,
+                    }
+                )
+
+        for variant_name, _ in filter_specs:
+            fold_returns = returns_by_variant[variant_name]
+            if not fold_returns:
+                continue
+            strategy_total = _compound(fold_returns)
+            strategy_ann = _annualize_total(strategy_total, len(fold_dates))
+            summary_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "variant": variant_name,
+                    "fold_id": int(fold_idx),
+                    "fold_start_date": pd.Timestamp(fold_dates[0]),
+                    "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                    "fold_trade_dates": int(len(fold_dates)),
+                    "rebalance_count": int(len(fold_returns)),
+                    "strategy_total_return": strategy_total,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_ann": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold_annualized": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                    "mean_interval_return": float(np.mean(fold_returns)),
+                    "win_rate": float(np.mean([val > 0 for val in fold_returns])),
+                    "mean_eligibility_rate": 1.0 if variant_name == "ungated" else float(np.mean(eligibility_by_variant.get(variant_name, [np.nan]))),
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    manifest_df = pd.DataFrame(manifest_rows)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    manifest_df.to_csv(manifest_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby(["experiment_id", "variant"], dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_strategy_annualized=("strategy_annualized_return", "mean"),
+                min_strategy_annualized=("strategy_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                folds_beating_buyhold=("beats_buyhold_annualized", "sum"),
+                mean_eligibility_rate=("mean_eligibility_rate", "mean"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate = aggregate.sort_values(
+            ["mean_strategy_annualized", "min_strategy_annualized"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+    print(f"[TB07-DELIV] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb07_oi_filtered(
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+    research_output_dir_name: str = "outputs_portfolio_rank_60m_10y",
+    dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
+    output_prefix: str = "tb07_oi_filtered",
+    fold_count: int = 10,
+) -> pd.DataFrame:
+    from signal_nse_features import load_oi_feature_frame
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    oi_csv = DATA_DIR / "nse_fno_bhavcopy_oi.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    history_csv = baseline_dir / f"{output_prefix}_history.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
+
+    if not predictions_csv.exists() or not dataset_csv.exists() or not oi_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-OI] missing predictions, dataset, or oi csv; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged["Ticker"] = merged["Ticker"].astype(str).str.strip().str.upper()
+    merged["Prediction"] = pd.to_numeric(merged["Prediction"], errors="coerce")
+    merged["Close"] = pd.to_numeric(merged["Close"], errors="coerce")
+    merged = merged.dropna(subset=["TradeDate", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = f"[TB07-OI] no merged rows for {experiment_id}; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    oi_df = load_oi_feature_frame(oi_csv, tickers=sorted(merged["Ticker"].unique().tolist()))
+    if oi_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-OI] no OI feature rows matched the active ticker universe."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    merged = merged.merge(oi_df, on=["Ticker", "TradeDate"], how="left")
+    merged = merged.loc[merged["TradeDate"].between(oi_df["TradeDate"].min(), oi_df["TradeDate"].max())].copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-OI] no overlap between predictions and OI features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    trade_dates = sorted(pd.Series(merged["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+
+    def _annualize_total(total_return: float, fold_days: int) -> float:
+        if not np.isfinite(total_return) or total_return <= -0.999999:
+            return np.nan
+        return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+    def _compound(returns: List[float]) -> float:
+        if not returns:
+            return np.nan
+        return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+    def _score_weighted_top_return(current: pd.DataFrame) -> tuple[float, str]:
+        longs = current.sort_values("Prediction", ascending=False).head(top_k).copy()
+        if longs.empty:
+            return (0.0, "")
+        centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+        centered = centered + 1e-6
+        denom = float(centered.sum())
+        longs["alloc_weight"] = (1.0 / len(longs)) if not np.isfinite(denom) or denom <= 0.0 else centered / denom
+        longs["est_cost"] = estimate_roundtrip_cost(longs)
+        ret = float((longs["alloc_weight"] * longs["raw_interval_return"] - longs["alloc_weight"].abs() * longs["est_cost"]).sum())
+        names = "|".join(map(str, longs["Ticker"].tolist()))
+        return (ret, names)
+
+    filter_specs = [
+        ("ungated", None),
+        ("oi_rising", "oi_rising"),
+        ("oi_rising_and_pos", "oi_rising_and_pos"),
+    ]
+
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    manifest_rows: List[dict] = []
+    print(
+        f"[TB07-OI] starting OI-filtered walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} folds={len(date_folds)}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["TradeDate"].isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": pd.Timestamp(fold_dates[0]),
+                "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = fold_df.groupby("TradeDate")["Date"].min().dropna().sort_values().tolist()
+        if len(open_times) < 2:
+            continue
+
+        start_snapshot = fold_df.loc[fold_df["Date"] == open_times[0]].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == open_times[-1], ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_df["est_cost"] = estimate_roundtrip_cost(bh_df) / 2.0
+        bh_weight = 1.0 / max(len(bh_df), 1)
+        buyhold_total = float(
+            sum(
+                bh_weight * ((float(row["EndClose"]) / max(float(row["Close"]), 1e-9)) - 1.0) - bh_weight * float(row["est_cost"])
+                for _, row in bh_df.iterrows()
+            )
+        ) if not bh_df.empty else np.nan
+        buyhold_ann = _annualize_total(buyhold_total, len(fold_dates))
+
+        returns_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs}
+        eligibility_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs if name != "ungated"}
+
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+
+            ungated_ret, ungated_names = _score_weighted_top_return(current)
+            returns_by_variant["ungated"].append(ungated_ret)
+            history_rows.append(
+                {
+                    "fold_id": fold_idx,
+                    "variant": "ungated",
+                    "rebalance_ts": open_ts,
+                    "next_rebalance_ts": next_open_ts,
+                    "event_return": ungated_ret,
+                    "eligible_count": int(len(current)),
+                    "eligibility_rate": 1.0,
+                    "selected_names": ungated_names,
+                }
+            )
+
+            for variant_name, filter_col in filter_specs[1:]:
+                eligible = current.loc[current[filter_col].fillna(False)].copy()
+                eligibility_rate = float(len(eligible) / max(len(current), 1))
+                eligibility_by_variant[variant_name].append(eligibility_rate)
+                if len(eligible) < top_k:
+                    returns_by_variant[variant_name].append(0.0)
+                    history_rows.append(
+                        {
+                            "fold_id": fold_idx,
+                            "variant": variant_name,
+                            "rebalance_ts": open_ts,
+                            "next_rebalance_ts": next_open_ts,
+                            "event_return": 0.0,
+                            "eligible_count": int(len(eligible)),
+                            "eligibility_rate": eligibility_rate,
+                            "selected_names": "",
+                        }
+                    )
+                    continue
+                event_ret, selected_names = _score_weighted_top_return(eligible)
+                returns_by_variant[variant_name].append(event_ret)
+                history_rows.append(
+                    {
+                        "fold_id": fold_idx,
+                        "variant": variant_name,
+                        "rebalance_ts": open_ts,
+                        "next_rebalance_ts": next_open_ts,
+                        "event_return": event_ret,
+                        "eligible_count": int(len(eligible)),
+                        "eligibility_rate": eligibility_rate,
+                        "selected_names": selected_names,
+                    }
+                )
+
+        for variant_name, _ in filter_specs:
+            fold_returns = returns_by_variant[variant_name]
+            if not fold_returns:
+                continue
+            strategy_total = _compound(fold_returns)
+            strategy_ann = _annualize_total(strategy_total, len(fold_dates))
+            summary_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "variant": variant_name,
+                    "fold_id": int(fold_idx),
+                    "fold_start_date": pd.Timestamp(fold_dates[0]),
+                    "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                    "fold_trade_dates": int(len(fold_dates)),
+                    "rebalance_count": int(len(fold_returns)),
+                    "strategy_total_return": strategy_total,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_ann": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold_annualized": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                    "mean_interval_return": float(np.mean(fold_returns)),
+                    "win_rate": float(np.mean([val > 0 for val in fold_returns])),
+                    "mean_eligibility_rate": 1.0 if variant_name == "ungated" else float(np.mean(eligibility_by_variant.get(variant_name, [np.nan]))),
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    manifest_df = pd.DataFrame(manifest_rows)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    manifest_df.to_csv(manifest_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby(["experiment_id", "variant"], dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_strategy_annualized=("strategy_annualized_return", "mean"),
+                min_strategy_annualized=("strategy_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                folds_beating_buyhold=("beats_buyhold_annualized", "sum"),
+                mean_eligibility_rate=("mean_eligibility_rate", "mean"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate = aggregate.sort_values(
+            ["mean_strategy_annualized", "min_strategy_annualized"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+    print(f"[TB07-OI] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb07_earnings_event_risk(
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+    research_output_dir_name: str = "outputs_portfolio_rank_60m_10y",
+    dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
+    output_prefix: str = "tb07_earnings_event_risk",
+    fold_count: int = 10,
+) -> pd.DataFrame:
+    from signal_nse_features import load_earnings_feature_frame
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    earnings_csv = DATA_DIR / "earnings_calendar.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    history_csv = baseline_dir / f"{output_prefix}_history.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
+
+    if not predictions_csv.exists() or not dataset_csv.exists() or not earnings_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-EARN] missing predictions, dataset, or earnings csv; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    earnings_df = load_earnings_feature_frame(earnings_csv)
+    if pred_df.empty or data_df.empty or earnings_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-EARN] empty predictions, dataset, or earnings features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged["Ticker"] = merged["Ticker"].astype(str).str.strip().str.upper()
+    merged["Prediction"] = pd.to_numeric(merged["Prediction"], errors="coerce")
+    merged["Close"] = pd.to_numeric(merged["Close"], errors="coerce")
+    merged = merged.dropna(subset=["TradeDate", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = f"[TB07-EARN] no merged rows for {experiment_id}; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    earnings_df["Ticker"] = earnings_df["Ticker"].astype(str).str.strip().str.upper()
+    earnings_df["TradeDate"] = pd.to_datetime(earnings_df["TradeDate"], errors="coerce").dt.normalize()
+    merged = merged.merge(earnings_df, on=["Ticker", "TradeDate"], how="left")
+    for col in [
+        "earnings_event_day",
+        "earnings_near_2d",
+        "earnings_near_5d",
+        "earnings_clear_2d",
+        "earnings_clear_5d",
+    ]:
+        if col not in merged.columns:
+            merged[col] = False
+        merged[col] = merged[col].fillna(False)
+
+    trade_dates = sorted(pd.Series(merged["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+
+    def _annualize_total(total_return: float, fold_days: int) -> float:
+        if not np.isfinite(total_return) or total_return <= -0.999999:
+            return np.nan
+        return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+    def _compound(returns: List[float]) -> float:
+        if not returns:
+            return np.nan
+        return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+    def _score_weighted_top_return(current: pd.DataFrame) -> tuple[float, str]:
+        longs = current.sort_values("Prediction", ascending=False).head(top_k).copy()
+        if longs.empty:
+            return (0.0, "")
+        centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+        centered = centered + 1e-6
+        denom = float(centered.sum())
+        longs["alloc_weight"] = (1.0 / len(longs)) if not np.isfinite(denom) or denom <= 0.0 else centered / denom
+        longs["est_cost"] = estimate_roundtrip_cost(longs)
+        ret = float((longs["alloc_weight"] * longs["raw_interval_return"] - longs["alloc_weight"].abs() * longs["est_cost"]).sum())
+        names = "|".join(map(str, longs["Ticker"].tolist()))
+        return (ret, names)
+
+    filter_specs = [
+        ("ungated", None),
+        ("earnings_clear_2d", "earnings_clear_2d"),
+        ("earnings_clear_5d", "earnings_clear_5d"),
+    ]
+
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    manifest_rows: List[dict] = []
+    print(
+        f"[TB07-EARN] starting earnings-risk walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} folds={len(date_folds)}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["TradeDate"].isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": pd.Timestamp(fold_dates[0]),
+                "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = fold_df.groupby("TradeDate")["Date"].min().dropna().sort_values().tolist()
+        if len(open_times) < 2:
+            continue
+
+        start_snapshot = fold_df.loc[fold_df["Date"] == open_times[0]].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == open_times[-1], ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_df["est_cost"] = estimate_roundtrip_cost(bh_df) / 2.0
+        bh_weight = 1.0 / max(len(bh_df), 1)
+        buyhold_total = float(
+            sum(
+                bh_weight * ((float(row["EndClose"]) / max(float(row["Close"]), 1e-9)) - 1.0) - bh_weight * float(row["est_cost"])
+                for _, row in bh_df.iterrows()
+            )
+        ) if not bh_df.empty else np.nan
+        buyhold_ann = _annualize_total(buyhold_total, len(fold_dates))
+
+        returns_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs}
+        eligibility_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs if name != "ungated"}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+
+            ungated_ret, ungated_names = _score_weighted_top_return(current)
+            returns_by_variant["ungated"].append(ungated_ret)
+            history_rows.append(
+                {
+                    "fold_id": fold_idx,
+                    "variant": "ungated",
+                    "rebalance_ts": open_ts,
+                    "next_rebalance_ts": next_open_ts,
+                    "event_return": ungated_ret,
+                    "eligible_count": int(len(current)),
+                    "eligibility_rate": 1.0,
+                    "selected_names": ungated_names,
+                }
+            )
+
+            for variant_name, filter_col in filter_specs[1:]:
+                eligible = current.loc[current[filter_col].fillna(False)].copy()
+                eligibility_rate = float(len(eligible) / max(len(current), 1))
+                eligibility_by_variant[variant_name].append(eligibility_rate)
+                if len(eligible) < top_k:
+                    returns_by_variant[variant_name].append(0.0)
+                    history_rows.append(
+                        {
+                            "fold_id": fold_idx,
+                            "variant": variant_name,
+                            "rebalance_ts": open_ts,
+                            "next_rebalance_ts": next_open_ts,
+                            "event_return": 0.0,
+                            "eligible_count": int(len(eligible)),
+                            "eligibility_rate": eligibility_rate,
+                            "selected_names": "",
+                        }
+                    )
+                    continue
+                event_ret, selected_names = _score_weighted_top_return(eligible)
+                returns_by_variant[variant_name].append(event_ret)
+                history_rows.append(
+                    {
+                        "fold_id": fold_idx,
+                        "variant": variant_name,
+                        "rebalance_ts": open_ts,
+                        "next_rebalance_ts": next_open_ts,
+                        "event_return": event_ret,
+                        "eligible_count": int(len(eligible)),
+                        "eligibility_rate": eligibility_rate,
+                        "selected_names": selected_names,
+                    }
+                )
+
+        for variant_name, _ in filter_specs:
+            fold_returns = returns_by_variant[variant_name]
+            if not fold_returns:
+                continue
+            strategy_total = _compound(fold_returns)
+            strategy_ann = _annualize_total(strategy_total, len(fold_dates))
+            summary_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "variant": variant_name,
+                    "fold_id": int(fold_idx),
+                    "fold_start_date": pd.Timestamp(fold_dates[0]),
+                    "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                    "fold_trade_dates": int(len(fold_dates)),
+                    "rebalance_count": int(len(fold_returns)),
+                    "strategy_total_return": strategy_total,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_ann": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold_annualized": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                    "mean_interval_return": float(np.mean(fold_returns)),
+                    "win_rate": float(np.mean([val > 0 for val in fold_returns])),
+                    "mean_eligibility_rate": 1.0 if variant_name == "ungated" else float(np.mean(eligibility_by_variant.get(variant_name, [np.nan]))),
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    manifest_df = pd.DataFrame(manifest_rows)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    manifest_df.to_csv(manifest_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby(["experiment_id", "variant"], dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_strategy_annualized=("strategy_annualized_return", "mean"),
+                min_strategy_annualized=("strategy_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                folds_beating_buyhold=("beats_buyhold_annualized", "sum"),
+                mean_eligibility_rate=("mean_eligibility_rate", "mean"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate = aggregate.sort_values(
+            ["mean_strategy_annualized", "min_strategy_annualized"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+    print(f"[TB07-EARN] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb07_breadth_confirmation_gate(
+    experiment_id: str = "E1006",
+    top_k: int = 3,
+    rebalance_every_sessions: int = 10,
+    research_output_dir_name: str = "outputs_portfolio_rank_60m_10y",
+    dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
+    output_prefix: str = "tb07_breadth_confirmation_gate",
+    fold_count: int = 10,
+) -> pd.DataFrame:
+    from signal_nse_features import load_breadth_feature_frame
+    from signal_targets import estimate_roundtrip_cost
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    breadth_csv = DATA_DIR / "nifty500_daily_ohlcv.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    aggregate_csv = baseline_dir / f"{output_prefix}_aggregate.csv"
+    history_csv = baseline_dir / f"{output_prefix}_history.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
+
+    if not predictions_csv.exists() or not dataset_csv.exists() or not breadth_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-BREADTH] missing predictions, dataset, or breadth csv; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    breadth_df = load_breadth_feature_frame(breadth_csv)
+    if pred_df.empty or data_df.empty or breadth_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-BREADTH] empty predictions, dataset, or breadth features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [col for col in ["Ticker", "Date", "Close", "ATR20_log", "WindowID"] if col in data_df.columns]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    merged["TradeDate"] = merged["Date"].dt.normalize()
+    merged["Ticker"] = merged["Ticker"].astype(str).str.strip().str.upper()
+    merged["Prediction"] = pd.to_numeric(merged["Prediction"], errors="coerce")
+    merged["Close"] = pd.to_numeric(merged["Close"], errors="coerce")
+    merged = merged.dropna(subset=["TradeDate", "Ticker", "Prediction", "Close"]).copy()
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = f"[TB07-BREADTH] no merged rows for {experiment_id}; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    breadth_df["TradeDate"] = pd.to_datetime(breadth_df["TradeDate"], errors="coerce").dt.normalize()
+    merged = merged.merge(breadth_df, on="TradeDate", how="left")
+    merged = merged.loc[merged["TradeDate"].between(breadth_df["TradeDate"].min(), breadth_df["TradeDate"].max())].copy()
+    for col in ["breadth_trend_up", "breadth_strong", "breadth_expanding"]:
+        if col not in merged.columns:
+            merged[col] = False
+        merged[col] = merged[col].fillna(False)
+    if merged.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+        pd.DataFrame().to_csv(history_csv, index=False)
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        msg = "[TB07-BREADTH] no overlap between predictions and breadth features; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    trade_dates = sorted(pd.Series(merged["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+
+    def _annualize_total(total_return: float, fold_days: int) -> float:
+        if not np.isfinite(total_return) or total_return <= -0.999999:
+            return np.nan
+        return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+    def _compound(returns: List[float]) -> float:
+        if not returns:
+            return np.nan
+        return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+    def _score_weighted_top_return(current: pd.DataFrame) -> tuple[float, str]:
+        longs = current.sort_values("Prediction", ascending=False).head(top_k).copy()
+        if longs.empty:
+            return (0.0, "")
+        centered = pd.to_numeric(longs["Prediction"], errors="coerce") - float(pd.to_numeric(longs["Prediction"], errors="coerce").min())
+        centered = centered + 1e-6
+        denom = float(centered.sum())
+        longs["alloc_weight"] = (1.0 / len(longs)) if not np.isfinite(denom) or denom <= 0.0 else centered / denom
+        longs["est_cost"] = estimate_roundtrip_cost(longs)
+        ret = float((longs["alloc_weight"] * longs["raw_interval_return"] - longs["alloc_weight"].abs() * longs["est_cost"]).sum())
+        names = "|".join(map(str, longs["Ticker"].tolist()))
+        return (ret, names)
+
+    filter_specs = [
+        ("ungated", None),
+        ("breadth_trend_up", "breadth_trend_up"),
+        ("breadth_strong", "breadth_strong"),
+        ("breadth_expanding", "breadth_expanding"),
+    ]
+
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    manifest_rows: List[dict] = []
+    print(
+        f"[TB07-BREADTH] starting breadth-gated walk-forward for {experiment_id} top_k={top_k} hold={rebalance_every_sessions} folds={len(date_folds)}",
+        flush=True,
+    )
+
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["TradeDate"].isin(fold_date_index)].copy()
+        manifest_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": pd.Timestamp(fold_dates[0]),
+                "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                "fold_trade_dates": int(len(fold_dates)),
+                "fold_rows": int(len(fold_df)),
+            }
+        )
+        if fold_df.empty:
+            continue
+
+        open_times = fold_df.groupby("TradeDate")["Date"].min().dropna().sort_values().tolist()
+        if len(open_times) < 2:
+            continue
+
+        start_snapshot = fold_df.loc[fold_df["Date"] == open_times[0]].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == open_times[-1], ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_df["est_cost"] = estimate_roundtrip_cost(bh_df) / 2.0
+        bh_weight = 1.0 / max(len(bh_df), 1)
+        buyhold_total = float(
+            sum(
+                bh_weight * ((float(row["EndClose"]) / max(float(row["Close"]), 1e-9)) - 1.0) - bh_weight * float(row["est_cost"])
+                for _, row in bh_df.iterrows()
+            )
+        ) if not bh_df.empty else np.nan
+        buyhold_ann = _annualize_total(buyhold_total, len(fold_dates))
+
+        returns_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs}
+        gate_pass_by_variant: Dict[str, List[float]] = {name: [] for name, _ in filter_specs if name != "ungated"}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+
+            ungated_ret, ungated_names = _score_weighted_top_return(current)
+            returns_by_variant["ungated"].append(ungated_ret)
+            history_rows.append(
+                {
+                    "fold_id": fold_idx,
+                    "variant": "ungated",
+                    "rebalance_ts": open_ts,
+                    "next_rebalance_ts": next_open_ts,
+                    "event_return": ungated_ret,
+                    "gate_passed": True,
+                    "selected_names": ungated_names,
+                }
+            )
+
+            gate_state = current.iloc[0]
+            for variant_name, filter_col in filter_specs[1:]:
+                gate_pass = bool(gate_state[filter_col])
+                gate_pass_by_variant[variant_name].append(float(gate_pass))
+                if not gate_pass:
+                    returns_by_variant[variant_name].append(0.0)
+                    history_rows.append(
+                        {
+                            "fold_id": fold_idx,
+                            "variant": variant_name,
+                            "rebalance_ts": open_ts,
+                            "next_rebalance_ts": next_open_ts,
+                            "event_return": 0.0,
+                            "gate_passed": False,
+                            "selected_names": "",
+                        }
+                    )
+                    continue
+                event_ret, selected_names = _score_weighted_top_return(current)
+                returns_by_variant[variant_name].append(event_ret)
+                history_rows.append(
+                    {
+                        "fold_id": fold_idx,
+                        "variant": variant_name,
+                        "rebalance_ts": open_ts,
+                        "next_rebalance_ts": next_open_ts,
+                        "event_return": event_ret,
+                        "gate_passed": True,
+                        "selected_names": selected_names,
+                    }
+                )
+
+        for variant_name, _ in filter_specs:
+            fold_returns = returns_by_variant[variant_name]
+            if not fold_returns:
+                continue
+            strategy_total = _compound(fold_returns)
+            strategy_ann = _annualize_total(strategy_total, len(fold_dates))
+            summary_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "variant": variant_name,
+                    "fold_id": int(fold_idx),
+                    "fold_start_date": pd.Timestamp(fold_dates[0]),
+                    "fold_end_date": pd.Timestamp(fold_dates[-1]),
+                    "fold_trade_dates": int(len(fold_dates)),
+                    "rebalance_count": int(len(fold_returns)),
+                    "strategy_total_return": strategy_total,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_ann": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold_annualized": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                    "mean_interval_return": float(np.mean(fold_returns)),
+                    "win_rate": float(np.mean([val > 0 for val in fold_returns])),
+                    "mean_gate_pass_rate": 1.0 if variant_name == "ungated" else float(np.mean(gate_pass_by_variant.get(variant_name, [np.nan]))),
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    manifest_df = pd.DataFrame(manifest_rows)
+    summary_df.to_csv(summary_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    manifest_df.to_csv(manifest_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(aggregate_csv, index=False)
+    else:
+        aggregate = (
+            summary_df.groupby(["experiment_id", "variant"], dropna=False)
+            .agg(
+                fold_count=("fold_id", "nunique"),
+                mean_strategy_annualized=("strategy_annualized_return", "mean"),
+                min_strategy_annualized=("strategy_annualized_return", "min"),
+                mean_buyhold_annualized=("buyhold_annualized_return", "mean"),
+                folds_beating_buyhold=("beats_buyhold_annualized", "sum"),
+                mean_gate_pass_rate=("mean_gate_pass_rate", "mean"),
+            )
+            .reset_index()
+        )
+        aggregate["all_folds_beat_buyhold"] = aggregate["folds_beating_buyhold"] == aggregate["fold_count"]
+        aggregate = aggregate.sort_values(
+            ["mean_strategy_annualized", "min_strategy_annualized"],
+            ascending=[False, False],
+        ).reset_index(drop=True)
+        aggregate.to_csv(aggregate_csv, index=False)
+    print(f"[TB07-BREADTH] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb08_pairs_relative_value_scan(
+    dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
+    output_prefix: str = "tb08_pairs_relative_value_scan",
+    z_windows: Optional[List[int]] = None,
+    entry_thresholds: Optional[List[float]] = None,
+    forward_horizon_bars: int = 10,
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    best_csv = baseline_dir / f"{output_prefix}_best.csv"
+    if not dataset_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(best_csv, index=False)
+        msg = f"[TB08-PAIR] missing dataset {dataset_csv}; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    z_windows = z_windows or [60, 120]
+    entry_thresholds = entry_thresholds or [1.0, 1.5, 2.0]
+
+    df = pd.read_csv(dataset_csv, usecols=lambda c: c in {"Date", "Ticker", "Close", "ATR20_log"})
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df["Ticker"] = df["Ticker"].astype(str).str.strip().str.upper()
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+    if "ATR20_log" in df.columns:
+        df["ATR20_log"] = pd.to_numeric(df["ATR20_log"], errors="coerce")
+    df = df.dropna(subset=["Date", "Ticker", "Close"]).copy()
+    if df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(best_csv, index=False)
+        msg = "[TB08-PAIR] empty dataset after cleaning; no rows were produced."
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    close_pivot = df.pivot_table(index="Date", columns="Ticker", values="Close", aggfunc="last").sort_index()
+    atr_pivot = df.pivot_table(index="Date", columns="Ticker", values="ATR20_log", aggfunc="last").sort_index() if "ATR20_log" in df.columns else None
+    tickers = [str(c) for c in close_pivot.columns if str(c)]
+
+    def _annualize_mean_ret(mean_ret: float) -> float:
+        if not np.isfinite(mean_ret) or mean_ret <= -0.999999:
+            return np.nan
+        bars_per_year = 250.0 * 6.0
+        bars_per_trade = max(1.0, float(forward_horizon_bars))
+        periods_per_year = bars_per_year / bars_per_trade
+        return float((1.0 + mean_ret) ** periods_per_year - 1.0)
+
+    rows: List[dict] = []
+    print(
+        f"[TB08-PAIR] starting relative-value scan across {len(tickers)} tickers windows={z_windows} entries={entry_thresholds} horizon={forward_horizon_bars}",
+        flush=True,
+    )
+
+    for i in range(len(tickers)):
+        for j in range(i + 1, len(tickers)):
+            a = tickers[i]
+            b = tickers[j]
+            pair = pd.DataFrame(
+                {
+                    "close_a": close_pivot[a],
+                    "close_b": close_pivot[b],
+                }
+            ).dropna()
+            if len(pair) < max(z_windows) + forward_horizon_bars + 20:
+                continue
+            pair["log_spread"] = np.log(pair["close_a"]) - np.log(pair["close_b"])
+            pair["ret_a_fwd"] = pair["close_a"].shift(-forward_horizon_bars) / pair["close_a"] - 1.0
+            pair["ret_b_fwd"] = pair["close_b"].shift(-forward_horizon_bars) / pair["close_b"] - 1.0
+            pair["pair_ret_fwd"] = pair["ret_a_fwd"] - pair["ret_b_fwd"]
+            if atr_pivot is not None and a in atr_pivot.columns and b in atr_pivot.columns:
+                pair["atr_a"] = pd.to_numeric(atr_pivot[a].reindex(pair.index), errors="coerce")
+                pair["atr_b"] = pd.to_numeric(atr_pivot[b].reindex(pair.index), errors="coerce")
+                pair["est_cost"] = 2.0 * (
+                    0.0008
+                    + 0.25 * np.exp(pair["atr_a"].fillna(-20.0).clip(-20, 5))
+                    + 0.25 * np.exp(pair["atr_b"].fillna(-20.0).clip(-20, 5))
+                )
+            else:
+                pair["est_cost"] = 0.0016
+
+            for z_window in z_windows:
+                rolling_mean = pair["log_spread"].rolling(z_window, min_periods=max(20, z_window // 3)).mean()
+                rolling_std = pair["log_spread"].rolling(z_window, min_periods=max(20, z_window // 3)).std().replace(0.0, np.nan)
+                zscore = (pair["log_spread"] - rolling_mean) / rolling_std
+                for entry_z in entry_thresholds:
+                    signal = pd.Series(0.0, index=pair.index)
+                    signal.loc[zscore >= float(entry_z)] = -1.0
+                    signal.loc[zscore <= -float(entry_z)] = 1.0
+                    event_ret = signal * pair["pair_ret_fwd"] - signal.abs() * pair["est_cost"]
+                    traded = signal.abs() > 0
+                    event_ret = event_ret.loc[traded & event_ret.notna()]
+                    if event_ret.empty:
+                        continue
+                    mean_ret = float(event_ret.mean())
+                    ann_ret = _annualize_mean_ret(mean_ret)
+                    rows.append(
+                        {
+                            "pair": f"{a}|{b}",
+                            "ticker_a": a,
+                            "ticker_b": b,
+                            "z_window": int(z_window),
+                            "entry_z": float(entry_z),
+                            "forward_horizon_bars": int(forward_horizon_bars),
+                            "trade_count": int(len(event_ret)),
+                            "mean_event_return": mean_ret,
+                            "median_event_return": float(event_ret.median()),
+                            "win_rate": float((event_ret > 0).mean()),
+                            "approx_annualized_return": ann_ret,
+                        }
+                    )
+
+    summary_df = pd.DataFrame(rows)
+    summary_df.to_csv(summary_csv, index=False)
+    if summary_df.empty:
+        pd.DataFrame().to_csv(best_csv, index=False)
+    else:
+        best_df = (
+            summary_df.sort_values(
+                ["approx_annualized_return", "win_rate", "trade_count"],
+                ascending=[False, False, False],
+            )
+            .groupby("pair", dropna=False)
+            .head(1)
+            .reset_index(drop=True)
+        )
+        best_df.to_csv(best_csv, index=False)
+    print(f"[TB08-PAIR] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -12968,6 +15073,18 @@ if __name__ == "__main__":
             "signal_baseline_tb06_zerodha_only_extensions",
             "signal_baseline_tb06_guardrail_overlay",
             "signal_baseline_tb06_zerodha_etf_rotation",
+            "signal_fetch_tb06_midcap_smallcap_universe",
+            "signal_baseline_tb06_midcap_smallcap_momentum",
+            "signal_prepare_tb07_breadth_ticker_template",
+            "signal_fetch_tb07_breadth_from_zerodha",
+            "signal_prepare_tb07_earnings_calendar_template",
+            "signal_diagnostic_tb07_external_data_readiness",
+            "signal_diagnostic_tb07_equity_cache_audit",
+            "signal_baseline_tb07_delivery_filtered",
+            "signal_baseline_tb07_oi_filtered",
+            "signal_baseline_tb07_earnings_event_risk",
+            "signal_baseline_tb07_breadth_confirmation_gate",
+            "signal_baseline_tb08_pairs_relative_value_scan",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -13412,7 +15529,7 @@ if __name__ == "__main__":
         run_signal_bucket_quality_diagnostic()
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -15345,6 +17462,164 @@ if __name__ == "__main__":
             )
             raise SystemExit(0)
 
+        if run_mode == "signal_fetch_tb06_midcap_smallcap_universe":
+            main_logger.info(
+                "Starting TB06 mid/small-cap Zerodha fetch. "
+                "Caching 60m candles for the fixed 30-name TB06_T10 universe."
+            )
+            run_tb06_midcap_smallcap_fetch(
+                ticker_list=TB06_MIDSMALL_UNIVERSE,
+                interval="60minute",
+                history_days=3650,
+                output_prefix="tb06_midcap_smallcap_fetch_inventory",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb06_midcap_smallcap_momentum":
+            main_logger.info(
+                "Starting TB06 mid/small-cap cached OHLCV baseline. "
+                "Testing momentum and low-vol top-k against same-universe buy-hold."
+            )
+            run_tb06_midcap_smallcap_momentum(
+                ticker_list=TB06_MIDSMALL_UNIVERSE,
+                rebalance_every_sessions=10,
+                top_k=5,
+                lookback_sessions=60,
+                output_prefix="tb06_midcap_smallcap_momentum",
+                fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_diagnostic_tb07_external_data_readiness":
+            main_logger.info(
+                "Starting TB07 external data readiness diagnostic. "
+                "Checking local files needed for the next non-OHLCV information-axis batch."
+            )
+            run_tb07_external_data_readiness(output_prefix="tb07_external_data_readiness")
+            raise SystemExit(0)
+
+        if run_mode == "signal_diagnostic_tb07_equity_cache_audit":
+            main_logger.info(
+                "Starting TB07 equity cache audit. "
+                "Mapping which business dates have legacy-only equity price cache, delivery cache, both, or no cache."
+            )
+            run_tb07_equity_cache_audit(
+                output_prefix="tb07_equity_cache_audit",
+                start_date="2015-01-01",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_prepare_tb07_breadth_ticker_template":
+            main_logger.info(
+                "Starting TB07 breadth ticker template preparation. "
+                "Writing a Zerodha tradingsymbol template that can be trimmed into the broad-market universe used for breadth fetching."
+            )
+            run_tb07_prepare_breadth_ticker_template(
+                output_prefix="tb07_breadth_ticker_template_inventory",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_fetch_tb07_breadth_from_zerodha":
+            main_logger.info(
+                "Starting TB07 breadth fetch from Zerodha. "
+                "Fetching daily OHLCV for the tickers listed in data/nifty500_tickers.csv and building data/nifty500_daily_ohlcv.csv."
+            )
+            run_tb07_fetch_breadth_from_zerodha(
+                interval="day",
+                history_days=3650,
+                output_prefix="tb07_breadth_fetch_inventory",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_prepare_tb07_earnings_calendar_template":
+            main_logger.info(
+                "Starting TB07 earnings calendar template preparation. "
+                "Documenting that Zerodha does not provide this feed and creating the CSV template expected by the strategy."
+            )
+            run_tb07_prepare_earnings_calendar_template(
+                output_prefix="tb07_earnings_template_status",
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb07_delivery_filtered":
+            main_logger.info(
+                "Starting TB07 delivery-filtered baseline. "
+                "Testing whether prior-day NSE delivery accumulation improves E1006 long-only swing selection against ungated E1006 and same-universe buy-hold."
+            )
+            run_tb07_delivery_filtered(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="tb07_delivery_filtered",
+                fold_count=10,
+                min_delivery_floor=50.0,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb07_oi_filtered":
+            main_logger.info(
+                "Starting TB07 OI-filtered baseline. "
+                "Testing whether prior-day futures open-interest positioning improves E1006 long-only swing selection against ungated E1006 and same-universe buy-hold."
+            )
+            run_tb07_oi_filtered(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="tb07_oi_filtered",
+                fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb07_earnings_event_risk":
+            main_logger.info(
+                "Starting TB07 earnings-event risk baseline. "
+                "Testing whether dropping names near earnings dates improves E1006 long-only swing selection against ungated E1006 and same-universe buy-hold."
+            )
+            run_tb07_earnings_event_risk(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="tb07_earnings_event_risk",
+                fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb07_breadth_confirmation_gate":
+            main_logger.info(
+                "Starting TB07 breadth-confirmation gate baseline. "
+                "Testing whether prior-day broad-market breadth should gate E1006 long-only swing exposure against ungated E1006 and same-universe buy-hold."
+            )
+            run_tb07_breadth_confirmation_gate(
+                experiment_id="E1006",
+                top_k=3,
+                rebalance_every_sessions=10,
+                research_output_dir_name="outputs_portfolio_rank_60m_10y",
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="tb07_breadth_confirmation_gate",
+                fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb08_pairs_relative_value_scan":
+            main_logger.info(
+                "Starting TB08 pairs relative-value scan. "
+                "Testing a structurally different market-neutral distance/z-score approach using existing retail-accessible OHLCV data."
+            )
+            run_tb08_pairs_relative_value_scan(
+                dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+                output_prefix="tb08_pairs_relative_value_scan",
+                z_windows=[60, 120],
+                entry_thresholds=[1.0, 1.5, 2.0],
+                forward_horizon_bars=10,
+            )
+            raise SystemExit(0)
+
         if run_mode == "experiment_suite":
             main_logger.info("Starting diagnostic experiment suite (RL vs baselines, real/shuffled, cost-on/off).")
             diag_tickers = NSE_LIQUID_UNIVERSE[:5]
@@ -15480,6 +17755,9 @@ if __name__ == "__main__":
             )
         raise SystemExit(0)
 
+    if run_mode != "full_training":
+        raise ValueError(f"Unsupported run mode: {run_mode}")
+
     storage = optuna.storages.RDBStorage(
         url='sqlite:///optuna_study.db',
         engine_kwargs={'connect_args': {'check_same_thread': False}}
@@ -15539,8 +17817,6 @@ if __name__ == "__main__":
     # ----------------------------------------------------------------
     # 4b. Walk-forward mode (recommended for non-stationary markets)
     # ----------------------------------------------------------------
-    if run_mode != "full_training":
-        raise ValueError(f"Unsupported run mode: {run_mode}")
 
     # ----------------------------------------------------------------
     # 5. Final training pass with best hyperparams

@@ -1,0 +1,2 @@
+status,template_path,note_path,required_columns,note
+zerodha_unsupported_for_earnings_calendar,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\earnings_calendar.csv,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\tb07_earnings_calendar_note.md,Date|Ticker|EventDate,Template created. Populate this from a non-Zerodha source; Zerodha candles/instruments do not expose earnings-calendar history.
