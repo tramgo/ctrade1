@@ -4,11 +4,11 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB11",
-  "active_thesis": "TB11_T12_LotCapitalRiskCalibration",
-  "active_stage": "balanced_overlay_needs_lot_capital_risk_calibration",
-  "last_completed_thesis": "TB11_T11_ConditionalOverlayFrontier",
-  "last_completed_verdict": "balanced_candidate_needs_lot_capital_risk_calibration",
-  "next_thesis": "TB11_T12_LotCapitalRiskCalibration",
+  "active_thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
+  "active_stage": "maturity_adjusted_rupee_profile_passed_needs_final_freeze_review",
+  "last_completed_thesis": "TB11_T16_MaturityAdjustedRupeeProfile",
+  "last_completed_verdict": "maturity_adjusted_profile_passes_rupee_capital_budget_gates_no_live_promotion_yet",
+  "next_thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -38,7 +38,7 @@
     "Do not start a new thesis while run_lock.json is locked.",
     "Use E211 as incumbent benchmark until displaced by executable validation.",
     "Do not treat TB11 options results as deployable before robustness and tail audit.",
-    "Do not promote TB11 until lot, capital, and rupee risk calibration passes for the balanced overlay."
+    "Do not promote TB11 until the selected maturity-adjusted profile is frozen into an explicit paper-trading specification and execution-readiness checklist."
   ],
-  "last_updated_by": "codex_tb11_conditional_overlay_frontier_2026-06-22"
+  "last_updated_by": "codex_tb11_maturity_adjusted_rupee_profile_2026-06-22"
 }

@@ -386,3 +386,247 @@ Verdict:
 `def_full_resg50_ovg50` becomes the current balanced candidate because it preserves nearly all of the original growth return while cutting base worst loss roughly in half and improving harsh-stress return/drawdown versus growth-only.
 
 No promotion yet. The next required gate is `TB11_T12 LotCapitalRiskCalibration`: translate points, margin estimate, and lot size into rupee risk, capital requirement, and position-size caps.
+
+## `TB11_T12 LotCapitalRiskCalibration`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_lot_capital_risk_calibration
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_lot_capital_risk_calibration_detail.csv`
+- `results/signal_baseline/tb11_options_lot_capital_risk_calibration_summary.csv`
+- `results/signal_baseline/tb11_options_lot_capital_risk_calibration_metadata.csv`
+
+Scope:
+
+- post-processes `TB11_T11` overlay rows
+- converts point PnL, worst trade, max drawdown, and estimated margin into rupees
+- tests lot sizes `50`, `65`, and `75`, with `65` as current-reference NIFTY sizing
+- tests capital budgets from `100000` to `2000000`
+- tests worst-trade budgets from `5000` to `100000`
+- tests drawdown budgets from `10000` to `200000`
+
+Representative current-reference `65` lot-size read:
+
+- `200000` capital / `10000` worst-trade / `25000` drawdown:
+  - base top: `def_full_resg100_ovg50`, `1` lot, `15.13%` annualized on capital
+  - harsh-stress top: `def_full_resg0_ovg0`, `2` lots, `4.89%` annualized on capital
+  - interpretation: small capital plus tight loss budgets forces defensive behavior under harsh stress
+- `500000` capital / `25000` worst-trade / `50000` drawdown:
+  - base top: `def_full_resg100_ovg50`, `4` lots, `24.21%` annualized on capital
+  - harsh-stress top: `def_full_resg100_ovg50`, `4` lots, `7.55%` annualized on capital, worst `-22517`, max DD `-39725`
+  - harsh-stress balanced: `def_full_resg50_ovg50`, `4` lots, `6.42%` annualized on capital, worst `-11259`, max DD `-23744`
+- `1000000` capital / `50000` worst-trade / `100000` drawdown:
+  - base top: `def_full_resg100_ovg50`, `8` lots, `24.21%` annualized on capital
+  - harsh-stress top: `def_full_resg100_ovg50`, `8` lots, `7.55%` annualized on capital, worst `-45035`, max DD `-79450`
+  - harsh-stress balanced: `def_full_resg50_ovg50`, `8` lots, `6.42%` annualized on capital, worst `-22517`, max DD `-47488`
+
+Verdict:
+
+`TB11_T12` completes the lot/capital translation but does not promote TB11.
+
+The max-return overlay is still best when the account can tolerate wider rupee drawdowns. The balanced overlay remains valuable because it cuts harsh-stress worst trade and drawdown materially for a smaller return haircut. The defensive-only profile becomes the correct behavior under small-capital, tight-loss, harsh-stress constraints.
+
+Next required gate:
+
+- open `TB11_T13_CapitalAwarePolicySelection`
+- define explicit profile constraints
+- choose a single candidate by capital-aware objective rather than raw annualized return alone
+- keep broker execution and live routing blocked
+
+## `TB11_T13 CapitalAwarePolicySelection`
+
+Commands:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_lot_capital_risk_calibration
+python -u -B ssell1.py --mode signal_baseline_tb11_options_capital_aware_policy_selection
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_capital_aware_policy_selection_summary.csv`
+- `results/signal_baseline/tb11_options_capital_aware_policy_selection_metadata.csv`
+
+Implementation adjustment:
+
+The first policy-selection pass was too narrow because the lot/capital calibration only compared four overlays:
+
+- max-return overlay
+- growth-only residual
+- balanced overlay
+- defensive-only
+
+That could miss the actual frontier between return and loss control. The calibration was widened to all `15` conditional overlay combinations from `TB11_T11`, then `TB11_T12` and `TB11_T13` were rerun.
+
+Selected capital-aware profile:
+
+- `def_full_resg0_ovg50`
+- defensive trades stay at full size
+- growth exposure is added only on defensive-overlap dates at `50%`
+- residual growth-only exposure is `0%`
+
+Why it wins:
+
+- it improves materially on defensive-only return
+- it avoids the residual growth-only dates that create the largest harsh-stress loss usage
+- it passes base, moderate, and harsh-stress return gates
+- it remains deployable under lot-size sensitivity at `50`, `65`, and `75`
+
+Reference `65` lot-size results:
+
+- small capital profile:
+  - capital / worst / drawdown budget: `200000` / `10000` / `25000`
+  - base annualized on capital: `18.61%`
+  - harsh annualized on capital: `7.33%`
+  - harsh worst / max DD: `-2019` / `-3660`
+- balanced profile:
+  - capital / worst / drawdown budget: `500000` / `25000` / `50000`
+  - base annualized on capital: `22.33%`
+  - harsh annualized on capital: `8.80%`
+  - harsh worst / max DD: `-6058` / `-10980`
+- growth profile:
+  - capital / worst / drawdown budget: `1000000` / `50000` / `100000`
+  - base annualized on capital: `24.19%`
+  - harsh annualized on capital: `9.53%`
+  - harsh worst / max DD: `-13125` / `-23791`
+- large-capital growth profile:
+  - capital / worst / drawdown budget: `2000000` / `100000` / `200000`
+  - base annualized on capital: `25.12%`
+  - harsh annualized on capital: `9.53%`
+  - harsh worst / max DD: `-26250` / `-47582`
+
+Verdict:
+
+`def_full_resg0_ovg50` becomes the current best TB11 capital-aware candidate.
+
+No promotion yet. The next required gate is `TB11_T14 SelectedProfileRobustnessAudit`: inspect yearly contribution, chronological folds, worst trades, and loss clusters for the selected profile against defensive-only and max-return controls.
+
+## `TB11_T14 SelectedProfileRobustnessAudit`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_selected_profile_robustness_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_summary.csv`
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_years.csv`
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_folds.csv`
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_worst_trades.csv`
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_loss_clusters.csv`
+- `results/signal_baseline/tb11_options_selected_profile_robustness_audit_metadata.csv`
+
+Selected profile:
+
+- `def_full_resg0_ovg50`
+
+Read:
+
+- base annualized return on margin: `22.54%`
+- moderate-stress annualized return on margin: `17.12%`
+- harsh-stress annualized return on margin: `12.35%`
+- all chronological folds are positive in base, moderate, and harsh stress
+- concentration passes in base, moderate, and harsh stress
+- loss-cluster checks pass
+- strict all-years gate fails because `2017` has one selected-profile trade and that single trade is negative
+
+Verdict:
+
+T14 blocks promotion. The failure is not a broad drawdown or concentration problem; it is a sparse warmup-year problem. The next useful hardening test is a maturity gate, not another strategy search.
+
+## `TB11_T15 SelectedProfileMaturityGate`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_selected_profile_maturity_gate
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_selected_profile_maturity_gate_summary.csv`
+- `results/signal_baseline/tb11_options_selected_profile_maturity_gate_metadata.csv`
+
+Minimal passing maturity rule:
+
+- skip the first observed selected-profile trade
+- first active trade after gate: `2019-02-25`
+- this is equivalent to removing the one-trade 2017 warmup year without changing the selected overlay weights
+
+Maturity-gated read:
+
+- base:
+  - trades: `50`
+  - annualized return on margin: `31.62%`
+  - worst / max DD: `-1.88` / `-0.99`
+  - all `5` active years positive
+  - all `4` chronological folds positive
+- moderate stress:
+  - annualized return on margin: `23.93%`
+  - worst / max DD: `-8.98` / `-8.01`
+  - all `5` active years positive
+  - all `4` chronological folds positive
+- harsh stress:
+  - annualized return on margin: `17.32%`
+  - worst / max DD: `-15.53` / `-28.15`
+  - all `5` active years positive
+  - all `4` chronological folds positive
+
+Verdict:
+
+The maturity gate repairs the sparse-year failure and improves the selected profile without re-optimizing the overlay. No promotion yet. The next required gate is `TB11_T16 MaturityAdjustedRupeeProfile`: recompute lot, rupee, margin, and capital-budget reads after applying the one-observation maturity gate.
+
+## `TB11_T16 MaturityAdjustedRupeeProfile`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_maturity_adjusted_rupee_profile
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_summary.csv`
+- `results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_metadata.csv`
+
+Profile:
+
+- allocation: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- first active trade after gate: `2019-02-25`
+
+Reference `65` lot-size read:
+
+- `200000` capital / `10000` worst / `25000` drawdown:
+  - lots: `2`
+  - base / moderate / harsh annualized on capital: `25.15%` / `16.34%` / `10.08%`
+  - harsh worst / max DD: `-2019` / `-3660`
+- `500000` capital / `25000` worst / `50000` drawdown:
+  - lots: `6`
+  - base / moderate / harsh annualized on capital: `30.18%` / `19.61%` / `12.10%`
+  - harsh worst / max DD: `-6058` / `-10980`
+- `1000000` capital / `50000` worst / `100000` drawdown:
+  - lots: `13`
+  - base / moderate / harsh annualized on capital: `32.69%` / `21.25%` / `13.10%`
+  - harsh worst / max DD: `-13125` / `-23791`
+- `2000000` capital / `100000` worst / `200000` drawdown:
+  - lots: `26` to `27`
+  - base / moderate / harsh annualized on capital: `33.95%` / `21.25%` / `13.10%`
+  - harsh worst / max DD: `-26250` / `-47582`
+
+Verdict:
+
+`TB11_T16` passes the maturity-adjusted rupee and capital-budget gate. The selected profile is now the strongest TB11 candidate so far because it combines:
+
+- all-years and all-folds maturity-adjusted robustness
+- controlled harsh-stress drawdown
+- positive harsh-stress annualized return on capital across tested budget tiers
+
+No live promotion yet. The next required gate is `TB11_T17 ProfileFreezeExecutionReadiness`: freeze the paper-trading profile, document kill switches, and keep broker execution blocked.

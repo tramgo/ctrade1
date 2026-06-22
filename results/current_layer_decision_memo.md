@@ -759,3 +759,134 @@ So the next operating step becomes:
 - start `TB03_T01 SlippageSensitivityCalibration`
 - use the existing cost-sensitivity baseline mode
 - then decide whether Batch 03 should move next toward tiered slippage, futures cost profiles, portfolio-rank long-only, or an incumbent timing overlay
+
+### TB11 options lot/capital checkpoint
+
+`TB11_T12 LotCapitalRiskCalibration` is complete.
+
+Evidence:
+
+- command: `python -u -B ssell1.py --mode signal_baseline_tb11_options_lot_capital_risk_calibration`
+- outputs:
+  - `results/signal_baseline/tb11_options_lot_capital_risk_calibration_detail.csv`
+  - `results/signal_baseline/tb11_options_lot_capital_risk_calibration_summary.csv`
+  - `results/signal_baseline/tb11_options_lot_capital_risk_calibration_metadata.csv`
+- tested lot sizes: `50`, `65`, `75`
+- tested capital budgets: `100000` through `2000000`
+- tested worst-trade budgets: `5000` through `100000`
+- tested drawdown budgets: `10000` through `200000`
+
+Decision read:
+
+- max-return overlay `def_full_resg100_ovg50` remains the strongest capital-return profile when budgets are loose enough
+- balanced overlay `def_full_resg50_ovg50` materially reduces worst trade and drawdown under harsh stress for a modest return haircut
+- defensive-only `def_full_resg0_ovg0` becomes the better profile under small-capital, tight-loss, harsh-stress constraints
+- no TB11 profile should be promoted until the capital-aware objective is explicit
+
+Immediate next gate:
+
+- `TB11_T13_CapitalAwarePolicySelection`
+- choose deployment profiles and rank candidates after enforcing base plus harsh-stress rupee-risk constraints
+- keep RL, live trading, and broker execution blocked
+
+### TB11 capital-aware profile checkpoint
+
+`TB11_T13 CapitalAwarePolicySelection` is complete.
+
+Evidence:
+
+- commands:
+  - `python -u -B ssell1.py --mode signal_baseline_tb11_options_lot_capital_risk_calibration`
+  - `python -u -B ssell1.py --mode signal_baseline_tb11_options_capital_aware_policy_selection`
+- outputs:
+  - `results/signal_baseline/tb11_options_capital_aware_policy_selection_summary.csv`
+  - `results/signal_baseline/tb11_options_capital_aware_policy_selection_metadata.csv`
+
+Decision read:
+
+- after broadening T12 to all `15` T11 conditional overlays, `def_full_resg0_ovg50` wins all four capital-aware profiles
+- the selected profile keeps full defensive exposure, adds `50%` growth exposure only on defensive-overlap dates, and avoids residual growth-only trades
+- this improves return versus defensive-only while keeping harsh-stress budget usage much lower than max-return or residual-growth profiles
+
+Representative current-reference lot-size `65` reads:
+
+- `200000` capital profile: `18.61%` base / `7.33%` harsh annualized on capital, harsh worst `-2019`, harsh DD `-3660`
+- `500000` capital profile: `22.33%` base / `8.80%` harsh annualized on capital, harsh worst `-6058`, harsh DD `-10980`
+- `1000000` capital profile: `24.19%` base / `9.53%` harsh annualized on capital, harsh worst `-13125`, harsh DD `-23791`
+- `2000000` capital profile: `25.12%` base / `9.53%` harsh annualized on capital, harsh worst `-26250`, harsh DD `-47582`
+
+Immediate next gate:
+
+- `TB11_T14_SelectedProfileRobustnessAudit`
+- audit selected profile by year, fold, worst trades, and loss clusters
+- compare against defensive-only and max-return controls
+- keep RL, live trading, and broker execution blocked
+
+### TB11 selected-profile robustness and maturity checkpoint
+
+`TB11_T14 SelectedProfileRobustnessAudit` and `TB11_T15 SelectedProfileMaturityGate` are complete.
+
+T14 evidence:
+
+- selected profile: `def_full_resg0_ovg50`
+- outputs:
+  - `results/signal_baseline/tb11_options_selected_profile_robustness_audit_summary.csv`
+  - `results/signal_baseline/tb11_options_selected_profile_robustness_audit_years.csv`
+  - `results/signal_baseline/tb11_options_selected_profile_robustness_audit_folds.csv`
+  - `results/signal_baseline/tb11_options_selected_profile_robustness_audit_worst_trades.csv`
+  - `results/signal_baseline/tb11_options_selected_profile_robustness_audit_loss_clusters.csv`
+- result:
+  - folds pass in base, moderate, and harsh stress
+  - concentration passes
+  - loss clusters pass
+  - strict all-years gate fails because `2017` contains one selected-profile trade and it is negative
+
+T15 evidence:
+
+- output:
+  - `results/signal_baseline/tb11_options_selected_profile_maturity_gate_summary.csv`
+- minimal passing hardening:
+  - skip first observed selected-profile trade
+  - first active trade becomes `2019-02-25`
+- result:
+  - base: `31.62%` annualized on margin, all years and folds positive
+  - moderate stress: `23.93%` annualized on margin, all years and folds positive
+  - harsh stress: `17.32%` annualized on margin, all years and folds positive
+
+Decision read:
+
+- the selected profile is still not promoted
+- the maturity gate is promising because it fixes a sparse warmup-year failure without changing the strategy weights
+- the next required check is to redo rupee and capital-budget calibration after this maturity gate
+
+Immediate next gate:
+
+- `TB11_T16_MaturityAdjustedRupeeProfile`
+- recompute lot, rupee, margin, and capital utilization after applying the one-observation maturity gate
+- keep RL, live trading, and broker execution blocked
+
+### TB11 maturity-adjusted rupee checkpoint
+
+`TB11_T16 MaturityAdjustedRupeeProfile` is complete.
+
+Evidence:
+
+- command: `python -u -B ssell1.py --mode signal_baseline_tb11_options_maturity_adjusted_rupee_profile`
+- outputs:
+  - `results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_summary.csv`
+  - `results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_metadata.csv`
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+
+Decision read:
+
+- the maturity-adjusted selected profile passes rupee/capital gates across base, moderate, and harsh stress
+- at lot-size `65`, the `500000` capital profile supports `6` lots and keeps harsh-stress worst / DD at roughly `-6058` / `-10980`
+- at `1000000` capital, the profile supports `13` lots and keeps harsh-stress worst / DD at roughly `-13125` / `-23791`
+- annualized return on capital remains positive under harsh stress across tested profiles
+
+Immediate next gate:
+
+- `TB11_T17_ProfileFreezeExecutionReadiness`
+- freeze the paper-only profile and write kill-switch/no-trade rules
+- keep RL, live trading, and broker execution blocked

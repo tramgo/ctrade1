@@ -1,14 +1,13 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB11_T12_LotCapitalRiskCalibration",
+  "thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
   "stage": "ready_for_design",
   "started_at": "2026-06-22T00:00:00+05:30",
   "expected_outputs": [
-    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_summary.csv",
-    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_detail.csv",
-    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_metadata.csv"
+    "results/signal_baseline/tb11_options_profile_freeze_execution_readiness.md",
+    "results/signal_baseline/tb11_options_profile_freeze_execution_readiness_summary.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T11 produced a balanced conditional overlay. Next step converts point-based returns/losses into lot, rupee, capital, and position-size risk constraints before any promotion."
+  "notes": "TB11_T16 passed maturity-adjusted rupee/capital gates for the selected profile across base, moderate, and harsh scenarios. Next step freezes the paper-trading profile and execution-readiness checklist; no broker or live execution."
 }

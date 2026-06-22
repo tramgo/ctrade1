@@ -15177,6 +15177,932 @@ def run_tb11_options_conditional_overlay_frontier(
     return summary_df
 
 
+def run_tb11_options_lot_capital_risk_calibration(
+    output_prefix: str = "tb11_options_lot_capital_risk_calibration",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    overlay_detail_csv = baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    lot_sizes = [50, 65, 75]
+    capital_budgets = [100000, 200000, 500000, 1000000, 2000000]
+    worst_trade_budgets = [5000, 10000, 25000, 50000, 100000]
+    drawdown_budgets = [10000, 25000, 50000, 100000, 200000]
+    candidate_allocations = [
+        f"def_full_resg{residual}_ovg{overlap}"
+        for residual in [0, 25, 50, 75, 100]
+        for overlap in [0, 25, 50]
+    ]
+    scenario_priority = {"base": 0, "moderate_stress": 1, "harsh_stress": 2}
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "overlay_detail_source": str(overlay_detail_csv),
+                "lot_sizes": "|".join(str(x) for x in lot_sizes),
+                "capital_budgets": "|".join(str(x) for x in capital_budgets),
+                "worst_trade_budgets": "|".join(str(x) for x in worst_trade_budgets),
+                "drawdown_budgets": "|".join(str(x) for x in drawdown_budgets),
+                "candidate_allocations": "|".join(candidate_allocations),
+                "mode_scope": "tb11_options_rupee_lot_capital_risk_calibration",
+                "note": "Post-processes T11 overlay rows into lot, rupee loss, margin, and capital-budget constraints; no broker execution.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not overlay_detail_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T12] missing conditional overlay detail source; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = pd.read_csv(overlay_detail_csv)
+    if detail.empty:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T12] conditional overlay detail source is empty; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail["entry_date"] = pd.to_datetime(detail["entry_date"])
+    detail["expiry_date"] = pd.to_datetime(detail["expiry_date"])
+    detail["weighted_pnl_points"] = pd.to_numeric(detail["weighted_pnl_points"], errors="coerce").fillna(0.0)
+    detail["weighted_return_on_margin"] = pd.to_numeric(
+        detail["weighted_return_on_margin"], errors="coerce"
+    ).fillna(0.0)
+    detail = detail.loc[detail["allocation"].isin(candidate_allocations)].copy()
+
+    detail_rows = []
+    summary_rows = []
+    for (scenario, allocation), group in detail.groupby(["scenario", "allocation"], dropna=False):
+        group = group.sort_values("entry_date").copy()
+        if group.empty:
+            continue
+        abs_rom = group["weighted_return_on_margin"].abs()
+        abs_pnl = group["weighted_pnl_points"].abs()
+        valid_margin = abs_rom > 1e-12
+        margin_points = pd.Series(np.nan, index=group.index, dtype=float)
+        margin_points.loc[valid_margin] = abs_pnl.loc[valid_margin] / abs_rom.loc[valid_margin]
+        fallback_margin_points = float(margin_points.dropna().quantile(0.75)) if margin_points.notna().any() else 500.0
+        margin_points = margin_points.fillna(fallback_margin_points).clip(lower=1.0)
+        group["estimated_margin_points"] = margin_points
+
+        equity_points = group["weighted_pnl_points"].cumsum()
+        drawdown_points = equity_points - equity_points.cummax()
+        years = max(
+            (group["expiry_date"].max() - group["entry_date"].min()).days / 365.25,
+            len(group) / 52.0,
+            1.0 / 52.0,
+        )
+        total_pnl_points = float(group["weighted_pnl_points"].sum())
+        worst_points = float(group["weighted_pnl_points"].min())
+        max_dd_points = float(drawdown_points.min()) if not drawdown_points.empty else 0.0
+        peak_margin_points = float(group["estimated_margin_points"].max())
+        total_rom = float(group["weighted_return_on_margin"].sum())
+        ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+
+        for lot_size in lot_sizes:
+            one_lot_total_pnl = total_pnl_points * lot_size
+            one_lot_worst = worst_points * lot_size
+            one_lot_dd = max_dd_points * lot_size
+            one_lot_peak_margin = peak_margin_points * lot_size
+            for capital_budget in capital_budgets:
+                capital_lots = int(np.floor(capital_budget / one_lot_peak_margin)) if one_lot_peak_margin > 0 else 0
+                for worst_budget in worst_trade_budgets:
+                    worst_lots = (
+                        int(np.floor(worst_budget / abs(one_lot_worst)))
+                        if one_lot_worst < 0
+                        else capital_lots
+                    )
+                    for dd_budget in drawdown_budgets:
+                        dd_lots = int(np.floor(dd_budget / abs(one_lot_dd))) if one_lot_dd < 0 else capital_lots
+                        allowed_lots = max(0, min(capital_lots, worst_lots, dd_lots))
+                        total_rupee_pnl = one_lot_total_pnl * allowed_lots
+                        annualized_rupee_pnl = total_rupee_pnl / years if years > 0 else np.nan
+                        annualized_return_on_capital = (
+                            annualized_rupee_pnl / capital_budget if capital_budget > 0 else np.nan
+                        )
+                        row = {
+                            "scenario": scenario,
+                            "allocation": allocation,
+                            "lot_size": lot_size,
+                            "capital_budget_rupees": capital_budget,
+                            "worst_trade_budget_rupees": worst_budget,
+                            "drawdown_budget_rupees": dd_budget,
+                            "allowed_lots": allowed_lots,
+                            "capital_lot_cap": capital_lots,
+                            "worst_trade_lot_cap": worst_lots,
+                            "drawdown_lot_cap": dd_lots,
+                            "trade_dates": int(len(group)),
+                            "first_entry": group["entry_date"].min(),
+                            "last_expiry": group["expiry_date"].max(),
+                            "years": years,
+                            "total_pnl_points_per_lot": total_pnl_points,
+                            "worst_trade_points_per_lot": worst_points,
+                            "max_drawdown_points_per_lot": max_dd_points,
+                            "peak_margin_points_per_lot": peak_margin_points,
+                            "one_lot_total_pnl_rupees": one_lot_total_pnl,
+                            "one_lot_worst_trade_rupees": one_lot_worst,
+                            "one_lot_max_drawdown_rupees": one_lot_dd,
+                            "one_lot_peak_margin_rupees": one_lot_peak_margin,
+                            "total_pnl_rupees": total_rupee_pnl,
+                            "worst_trade_rupees": one_lot_worst * allowed_lots,
+                            "max_drawdown_rupees": one_lot_dd * allowed_lots,
+                            "peak_margin_rupees": one_lot_peak_margin * allowed_lots,
+                            "capital_utilization": (
+                                (one_lot_peak_margin * allowed_lots) / capital_budget if capital_budget > 0 else np.nan
+                            ),
+                            "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                            "annualized_pnl_rupees": annualized_rupee_pnl,
+                            "annualized_return_on_capital_budget": annualized_return_on_capital,
+                            "deployable_under_budgets": allowed_lots >= 1,
+                        }
+                        detail_rows.append(row)
+                        if allowed_lots >= 1:
+                            summary_rows.append(row)
+
+    detail_df = pd.DataFrame(detail_rows)
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df["scenario_rank"] = summary_df["scenario"].map(scenario_priority).fillna(99).astype(int)
+        summary_df = summary_df.sort_values(
+            [
+                "scenario_rank",
+                "annualized_return_on_capital_budget",
+                "max_drawdown_rupees",
+                "worst_trade_rupees",
+            ],
+            ascending=[True, False, False, False],
+        ).drop(columns=["scenario_rank"]).reset_index(drop=True)
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T12] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T12] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_capital_aware_policy_selection(
+    output_prefix: str = "tb11_options_capital_aware_policy_selection",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    calibration_csv = baseline_dir / "tb11_options_lot_capital_risk_calibration_summary.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    profiles = [
+        {
+            "profile": "small_capital_loss_first",
+            "capital_budget_rupees": 200000,
+            "worst_trade_budget_rupees": 10000,
+            "drawdown_budget_rupees": 25000,
+            "objective": "minimize_harsh_loss_after_positive_return",
+            "base_min": 0.08,
+            "harsh_min": 0.03,
+            "return_weight": 0.35,
+            "harsh_weight": 0.65,
+            "worst_penalty": 0.25,
+            "drawdown_penalty": 0.35,
+        },
+        {
+            "profile": "balanced_500k",
+            "capital_budget_rupees": 500000,
+            "worst_trade_budget_rupees": 25000,
+            "drawdown_budget_rupees": 50000,
+            "objective": "maximize_harsh_adjusted_return_with_loss_penalty",
+            "base_min": 0.12,
+            "harsh_min": 0.05,
+            "return_weight": 0.45,
+            "harsh_weight": 0.55,
+            "worst_penalty": 0.20,
+            "drawdown_penalty": 0.30,
+        },
+        {
+            "profile": "growth_1m",
+            "capital_budget_rupees": 1000000,
+            "worst_trade_budget_rupees": 50000,
+            "drawdown_budget_rupees": 100000,
+            "objective": "maximize_return_after_harsh_positive_gate",
+            "base_min": 0.16,
+            "harsh_min": 0.055,
+            "return_weight": 0.60,
+            "harsh_weight": 0.40,
+            "worst_penalty": 0.10,
+            "drawdown_penalty": 0.15,
+        },
+        {
+            "profile": "large_capital_growth_2m",
+            "capital_budget_rupees": 2000000,
+            "worst_trade_budget_rupees": 100000,
+            "drawdown_budget_rupees": 200000,
+            "objective": "maximize_return_after_nearby_lot_sensitivity",
+            "base_min": 0.16,
+            "harsh_min": 0.055,
+            "return_weight": 0.65,
+            "harsh_weight": 0.35,
+            "worst_penalty": 0.08,
+            "drawdown_penalty": 0.12,
+        },
+    ]
+    required_scenarios = ["base", "moderate_stress", "harsh_stress"]
+    lot_sizes = [50, 65, 75]
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "calibration_source": str(calibration_csv),
+                "profile_count": len(profiles),
+                "required_scenarios": "|".join(required_scenarios),
+                "lot_sizes": "|".join(str(x) for x in lot_sizes),
+                "mode_scope": "tb11_options_capital_aware_profile_selection",
+                "note": "Ranks candidate overlays by profile-specific return and rupee-risk constraints across base/moderate/harsh scenarios and lot-size sensitivity.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not calibration_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T13] missing lot/capital calibration summary; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    calibration = pd.read_csv(calibration_csv)
+    if calibration.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T13] lot/capital calibration summary is empty; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    numeric_cols = [
+        "capital_budget_rupees",
+        "worst_trade_budget_rupees",
+        "drawdown_budget_rupees",
+        "lot_size",
+        "allowed_lots",
+        "annualized_return_on_capital_budget",
+        "annualized_pnl_rupees",
+        "worst_trade_rupees",
+        "max_drawdown_rupees",
+        "peak_margin_rupees",
+        "capital_utilization",
+    ]
+    for col in numeric_cols:
+        calibration[col] = pd.to_numeric(calibration[col], errors="coerce")
+
+    rows = []
+    for profile in profiles:
+        profile_rows = calibration.loc[
+            (calibration["capital_budget_rupees"] == profile["capital_budget_rupees"])
+            & (calibration["worst_trade_budget_rupees"] == profile["worst_trade_budget_rupees"])
+            & (calibration["drawdown_budget_rupees"] == profile["drawdown_budget_rupees"])
+            & (calibration["lot_size"].isin(lot_sizes))
+        ].copy()
+        if profile_rows.empty:
+            continue
+        for allocation, alloc_rows in profile_rows.groupby("allocation", dropna=False):
+            scenario_lot = {
+                (str(row["scenario"]), int(row["lot_size"])): row
+                for _, row in alloc_rows.iterrows()
+                if pd.notna(row["lot_size"])
+            }
+            missing = [
+                f"{scenario}_lot{lot_size}"
+                for scenario in required_scenarios
+                for lot_size in lot_sizes
+                if (scenario, lot_size) not in scenario_lot
+            ]
+            lot65 = alloc_rows.loc[alloc_rows["lot_size"] == 65].copy()
+            if lot65.empty:
+                continue
+            lot65_by_scenario = {str(row["scenario"]): row for _, row in lot65.iterrows()}
+            if any(scenario not in lot65_by_scenario for scenario in required_scenarios):
+                continue
+            base = lot65_by_scenario["base"]
+            moderate = lot65_by_scenario["moderate_stress"]
+            harsh = lot65_by_scenario["harsh_stress"]
+            nearby_returns = [
+                float(scenario_lot[(scenario, lot)]["annualized_return_on_capital_budget"])
+                for scenario in required_scenarios
+                for lot in lot_sizes
+                if (scenario, lot) in scenario_lot
+            ]
+            deployable_lot_scenarios = int(
+                sum(
+                    int(scenario_lot[(scenario, lot)]["allowed_lots"] >= 1)
+                    for scenario in required_scenarios
+                    for lot in lot_sizes
+                    if (scenario, lot) in scenario_lot
+                )
+            )
+            worst_ratio = abs(float(harsh["worst_trade_rupees"])) / max(float(profile["worst_trade_budget_rupees"]), 1.0)
+            dd_ratio = abs(float(harsh["max_drawdown_rupees"])) / max(float(profile["drawdown_budget_rupees"]), 1.0)
+            base_return = float(base["annualized_return_on_capital_budget"])
+            moderate_return = float(moderate["annualized_return_on_capital_budget"])
+            harsh_return = float(harsh["annualized_return_on_capital_budget"])
+            min_nearby_return = min(nearby_returns) if nearby_returns else np.nan
+            passes_return_gate = base_return >= profile["base_min"] and harsh_return >= profile["harsh_min"]
+            passes_lot_sensitivity = len(missing) == 0 and deployable_lot_scenarios == len(required_scenarios) * len(lot_sizes)
+            score = (
+                profile["return_weight"] * base_return
+                + profile["harsh_weight"] * harsh_return
+                - profile["worst_penalty"] * worst_ratio
+                - profile["drawdown_penalty"] * dd_ratio
+            )
+            rows.append(
+                {
+                    "profile": profile["profile"],
+                    "objective": profile["objective"],
+                    "allocation": allocation,
+                    "capital_budget_rupees": profile["capital_budget_rupees"],
+                    "worst_trade_budget_rupees": profile["worst_trade_budget_rupees"],
+                    "drawdown_budget_rupees": profile["drawdown_budget_rupees"],
+                    "lot_size_reference": 65,
+                    "base_allowed_lots": int(base["allowed_lots"]),
+                    "moderate_allowed_lots": int(moderate["allowed_lots"]),
+                    "harsh_allowed_lots": int(harsh["allowed_lots"]),
+                    "base_ann_return_on_capital": base_return,
+                    "moderate_ann_return_on_capital": moderate_return,
+                    "harsh_ann_return_on_capital": harsh_return,
+                    "min_nearby_lot_ann_return_on_capital": float(min_nearby_return) if pd.notna(min_nearby_return) else np.nan,
+                    "base_ann_pnl_rupees": float(base["annualized_pnl_rupees"]),
+                    "harsh_ann_pnl_rupees": float(harsh["annualized_pnl_rupees"]),
+                    "harsh_worst_trade_rupees": float(harsh["worst_trade_rupees"]),
+                    "harsh_max_drawdown_rupees": float(harsh["max_drawdown_rupees"]),
+                    "harsh_peak_margin_rupees": float(harsh["peak_margin_rupees"]),
+                    "harsh_capital_utilization": float(harsh["capital_utilization"]),
+                    "harsh_worst_trade_budget_used": worst_ratio,
+                    "harsh_drawdown_budget_used": dd_ratio,
+                    "deployable_lot_scenarios": deployable_lot_scenarios,
+                    "missing_lot_scenarios": "|".join(missing),
+                    "passes_return_gate": bool(passes_return_gate),
+                    "passes_lot_sensitivity": bool(passes_lot_sensitivity),
+                    "selection_score": float(score),
+                    "selected_for_profile": False,
+                }
+            )
+
+    summary_df = pd.DataFrame(rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["profile", "passes_return_gate", "passes_lot_sensitivity", "selection_score"],
+            ascending=[True, False, False, False],
+        ).reset_index(drop=True)
+        for profile_name, group in summary_df.groupby("profile", sort=False):
+            eligible = group.loc[group["passes_return_gate"] & group["passes_lot_sensitivity"]]
+            chosen_idx = eligible.index[0] if not eligible.empty else group.index[0]
+            summary_df.loc[chosen_idx, "selected_for_profile"] = True
+
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T13] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_selected_profile_robustness_audit(
+    output_prefix: str = "tb11_options_selected_profile_robustness_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    overlay_detail_csv = baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    years_csv = baseline_dir / f"{output_prefix}_years.csv"
+    folds_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    worst_trades_csv = baseline_dir / f"{output_prefix}_worst_trades.csv"
+    clusters_csv = baseline_dir / f"{output_prefix}_loss_clusters.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    control_allocations = [
+        "def_full_resg0_ovg0",
+        "def_full_resg50_ovg50",
+        "def_full_resg100_ovg50",
+    ]
+    allocations = [selected_allocation] + control_allocations
+    scenarios = ["base", "moderate_stress", "harsh_stress"]
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "overlay_detail_source": str(overlay_detail_csv),
+                "selected_allocation": selected_allocation,
+                "control_allocations": "|".join(control_allocations),
+                "scenarios": "|".join(scenarios),
+                "mode_scope": "tb11_selected_capital_aware_profile_robustness_audit",
+                "note": "Audits selected TB11 profile by year, chronological fold, worst trades, and consecutive loss clusters; no broker execution.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    empty_outputs = [summary_csv, years_csv, folds_csv, worst_trades_csv, clusters_csv]
+    if not overlay_detail_csv.exists():
+        for path in empty_outputs:
+            pd.DataFrame().to_csv(path, index=False)
+        print("[TB11-T14] missing conditional overlay detail source; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = pd.read_csv(overlay_detail_csv)
+    if detail.empty:
+        for path in empty_outputs:
+            pd.DataFrame().to_csv(path, index=False)
+        print("[TB11-T14] conditional overlay detail source is empty; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = detail.loc[detail["scenario"].isin(scenarios) & detail["allocation"].isin(allocations)].copy()
+    detail["entry_date"] = pd.to_datetime(detail["entry_date"])
+    detail["expiry_date"] = pd.to_datetime(detail["expiry_date"])
+    detail["weighted_pnl_points"] = pd.to_numeric(detail["weighted_pnl_points"], errors="coerce").fillna(0.0)
+    detail["weighted_return_on_margin"] = pd.to_numeric(
+        detail["weighted_return_on_margin"], errors="coerce"
+    ).fillna(0.0)
+
+    summary_rows = []
+    year_rows = []
+    fold_rows = []
+    worst_rows = []
+    cluster_rows = []
+
+    for (scenario, allocation), group in detail.groupby(["scenario", "allocation"], dropna=False):
+        group = group.sort_values("entry_date").reset_index(drop=True)
+        if group.empty:
+            continue
+        equity = group["weighted_pnl_points"].cumsum()
+        dd = equity - equity.cummax()
+        years = max(
+            (group["expiry_date"].max() - group["entry_date"].min()).days / 365.25,
+            len(group) / 52.0,
+            1.0 / 52.0,
+        )
+        total_rom = float(group["weighted_return_on_margin"].sum())
+        ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+        total_pnl = float(group["weighted_pnl_points"].sum())
+        yearly = (
+            group.assign(year=group["entry_date"].dt.year)
+            .groupby("year", as_index=False)
+            .agg(
+                trades=("weighted_pnl_points", "size"),
+                pnl_points=("weighted_pnl_points", "sum"),
+                worst_trade_points=("weighted_pnl_points", "min"),
+                win_rate=("weighted_pnl_points", lambda s: float((s > 0).mean())),
+            )
+        )
+        yearly["scenario"] = scenario
+        yearly["allocation"] = allocation
+        yearly["pnl_share_of_positive_total"] = np.where(
+            total_pnl > 0,
+            yearly["pnl_points"] / total_pnl,
+            np.nan,
+        )
+        year_rows.extend(yearly.to_dict("records"))
+
+        fold_indices = np.array_split(np.arange(len(group)), 4)
+        for fold_idx, fold_index in enumerate(fold_indices, start=1):
+            fold = group.iloc[fold_index].copy()
+            if fold.empty:
+                continue
+            fold_equity = fold["weighted_pnl_points"].cumsum()
+            fold_dd = fold_equity - fold_equity.cummax()
+            fold_rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": allocation,
+                    "fold": fold_idx,
+                    "trades": int(len(fold)),
+                    "first_entry": fold["entry_date"].min(),
+                    "last_expiry": fold["expiry_date"].max(),
+                    "pnl_points": float(fold["weighted_pnl_points"].sum()),
+                    "worst_trade_points": float(fold["weighted_pnl_points"].min()),
+                    "max_drawdown_points": float(fold_dd.min()) if not fold_dd.empty else 0.0,
+                    "win_rate": float((fold["weighted_pnl_points"] > 0).mean()),
+                }
+            )
+
+        worst = group.nsmallest(10, "weighted_pnl_points").copy()
+        worst["scenario"] = scenario
+        worst["allocation"] = allocation
+        worst_rows.extend(
+            worst[
+                [
+                    "scenario",
+                    "allocation",
+                    "entry_date",
+                    "expiry_date",
+                    "weighted_pnl_points",
+                    "weighted_return_on_margin",
+                    "active_legs",
+                    "has_defensive",
+                    "has_growth",
+                ]
+            ].to_dict("records")
+        )
+
+        cluster_id = 0
+        current = []
+        for _, row in group.iterrows():
+            pnl = float(row["weighted_pnl_points"])
+            if pnl < 0:
+                current.append(row)
+            elif current:
+                cluster_id += 1
+                cluster = pd.DataFrame(current)
+                cluster_rows.append(
+                    {
+                        "scenario": scenario,
+                        "allocation": allocation,
+                        "cluster_id": cluster_id,
+                        "loss_trades": int(len(cluster)),
+                        "first_entry": cluster["entry_date"].min(),
+                        "last_expiry": cluster["expiry_date"].max(),
+                        "cluster_pnl_points": float(cluster["weighted_pnl_points"].sum()),
+                        "worst_trade_points": float(cluster["weighted_pnl_points"].min()),
+                    }
+                )
+                current = []
+        if current:
+            cluster_id += 1
+            cluster = pd.DataFrame(current)
+            cluster_rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": allocation,
+                    "cluster_id": cluster_id,
+                    "loss_trades": int(len(cluster)),
+                    "first_entry": cluster["entry_date"].min(),
+                    "last_expiry": cluster["expiry_date"].max(),
+                    "cluster_pnl_points": float(cluster["weighted_pnl_points"].sum()),
+                    "worst_trade_points": float(cluster["weighted_pnl_points"].min()),
+                }
+            )
+
+        max_year_share = float(yearly["pnl_share_of_positive_total"].max()) if total_pnl > 0 and not yearly.empty else np.nan
+        negative_years = int((yearly["pnl_points"] <= 0).sum())
+        fold_df_tmp = pd.DataFrame([r for r in fold_rows if r["scenario"] == scenario and r["allocation"] == allocation])
+        negative_folds = int((fold_df_tmp["pnl_points"] <= 0).sum()) if not fold_df_tmp.empty else 0
+        allocation_clusters = [r for r in cluster_rows if r["scenario"] == scenario and r["allocation"] == allocation]
+        worst_cluster = min((r["cluster_pnl_points"] for r in allocation_clusters), default=0.0)
+        summary_rows.append(
+            {
+                "scenario": scenario,
+                "allocation": allocation,
+                "is_selected": allocation == selected_allocation,
+                "trades": int(len(group)),
+                "first_entry": group["entry_date"].min(),
+                "last_expiry": group["expiry_date"].max(),
+                "total_pnl_points": total_pnl,
+                "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                "worst_trade_points": float(group["weighted_pnl_points"].min()),
+                "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                "win_rate": float((group["weighted_pnl_points"] > 0).mean()),
+                "positive_years": int((yearly["pnl_points"] > 0).sum()),
+                "negative_years": negative_years,
+                "year_count": int(len(yearly)),
+                "positive_folds": int((fold_df_tmp["pnl_points"] > 0).sum()) if not fold_df_tmp.empty else 0,
+                "negative_folds": negative_folds,
+                "fold_count": int(len(fold_df_tmp)),
+                "max_year_pnl_share": max_year_share,
+                "worst_loss_cluster_points": float(worst_cluster),
+                "loss_cluster_count": int(len(allocation_clusters)),
+                "passes_all_years": negative_years == 0,
+                "passes_all_folds": negative_folds == 0,
+                "passes_concentration": bool(pd.notna(max_year_share) and max_year_share <= 0.35),
+                "passes_loss_cluster": worst_cluster >= float(group["weighted_pnl_points"].min()) * 2.5,
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    years_df = pd.DataFrame(year_rows)
+    folds_df = pd.DataFrame(fold_rows)
+    worst_df = pd.DataFrame(worst_rows)
+    clusters_df = pd.DataFrame(cluster_rows)
+    if not summary_df.empty:
+        summary_df["passes_robustness_gate"] = (
+            summary_df["passes_all_years"]
+            & summary_df["passes_all_folds"]
+            & summary_df["passes_concentration"]
+            & summary_df["passes_loss_cluster"]
+        )
+        summary_df = summary_df.sort_values(
+            ["scenario", "is_selected", "annualized_return_on_margin"],
+            ascending=[True, False, False],
+        ).reset_index(drop=True)
+    if not clusters_df.empty:
+        clusters_df = clusters_df.sort_values(
+            ["scenario", "allocation", "cluster_pnl_points"],
+            ascending=[True, True, True],
+        ).reset_index(drop=True)
+
+    summary_df.to_csv(summary_csv, index=False)
+    years_df.to_csv(years_csv, index=False)
+    folds_df.to_csv(folds_csv, index=False)
+    worst_df.to_csv(worst_trades_csv, index=False)
+    clusters_df.to_csv(clusters_csv, index=False)
+    print(f"[TB11-T14] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T14] years saved: {years_csv}", flush=True)
+    print(f"[TB11-T14] folds saved: {folds_csv}", flush=True)
+    print(f"[TB11-T14] worst trades saved: {worst_trades_csv}", flush=True)
+    print(f"[TB11-T14] loss clusters saved: {clusters_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_selected_profile_maturity_gate(
+    output_prefix: str = "tb11_options_selected_profile_maturity_gate",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    overlay_detail_csv = baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    scenarios = ["base", "moderate_stress", "harsh_stress"]
+    warmup_trade_counts = [0, 1, 2, 3, 5]
+    start_years = [None, 2019, 2020]
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "overlay_detail_source": str(overlay_detail_csv),
+                "selected_allocation": selected_allocation,
+                "scenarios": "|".join(scenarios),
+                "warmup_trade_counts": "|".join(str(x) for x in warmup_trade_counts),
+                "start_years": "|".join("none" if x is None else str(x) for x in start_years),
+                "mode_scope": "tb11_selected_profile_maturity_warmup_gate",
+                "note": "Tests simple maturity gates for the selected capital-aware profile after T14 found a one-trade negative 2017 sparse-year failure.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not overlay_detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T15] missing conditional overlay detail source; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = pd.read_csv(overlay_detail_csv)
+    if detail.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T15] conditional overlay detail source is empty; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = detail.loc[
+        (detail["scenario"].isin(scenarios)) & (detail["allocation"] == selected_allocation)
+    ].copy()
+    detail["entry_date"] = pd.to_datetime(detail["entry_date"])
+    detail["expiry_date"] = pd.to_datetime(detail["expiry_date"])
+    detail["weighted_pnl_points"] = pd.to_numeric(detail["weighted_pnl_points"], errors="coerce").fillna(0.0)
+    detail["weighted_return_on_margin"] = pd.to_numeric(
+        detail["weighted_return_on_margin"], errors="coerce"
+    ).fillna(0.0)
+
+    rows = []
+    for scenario, scenario_rows in detail.groupby("scenario", dropna=False):
+        scenario_rows = scenario_rows.sort_values("entry_date").reset_index(drop=True)
+        for warmup_count in warmup_trade_counts:
+            for start_year in start_years:
+                gated = scenario_rows.iloc[warmup_count:].copy()
+                if start_year is not None:
+                    gated = gated.loc[gated["entry_date"].dt.year >= start_year].copy()
+                if gated.empty:
+                    continue
+                equity = gated["weighted_pnl_points"].cumsum()
+                dd = equity - equity.cummax()
+                years = max(
+                    (gated["expiry_date"].max() - gated["entry_date"].min()).days / 365.25,
+                    len(gated) / 52.0,
+                    1.0 / 52.0,
+                )
+                total_rom = float(gated["weighted_return_on_margin"].sum())
+                ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+                yearly = (
+                    gated.assign(year=gated["entry_date"].dt.year)
+                    .groupby("year", as_index=False)["weighted_pnl_points"]
+                    .sum()
+                    .rename(columns={"weighted_pnl_points": "pnl_points"})
+                )
+                folds = []
+                for fold_index in np.array_split(np.arange(len(gated)), 4):
+                    fold = gated.iloc[fold_index].copy()
+                    if not fold.empty:
+                        folds.append(float(fold["weighted_pnl_points"].sum()))
+                total_pnl = float(gated["weighted_pnl_points"].sum())
+                max_year_share = (
+                    float((yearly["pnl_points"] / total_pnl).max())
+                    if total_pnl > 0 and not yearly.empty
+                    else np.nan
+                )
+                rows.append(
+                    {
+                        "scenario": scenario,
+                        "allocation": selected_allocation,
+                        "warmup_trade_count": warmup_count,
+                        "start_year": "none" if start_year is None else int(start_year),
+                        "trades": int(len(gated)),
+                        "first_entry": gated["entry_date"].min(),
+                        "last_expiry": gated["expiry_date"].max(),
+                        "total_pnl_points": total_pnl,
+                        "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                        "worst_trade_points": float(gated["weighted_pnl_points"].min()),
+                        "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                        "win_rate": float((gated["weighted_pnl_points"] > 0).mean()),
+                        "positive_years": int((yearly["pnl_points"] > 0).sum()),
+                        "negative_years": int((yearly["pnl_points"] <= 0).sum()),
+                        "year_count": int(len(yearly)),
+                        "positive_folds": int(sum(1 for value in folds if value > 0)),
+                        "negative_folds": int(sum(1 for value in folds if value <= 0)),
+                        "fold_count": int(len(folds)),
+                        "max_year_pnl_share": max_year_share,
+                        "passes_all_years": bool((yearly["pnl_points"] > 0).all()),
+                        "passes_all_folds": bool(all(value > 0 for value in folds)),
+                        "passes_concentration": bool(pd.notna(max_year_share) and max_year_share <= 0.35),
+                    }
+                )
+
+    summary_df = pd.DataFrame(rows)
+    if not summary_df.empty:
+        summary_df["passes_maturity_gate"] = (
+            summary_df["passes_all_years"]
+            & summary_df["passes_all_folds"]
+            & summary_df["passes_concentration"]
+        )
+        summary_df = summary_df.sort_values(
+            ["scenario", "passes_maturity_gate", "annualized_return_on_margin", "max_drawdown_points"],
+            ascending=[True, False, False, False],
+        ).reset_index(drop=True)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T15] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_maturity_adjusted_rupee_profile(
+    output_prefix: str = "tb11_options_maturity_adjusted_rupee_profile",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    overlay_detail_csv = baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    scenarios = ["base", "moderate_stress", "harsh_stress"]
+    lot_sizes = [50, 65, 75]
+    capital_budgets = [200000, 500000, 1000000, 2000000]
+    worst_trade_budgets = [10000, 25000, 50000, 100000]
+    drawdown_budgets = [25000, 50000, 100000, 200000]
+    warmup_trade_count = 1
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "overlay_detail_source": str(overlay_detail_csv),
+                "selected_allocation": selected_allocation,
+                "warmup_trade_count": warmup_trade_count,
+                "scenarios": "|".join(scenarios),
+                "lot_sizes": "|".join(str(x) for x in lot_sizes),
+                "capital_budgets": "|".join(str(x) for x in capital_budgets),
+                "worst_trade_budgets": "|".join(str(x) for x in worst_trade_budgets),
+                "drawdown_budgets": "|".join(str(x) for x in drawdown_budgets),
+                "mode_scope": "tb11_maturity_adjusted_selected_profile_rupee_calibration",
+                "note": "Applies the one-observation maturity warmup from T15, then recalibrates lot, rupee, margin, and capital-budget constraints.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not overlay_detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T16] missing conditional overlay detail source; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = pd.read_csv(overlay_detail_csv)
+    if detail.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T16] conditional overlay detail source is empty; empty artifact saved.", flush=True)
+        return pd.DataFrame()
+
+    detail = detail.loc[
+        (detail["scenario"].isin(scenarios)) & (detail["allocation"] == selected_allocation)
+    ].copy()
+    detail["entry_date"] = pd.to_datetime(detail["entry_date"])
+    detail["expiry_date"] = pd.to_datetime(detail["expiry_date"])
+    detail["weighted_pnl_points"] = pd.to_numeric(detail["weighted_pnl_points"], errors="coerce").fillna(0.0)
+    detail["weighted_return_on_margin"] = pd.to_numeric(
+        detail["weighted_return_on_margin"], errors="coerce"
+    ).fillna(0.0)
+
+    rows = []
+    for scenario, scenario_rows in detail.groupby("scenario", dropna=False):
+        scenario_rows = scenario_rows.sort_values("entry_date").reset_index(drop=True)
+        gated = scenario_rows.iloc[warmup_trade_count:].copy()
+        if gated.empty:
+            continue
+        abs_rom = gated["weighted_return_on_margin"].abs()
+        abs_pnl = gated["weighted_pnl_points"].abs()
+        valid_margin = abs_rom > 1e-12
+        margin_points = pd.Series(np.nan, index=gated.index, dtype=float)
+        margin_points.loc[valid_margin] = abs_pnl.loc[valid_margin] / abs_rom.loc[valid_margin]
+        fallback_margin_points = float(margin_points.dropna().quantile(0.75)) if margin_points.notna().any() else 500.0
+        gated["estimated_margin_points"] = margin_points.fillna(fallback_margin_points).clip(lower=1.0)
+
+        equity = gated["weighted_pnl_points"].cumsum()
+        dd = equity - equity.cummax()
+        years = max(
+            (gated["expiry_date"].max() - gated["entry_date"].min()).days / 365.25,
+            len(gated) / 52.0,
+            1.0 / 52.0,
+        )
+        total_pnl_points = float(gated["weighted_pnl_points"].sum())
+        worst_points = float(gated["weighted_pnl_points"].min())
+        max_dd_points = float(dd.min()) if not dd.empty else 0.0
+        peak_margin_points = float(gated["estimated_margin_points"].max())
+        total_rom = float(gated["weighted_return_on_margin"].sum())
+        ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+        yearly = gated.assign(year=gated["entry_date"].dt.year).groupby("year")["weighted_pnl_points"].sum()
+        fold_pnls = [float(gated.iloc[idx]["weighted_pnl_points"].sum()) for idx in np.array_split(np.arange(len(gated)), 4)]
+        max_year_share = float((yearly / total_pnl_points).max()) if total_pnl_points > 0 and not yearly.empty else np.nan
+
+        for lot_size in lot_sizes:
+            one_lot_total = total_pnl_points * lot_size
+            one_lot_worst = worst_points * lot_size
+            one_lot_dd = max_dd_points * lot_size
+            one_lot_margin = peak_margin_points * lot_size
+            for capital_budget in capital_budgets:
+                capital_lots = int(np.floor(capital_budget / one_lot_margin)) if one_lot_margin > 0 else 0
+                for worst_budget in worst_trade_budgets:
+                    worst_lots = int(np.floor(worst_budget / abs(one_lot_worst))) if one_lot_worst < 0 else capital_lots
+                    for drawdown_budget in drawdown_budgets:
+                        dd_lots = int(np.floor(drawdown_budget / abs(one_lot_dd))) if one_lot_dd < 0 else capital_lots
+                        allowed_lots = max(0, min(capital_lots, worst_lots, dd_lots))
+                        total_rupee_pnl = one_lot_total * allowed_lots
+                        annualized_rupee_pnl = total_rupee_pnl / years if years > 0 else np.nan
+                        annualized_return_on_capital = (
+                            annualized_rupee_pnl / capital_budget if capital_budget > 0 else np.nan
+                        )
+                        rows.append(
+                            {
+                                "scenario": scenario,
+                                "allocation": selected_allocation,
+                                "warmup_trade_count": warmup_trade_count,
+                                "lot_size": lot_size,
+                                "capital_budget_rupees": capital_budget,
+                                "worst_trade_budget_rupees": worst_budget,
+                                "drawdown_budget_rupees": drawdown_budget,
+                                "allowed_lots": allowed_lots,
+                                "capital_lot_cap": capital_lots,
+                                "worst_trade_lot_cap": worst_lots,
+                                "drawdown_lot_cap": dd_lots,
+                                "trades": int(len(gated)),
+                                "first_entry": gated["entry_date"].min(),
+                                "last_expiry": gated["expiry_date"].max(),
+                                "years": years,
+                                "total_pnl_points_per_lot": total_pnl_points,
+                                "worst_trade_points_per_lot": worst_points,
+                                "max_drawdown_points_per_lot": max_dd_points,
+                                "peak_margin_points_per_lot": peak_margin_points,
+                                "one_lot_total_pnl_rupees": one_lot_total,
+                                "one_lot_worst_trade_rupees": one_lot_worst,
+                                "one_lot_max_drawdown_rupees": one_lot_dd,
+                                "one_lot_peak_margin_rupees": one_lot_margin,
+                                "total_pnl_rupees": total_rupee_pnl,
+                                "worst_trade_rupees": one_lot_worst * allowed_lots,
+                                "max_drawdown_rupees": one_lot_dd * allowed_lots,
+                                "peak_margin_rupees": one_lot_margin * allowed_lots,
+                                "capital_utilization": (one_lot_margin * allowed_lots) / capital_budget if capital_budget > 0 else np.nan,
+                                "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                                "annualized_pnl_rupees": annualized_rupee_pnl,
+                                "annualized_return_on_capital_budget": annualized_return_on_capital,
+                                "positive_years": int((yearly > 0).sum()),
+                                "negative_years": int((yearly <= 0).sum()),
+                                "positive_folds": int(sum(1 for value in fold_pnls if value > 0)),
+                                "negative_folds": int(sum(1 for value in fold_pnls if value <= 0)),
+                                "max_year_pnl_share": max_year_share,
+                                "deployable_under_budgets": allowed_lots >= 1,
+                                "passes_maturity_robustness": (
+                                    int((yearly <= 0).sum()) == 0
+                                    and int(sum(1 for value in fold_pnls if value <= 0)) == 0
+                                    and pd.notna(max_year_share)
+                                    and max_year_share <= 0.35
+                                ),
+                            }
+                        )
+
+    summary_df = pd.DataFrame(rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            [
+                "scenario",
+                "lot_size",
+                "capital_budget_rupees",
+                "annualized_return_on_capital_budget",
+                "max_drawdown_rupees",
+            ],
+            ascending=[True, True, True, False, False],
+        ).reset_index(drop=True)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T16] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -16425,6 +17351,11 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_low_loss_harsh_cost",
             "signal_baseline_tb11_options_allocation_sizing_frontier",
             "signal_baseline_tb11_options_conditional_overlay_frontier",
+            "signal_baseline_tb11_options_lot_capital_risk_calibration",
+            "signal_baseline_tb11_options_capital_aware_policy_selection",
+            "signal_baseline_tb11_options_selected_profile_robustness_audit",
+            "signal_baseline_tb11_options_selected_profile_maturity_gate",
+            "signal_baseline_tb11_options_maturity_adjusted_rupee_profile",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -16979,6 +17910,46 @@ if __name__ == "__main__":
             "This applies defensive trades first and sizes residual growth exposure."
         )
         run_tb11_options_conditional_overlay_frontier(output_prefix="tb11_options_conditional_overlay_frontier")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_lot_capital_risk_calibration":
+        main_logger.info(
+            "Starting TB11 T12 lot/capital risk calibration. "
+            "This converts T11 overlay point risk into lot, rupee, and capital-budget constraints."
+        )
+        run_tb11_options_lot_capital_risk_calibration(output_prefix="tb11_options_lot_capital_risk_calibration")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_capital_aware_policy_selection":
+        main_logger.info(
+            "Starting TB11 T13 capital-aware policy selection. "
+            "This ranks max-return, balanced, and defensive profiles after rupee-risk gates."
+        )
+        run_tb11_options_capital_aware_policy_selection(output_prefix="tb11_options_capital_aware_policy_selection")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_selected_profile_robustness_audit":
+        main_logger.info(
+            "Starting TB11 T14 selected-profile robustness audit. "
+            "This checks the capital-aware profile by year, fold, worst trade, and loss cluster."
+        )
+        run_tb11_options_selected_profile_robustness_audit(output_prefix="tb11_options_selected_profile_robustness_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_selected_profile_maturity_gate":
+        main_logger.info(
+            "Starting TB11 T15 selected-profile maturity gate. "
+            "This tests warmup/start-year gates after sparse-year robustness failure."
+        )
+        run_tb11_options_selected_profile_maturity_gate(output_prefix="tb11_options_selected_profile_maturity_gate")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_maturity_adjusted_rupee_profile":
+        main_logger.info(
+            "Starting TB11 T16 maturity-adjusted rupee profile. "
+            "This recalibrates lot, rupee, margin, and capital budgets after the selected warmup gate."
+        )
+        run_tb11_options_maturity_adjusted_rupee_profile(output_prefix="tb11_options_maturity_adjusted_rupee_profile")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
