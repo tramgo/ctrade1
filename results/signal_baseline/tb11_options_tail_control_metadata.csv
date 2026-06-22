@@ -1,0 +1,2 @@
+output_prefix,spot_path,spot_status,vix_path,vix_status,bhavcopy_root,bhavcopy_file_count,variant_count,mode_scope
+tb11_options_tail_control,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_NIFTY_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_INDIAVIX_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_fno_bhavcopy,2346,10,real_chain_options_tail_control_sweep_research_only

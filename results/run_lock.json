@@ -1,13 +1,14 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB03_T05_HoldingHorizonE1903Sweep",
-  "stage": "baseline_ready",
-  "started_at": "2026-04-28T00:00:00+05:30",
+  "thesis": "TB11_T12_LotCapitalRiskCalibration",
+  "stage": "ready_for_design",
+  "started_at": "2026-06-22T00:00:00+05:30",
   "expected_outputs": [
-    "results/signal_baseline/native_15m_holding_horizon_execution_sweep_summary.csv",
-    "results/signal_baseline/native_15m_holding_horizon_execution_sweep_detail.csv"
+    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_summary.csv",
+    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_detail.csv",
+    "results/signal_baseline/tb11_options_lot_capital_risk_calibration_metadata.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB03_T04 completed with a strong weekly long-only winner; next step is TB03_T05 execution-hold sweep around E1903 to test threshold tightening plus longer baseline holding."
+  "notes": "TB11_T11 produced a balanced conditional overlay. Next step converts point-based returns/losses into lot, rupee, capital, and position-size risk constraints before any promotion."
 }

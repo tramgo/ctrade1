@@ -2,162 +2,158 @@
 
 ## Current Status
 
-- Active batch: `TB09` proposed overlay fork
-- Last completed thesis family: `TB07 delivery, OI, and breadth`
-- Last verdict: `closed_research_only`
-- Active thesis: `TB09_T01 DeliveryAwareIncumbentOverlay`
-- Active stage: `tb07_closed_breadth_failed_earnings_template_only_next_is_delivery_overlay_or_stop`
-- Incumbent remains: `SIGNAL_E211_BANDED_68`
+- Active batch: `TB11`
+- Last completed thesis: `TB11_T11_ConditionalOverlayFrontier`
+- Last verdict: `balanced_candidate_needs_lot_capital_risk_calibration`
+- Best growth candidate: `TB11_T06_liq60k_ret5_0p01`
+- Best defensive candidate: `TB11_T08_dte8_ret5_0p02`
+- Best balanced overlay: `def_full_resg50_ovg50`
+- Equity incumbent remains: `SIGNAL_E211_BANDED_68`
 - RL status: frozen
+- Run lock: unlocked
 
-## TB06 Final Verdict
+## TB11 Real-Chain Tail-Control Result
 
-TB06 is closed. Large-cap OHLCV, ETF OHLCV, mid/small-cap OHLCV, and drawdown guardrails all failed the same-universe buy-hold robustness gate.
+`TB11` reopened options research only under the rule set by `TB10`: real-chain-first, direct tail-control focus, no synthetic evidence for promotion.
 
-| Strategy | Ann. | Buy-Hold | Folds Won | Verdict |
-|---|---:|---:|---:|---|
-| `T01 MomentumPlusBuyHoldEnsemble` | `10.16%` | `17.12%` | `4 / 10` | fail |
-| `T02 MomentumWithDrawdownStop` | `0.16%` | `17.12%` | `0 / 10` | fail |
-| `T03 LowVolPortfolioRank` | `9.57%` | `16.91%` | `3 / 10` | fail |
-| `T05 IndexRelativeMomentum` | `8.53%` | `16.91%` | `3 / 10` | fail |
-| `Z01 BuyHoldMomentumThrottle` | `14.01%` | `17.12%` | `4 / 10` | fail |
-| `Z02 WinnerRetentionRotation` | `7.00%` | `17.12%` | `3 / 10` | fail |
-| `Z03 LoserAvoidanceOverlay` | `8.95%` | `17.12%` | `0 / 10` | fail |
-| `Z04 ETFMomentumRotation` | `7.02%` | `15.51%` | `1 / 10` | fail |
-| `Z05 ETFLowVolRotation` | `12.18%` | `15.51%` | `2 / 10` | fail |
-| `T10 MidSmallMomentumTopK` | `8.52%` | `33.17%` | `3 / 10` | fail |
-| `T10 MidSmallLowVolTopK` | `12.52%` | `33.17%` | `1 / 10` | fail |
-| Guardrail overlay | best `16.79%` | `17.12%` | max `4 / 10` | fail |
-
-## Guardrails Tested
-
-Guardrails were implemented as peak-drawdown exposure controls on existing event-return streams:
-
-| Profile | Exposure Rule | Result |
-|---|---|---|
-| `rl_hard_5_75_10_cash` | `0.75x` after `5%`, `0.50x` after `7.5%`, cash after `10%` | reduced some active-sleeve tail loss; failed buy-hold |
-| `soft_5_10_floor50` | `0.75x` after `5%`, `0.50x` after `10%` | gentler protection; failed buy-hold |
-| `medium_8_12_floor25` | `0.60x` after `8%`, `0.25x` after `12%` | best for some weak factor variants; failed buy-hold |
-| `late_10_15_floor50` | `0.75x` after `10%`, `0.50x` after `15%` | best universe-timed profile; still below buy-hold |
-
-Conclusion: guardrails are reusable risk controls, not an alpha source.
-
-## TB07 T01 Outcome
-
-`TB07_T01 DeliveryPercentRegime` is now decision-grade and should be treated as closed.
-
-10-fold result:
-
-| Variant | Mean Ann. | Min Fold Ann. | Buy-Hold Ann. | Folds Beat Buy-Hold | Mean Eligibility |
-|---|---:|---:|---:|---:|---:|
-| `delivery_rising` | `4.42%` | `-4.84%` | `17.95%` | `4 / 10` | `13.83%` |
-| `delivery_rising_above_floor` | `3.31%` | `-8.88%` | `17.95%` | `4 / 10` | `12.52%` |
-| `delivery_rising_and_zpos` | `2.55%` | `-16.35%` | `17.95%` | `3 / 10` | `9.48%` |
-| `ungated` | `4.38%` | `-50.74%` | `17.95%` | `3 / 10` | `100%` |
-
-Interpretation:
-
-- delivery filtering improves worst-fold behavior materially versus ungated
-- but none of the delivery variants come close to beating same-universe buy-hold
-- the best delivery variant is `delivery_rising`, but it is still far below the benchmark
-
-Verdict: `TB07_T01` failed the buy-hold gate and is closed.
-
-## TB07 T02 Outcome
-
-`TB07_T02 FOOpenInterestPositioning` is now decision-grade and should be treated as closed.
-
-10-fold result:
-
-| Variant | Mean Ann. | Min Fold Ann. | Buy-Hold Ann. | Folds Beat Buy-Hold | Mean Eligibility |
-|---|---:|---:|---:|---:|---:|
-| `ungated` | `15.52%` | `-28.83%` | `19.02%` | `2 / 10` | `100%` |
-| `oi_rising_and_pos` | `8.91%` | `-22.49%` | `19.02%` | `3 / 10` | `16.39%` |
-| `oi_rising` | `3.31%` | `-24.88%` | `19.02%` | `2 / 10` | `28.01%` |
-
-Verdict: `TB07_T02` failed the buy-hold gate and is closed.
-
-## TB08 Outcome
-
-`TB08 Pairs Relative Value Scan` has now completed its first retail-feasible formulation and is also closed.
-
-Result:
-
-- `2106` pair / parameter cells evaluated
-- `0` positive annualized cells
-- best cell still `-52.57%` annualized
-
-Verdict: current distance/z-score pairs formulation is decisively non-viable on this cache.
-
-## TB07 T04 Outcome
-
-`TB07_T04 BreadthConfirmationGate` has now been run after fetching broad daily OHLCV from Zerodha.
-
-10-fold result:
-
-| Variant | Mean Ann. | Min Fold Ann. | Buy-Hold Ann. | Folds Beat Buy-Hold | Mean Gate Pass |
-|---|---:|---:|---:|---:|---:|
-| `ungated` | `5.20%` | `-48.13%` | `16.96%` | `3 / 10` | `100%` |
-| `breadth_strong` | `2.67%` | `-16.86%` | `16.96%` | `1 / 10` | `33.6%` |
-| `breadth_trend_up` | `1.61%` | `-22.84%` | `16.96%` | `1 / 10` | `50.4%` |
-| `breadth_expanding` | `-1.04%` | `-10.17%` | `16.96%` | `1 / 10` | `32.8%` |
-
-Interpretation:
-
-- breadth gating reduced some catastrophic fold damage relative to ungated
-- but every breadth variant still failed same-universe buy-hold decisively
-- breadth therefore joins delivery and OI as a useful risk-thinner, not an alpha rescue
-
-Verdict: `TB07_T04` is closed.
-
-## Earnings Status
-
-`TB07_T03 EarningsEventRisk` is now wired but only as `template_only`.
-
-- `data/earnings_calendar.csv` exists with the expected schema
-- the file contains `0` rows
-- Zerodha does not provide the earnings-calendar feed needed to populate it
-
-Verdict: earnings remains unavailable on the current Zerodha-only path.
-
-## Next Command
-
-No further broad retail-data strategy mode is justified to run immediately from the current code path.
-
-Recommended next thesis to wire and run:
-
-- `TB09_T01 DeliveryAwareIncumbentOverlay`
-  - keep `SIGNAL_E211_BANDED_68` as the base engine
-  - use prior-day delivery features only for entry veto / size-down / hold-extension decisions
-  - compare strictly against incumbent, not against buy-hold as if it were a new standalone engine
-
-Proposal artifact:
+Commands executed:
 
 ```powershell
-Get-Content results\thesis_batch_09.md
+python -u -B ssell1.py --mode signal_baseline_tb11_options_tail_control_sweep
+python -u -B ssell1.py --mode signal_baseline_tb11_options_spot_regime_tail_sweep
 ```
 
-## Batch 07 Rule
+Artifacts:
 
-Do not open another broad OHLCV selector, long-only ranker, or market-wide gate thesis.
+- `results/signal_baseline/tb11_options_tail_control_detail.csv`
+- `results/signal_baseline/tb11_options_tail_control_summary.csv`
+- `results/signal_baseline/tb11_options_tail_control_metadata.csv`
+- `results/signal_baseline/tb11_options_tail_control_skipped.csv`
+- `results/signal_baseline/tb11_options_spot_regime_tail_detail.csv`
+- `results/signal_baseline/tb11_options_spot_regime_tail_summary.csv`
+- `results/signal_baseline/tb11_options_spot_regime_tail_metadata.csv`
+- `results/signal_baseline/tb11_options_spot_regime_tail_skipped.csv`
 
-What is now closed:
+Best first-pass tail-control variant:
 
-- `TB07_T01 delivery`
-- `TB07_T02 OI`
-- `TB07_T04 breadth`
-- `TB08 pairs`
+- strategy: `TB11_farther_3pct_vix_shock_skip`
+- trades: `864`
+- annualized return on estimated margin: `10.18%`
+- worst trade: `-611.03` points
+- max drawdown: `-3650.11` points
 
-What remains honest under current data limits:
+Best spot-regime variant:
 
-- a narrow delivery-aware overlay on the incumbent
-- otherwise stop autonomous systematic research on this stack
+- strategy: `TB11_spot_3pct_ret5_m1_sma_0`
+- trades: `498`
+- annualized return on estimated margin: `18.19%`
+- worst trade: `-611.03` points
+- max drawdown: `-1390.71` points
+- win rate: `76.10%`
 
-## Wiring Status
+Important caveats:
 
-Both remaining Batch 07 modes are now wired and CLI-registered:
+- the worst loss remains the `2022-06-08` to `2022-06-16` trade
+- `2024` contribution is large enough to require concentration review
+- the candidate is not deployable before robustness and tail audit
 
-- `signal_baseline_tb07_breadth_confirmation_gate`
-- `signal_baseline_tb07_earnings_event_risk`
+## Verdict
 
-Each will fail cleanly with an empty artifact set until its required data file exists.
+`TB11_spot_3pct_ret5_m1_sma_0` is research-interesting, but `TB11_T03` blocks promotion.
+
+Audit evidence:
+
+- all-period annualized return on estimated margin: `18.19%`
+- pre-2024 annualized return on estimated margin: `16.60%`
+- 2024 annualized return on estimated margin: `199.33%`
+- 2024 PnL share: `41.14%`
+- fold 2 point PnL: `-7.42`
+- worst loss cluster remains in `2020`, `2021`, and `2022`
+- excluding only the worst 2022 trade still leaves max drawdown at `-1390.71` points
+
+## T04 Result
+
+Do not run another broad options sweep.
+
+`TB11_T04 LossClusterMaxRiskControl` has now found a better-shaped candidate:
+
+- strategy: `TB11_T04_3pct_5wing_ret5_1pct_liq50k`
+- trades: `157`
+- annualized return on estimated margin: `24.92%`
+- worst trade: `-270.89` points
+- max drawdown: `-274.28` points
+- win rate: `88.54%`
+- 2024 PnL share: `9.24%`
+- all calendar years and all chronological folds are positive
+
+## Next Action
+
+`TB11_T05` through `TB11_T09` are now complete.
+
+`TB11_T05` showed the return/loss frontier:
+
+- `50k` liquidity kept high return but retained a `-270.89` point worst trade
+- `75k` and `100k` liquidity cut worst trade to about `-68.50` but reduced return
+
+`TB11_T06` found the best current frontier point:
+
+- strategy: `TB11_T06_liq60k_ret5_0p01`
+- trades: `141`
+- annualized return on estimated margin: `24.38%`
+- worst trade: `-69.21` points
+- max drawdown: `-69.21` points
+- win rate: `89.36%`
+- all calendar years and all chronological folds are positive
+
+## Current Frontier
+
+Growth candidate:
+
+- `TB11_T06_liq60k_ret5_0p01`
+- base annualized return on estimated margin: `24.38%`
+- base worst trade / max DD: `-69.21`
+- harshest tested annualized return: `11.77%` under `30%` premium haircut and `3` points per leg
+- harshest tested worst trade / max DD: `-86.61` / `-142.84`
+
+Defensive candidate:
+
+- `TB11_T08_dte8_ret5_0p02`
+- base annualized return on estimated margin: `17.57%`
+- base worst trade / max DD: `-1.25`
+- harshest tested annualized return: `9.11%` under `30%` premium haircut and `3` points per leg
+- harshest tested worst trade / max DD: `-10.36` / `-18.77`
+
+## Next Action
+
+`TB11_T10` and `TB11_T11` are now complete.
+
+Static allocation mostly just scaled exposure down. Conditional overlay created a better balanced frontier.
+
+Best max-return overlay:
+
+- allocation: `def_full_resg100_ovg50`
+- base annualized return: `27.21%`
+- base worst / max DD: `-69.21` / `-69.20`
+- harsh-stress annualized return: `14.12%`
+- harsh-stress worst / max DD: `-86.61` / `-152.79`
+
+Best balanced overlay:
+
+- allocation: `def_full_resg50_ovg50`
+- base annualized return: `24.00%`
+- base worst / max DD: `-34.60` / `-34.60`
+- harsh-stress annualized return: `12.66%`
+- harsh-stress worst / max DD: `-43.30` / `-91.32`
+- all chronological folds are positive in base, moderate, and harsh scenarios
+
+## Next Action
+
+Open `TB11_T12_LotCapitalRiskCalibration`.
+
+Required checks:
+
+- convert points to rupees using NIFTY lot size assumptions
+- estimate capital requirement from margin points and lot count
+- cap position size so worst trade and harsh-stress drawdown fit a defined rupee loss budget
+- compare max-return overlay versus balanced overlay after lot/capital constraints
+- do not promote, RL-tune, or route to broker execution until allocation sizing passes

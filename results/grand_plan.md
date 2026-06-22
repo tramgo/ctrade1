@@ -19,6 +19,130 @@ Updated planning rule:
 3. if research continues, the next branch should be a narrow incumbent overlay such as `TB09_T01 DeliveryAwareIncumbentOverlay`
 4. if that overlay also fails, stop autonomous systematic research on this stack rather than widening the branch family again
 
+## 2026-06-20 TB10 Options Update
+
+`TB10 OptionsPremiumSyntheticViability` is opened as a separate instrument-class research gate, not as a replacement for `TB09 DeliveryAwareIncumbentOverlay`.
+
+The branch tests synthetic NIFTY weekly option-premium selling with India VIX as the volatility input. It is allowed only to decide whether real option-chain validation is worth building. It must not be treated as deployable evidence, must not use live trading, and must write explicit metadata if a NIFTY proxy is used.
+
+Runnable mode:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb10_options_premium_scan
+```
+
+Synthetic verdict:
+
+- `TB10_T02 IronCondorDefinedRisk` advances to real option-chain validation only
+- naked short strangles stay research-only because crash-week losses are too large
+- simple VIX gating failed to protect the tail
+- no TB10 result is deployable until actual option-chain premiums, strikes, expiries, bid-ask haircut, lot size, and margin are validated
+
+Real-chain verdict:
+
+- `TB10_T02` produced a positive but weak real-chain result: `6.60%` annualized return on estimated margin across `978` trades
+- worst trade was `-723.53` points and max drawdown was `-4831.48` points
+- the branch is closed `research_only`
+- no options-premium variant is promoted
+
+## 2026-06-22 TB11 Options Update
+
+`TB11 Real-Chain Options Tail Control` tested only actual option-chain bhavcopy premiums and focused on tail-control changes to the `TB10` iron-condor idea.
+
+Executed modes:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_tail_control_sweep
+python -u -B ssell1.py --mode signal_baseline_tb11_options_spot_regime_tail_sweep
+```
+
+Result:
+
+- `TB11_farther_3pct_vix_shock_skip` improved the real-chain baseline to `10.18%` annualized return on estimated margin, with worst trade `-611.03` and max drawdown `-3650.11`
+- `TB11_spot_3pct_ret5_m1_sma_0` is the current best candidate at `18.19%` annualized return on estimated margin across `498` trades, with worst trade `-611.03`, max drawdown `-1390.71`, and `76.10%` win rate
+- the result is still not promoted because the worst loss remains and 2024 contribution is large enough to require concentration review
+
+Next gate:
+
+- run `TB11_T03 RobustnessTailAudit`
+- require fold-level robustness, pre-2024 versus 2024 split, stress-week sensitivity, and max-loss-budget review
+- do not promote, RL-tune, or connect options execution to broker APIs before that audit passes
+
+Audit result:
+
+- `TB11_T03` blocks promotion
+- 2024 supplies `41.14%` of total point PnL
+- fold 2 is slightly negative in point PnL at `-7.42`
+- the major tail losses remain clustered around `2020-02`, `2021-01`, and `2022-06`
+- excluding only the worst 2022 window does not reduce the reported max drawdown, so tail risk is not a one-trade artifact
+
+Updated TB11 rule:
+
+- no promotion from `TB11_spot_3pct_ret5_m1_sma_0`
+- only continue through a narrow loss-cluster and max-risk-control thesis
+- no broad options sweep, RL, or broker execution
+
+`TB11_T04 LossClusterMaxRiskControl` result:
+
+- best deployability-shaped candidate: `TB11_T04_3pct_5wing_ret5_1pct_liq50k`
+- annualized return on estimated margin: `24.92%`
+- trades: `157`
+- worst trade: `-270.89` points
+- max drawdown: `-274.28` points
+- win rate: `88.54%`
+- all calendar years and chronological folds are positive
+- 2024 PnL share falls to `9.24%`
+
+Updated gate:
+
+- `TB11_T04_3pct_5wing_ret5_1pct_liq50k` is an advance candidate, not a promotion
+- next gate is `TB11_T05 BroaderValidation`
+- before any promotion, stress premium haircut, per-leg cost, liquidity threshold stability, skipped-leg bias, and missing-wing sensitivity
+
+`TB11_T05` and `TB11_T06` update:
+
+- `TB11_T05` confirmed the candidate family survives cost/haircut stress, but also showed a return/loss tradeoff across liquidity floors
+- `TB11_T06_liq60k_ret5_0p01` is now the best current frontier point
+- annualized return on estimated margin: `24.38%`
+- worst trade and max drawdown: `-69.21` points
+- all years and chronological folds are positive
+
+Updated gate:
+
+- do not promote yet
+- run `TB11_T07 HarshCostValidation` on the exact `60k` liquidity / `1%` 5-day momentum candidate
+- require survival under `20-25%` premium haircut and `2-3` points per-leg cost before any promotion discussion
+
+`TB11_T07-TB11_T09` update:
+
+- `TB11_T07` confirmed the growth candidate survives harsh costs in aggregate
+- `TB11_T08` found a defensive expiry-risk candidate with much smaller historical losses
+- `TB11_T09` confirmed the defensive candidate survives harsh costs
+
+Current frontier:
+
+- growth: `TB11_T06_liq60k_ret5_0p01`, base `24.38%`, worst `-69.21`, harshest tested `11.77%`
+- defensive: `TB11_T08_dte8_ret5_0p02`, base `17.57%`, worst `-1.25`, harshest tested `9.11%`
+
+Updated gate:
+
+- next step is allocation/sizing, not another entry filter
+- run `TB11_T10 AllocationSizingFrontier`
+- compare growth and defensive candidates under fixed-risk capital budgets and harsh-cost lower-bound assumptions
+
+`TB11_T10-TB11_T11` update:
+
+- fixed allocation did not materially improve the frontier beyond exposure scaling
+- conditional defensive overlay improved the return/loss shape
+- max-return overlay: `def_full_resg100_ovg50`, base `27.21%`, harsh `14.12%`
+- balanced overlay: `def_full_resg50_ovg50`, base `24.00%`, harsh `12.66%`, base worst loss `-34.60`
+
+Updated gate:
+
+- next step is rupee/lot/capital calibration
+- run `TB11_T12 LotCapitalRiskCalibration`
+- decide whether the balanced overlay can satisfy explicit position-size and rupee drawdown limits
+
 ## Objective
 
 Build a sound intraday trading engine that is:

@@ -1497,7 +1497,10 @@ LOG_TRANSFORM_FEATURES = ["Close", "Volume"]  # Only apply log transform to colu
 import requests
 import pyotp
 from urllib.parse import urlparse, parse_qs
-from kiteconnect import KiteConnect
+try:
+    from kiteconnect import KiteConnect
+except ImportError:
+    KiteConnect = None
 
 def get_required_env(name: str) -> str:
     value = os.getenv(name)
@@ -1506,17 +1509,19 @@ def get_required_env(name: str) -> str:
     return value
 
 
-API_KEY = get_required_env("API_KEY")
-API_SECRET = get_required_env("API_SECRET")
-USERNAME = get_required_env("USERNAME")
-PASSWORD = get_required_env("PASSWORD")
-TOTP_KEY = get_required_env("TOTP_KEY")
+API_KEY = os.getenv("API_KEY", "")
+API_SECRET = os.getenv("API_SECRET", "")
+USERNAME = os.getenv("USERNAME", "")
+PASSWORD = os.getenv("PASSWORD", "")
+TOTP_KEY = os.getenv("TOTP_KEY", "")
 
-kite = KiteConnect(api_key=API_KEY)
+kite = KiteConnect(api_key=API_KEY) if KiteConnect is not None and API_KEY else None
 _AUTHENTICATED_KITE: Optional[KiteConnect] = None
 
 
 def get_authenticated_kite() -> KiteConnect:
+    if KiteConnect is None or kite is None:
+        raise RuntimeError("KiteConnect is unavailable; install kiteconnect and configure API_KEY for Kite-backed modes.")
     global _AUTHENTICATED_KITE
     if _AUTHENTICATED_KITE is None:
         _AUTHENTICATED_KITE = get_valid_kite_session()
@@ -13851,6 +13856,1327 @@ def run_tb08_pairs_relative_value_scan(
     return summary_df
 
 
+def run_tb10_options_premium_scan(
+    output_prefix: str = "tb10_options_premium",
+) -> pd.DataFrame:
+    from signal_options_synth import OptionScanConfig, load_price_frame, run_options_premium_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTYBEES_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTYBEES_1day_3650d.csv",
+        ],
+        "Spot",
+    )
+    vix_df, vix_path, vix_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv",
+            DATA_DIR / "data_fetched_INDIA_VIX_day_3650d.csv",
+            DATA_DIR / "data_fetched_INDIAVIX_1day_3650d.csv",
+            DATA_DIR / "data_fetched_INDIA_VIX_1day_3650d.csv",
+        ],
+        "VIX",
+    )
+    metadata = {
+        "output_prefix": output_prefix,
+        "spot_path": str(spot_path) if spot_path is not None else "",
+        "spot_status": spot_status,
+        "vix_path": str(vix_path) if vix_path is not None else "",
+        "vix_status": vix_status,
+        "spot_proxy_used": bool(spot_path is not None and "NIFTYBEES" in spot_path.name.upper()),
+        "mode_scope": "synthetic_options_viability_only_no_live_trading",
+    }
+    pd.DataFrame([metadata]).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        msg = (
+            "[TB10-OPTIONS] missing or empty spot/VIX input; "
+            f"spot_status={spot_status} vix_status={vix_status}. Empty artifacts saved."
+        )
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df = run_options_premium_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        config=OptionScanConfig(),
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB10-OPTIONS] detail saved: {detail_csv}", flush=True)
+    print(f"[TB10-OPTIONS] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb10_real_chain_condor_validation(
+    output_prefix: str = "tb10_real_chain_condor",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+        ],
+        "Spot",
+    )
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    metadata = {
+        "output_prefix": output_prefix,
+        "spot_path": str(spot_path) if spot_path is not None else "",
+        "spot_status": spot_status,
+        "bhavcopy_root": str(bhavcopy_root),
+        "bhavcopy_file_count": len(list(bhavcopy_root.rglob("fo*bhav.csv.zip"))) if bhavcopy_root.exists() else 0,
+        "mode_scope": "real_chain_nifty_iron_condor_validation_research_only_no_live_trading",
+        "premium_source": "NSE F&O bhavcopy CLOSE for actual option legs",
+        "entry_leg_filter": "requires CONTRACTS > 0 and CLOSE > 0 on all four legs",
+    }
+    pd.DataFrame([metadata]).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        msg = (
+            "[TB10-REAL-CHAIN] missing spot input or F&O bhavcopy root; "
+            f"spot_status={spot_status} bhavcopy_exists={bhavcopy_root.exists()}. Empty artifacts saved."
+        )
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        bhavcopy_root=bhavcopy_root,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB10-REAL-CHAIN] detail saved: {detail_csv}", flush=True)
+    print(f"[TB10-REAL-CHAIN] summary saved: {summary_csv}", flush=True)
+    print(f"[TB10-REAL-CHAIN] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_tail_control_sweep(
+    output_prefix: str = "tb11_options_tail_control",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+        ],
+        "Spot",
+    )
+    vix_df, vix_path, vix_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv",
+            DATA_DIR / "data_fetched_INDIA_VIX_day_3650d.csv",
+            DATA_DIR / "data_fetched_INDIAVIX_1day_3650d.csv",
+        ],
+        "VIX",
+    )
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    variants = [
+        {"strategy": "TB11_base_2pct_5pct_wing", "short_call_offset": 0.02, "short_put_offset": 0.02, "wing_width_pct": 0.05},
+        {"strategy": "TB11_farther_3pct_5pct_wing", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05},
+        {"strategy": "TB11_farther_4pct_5pct_wing", "short_call_offset": 0.04, "short_put_offset": 0.04, "wing_width_pct": 0.05},
+        {"strategy": "TB11_tighter_risk_2pct_3pct_wing", "short_call_offset": 0.02, "short_put_offset": 0.02, "wing_width_pct": 0.03},
+        {"strategy": "TB11_tighter_risk_3pct_3pct_wing", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.03},
+        {"strategy": "TB11_vix_lt_20_2pct_5pct_wing", "short_call_offset": 0.02, "short_put_offset": 0.02, "wing_width_pct": 0.05, "vix_max": 20.0},
+        {"strategy": "TB11_vix_lt_p60_2pct_5pct_wing", "short_call_offset": 0.02, "short_put_offset": 0.02, "wing_width_pct": 0.05, "require_vix_below_p60": True},
+        {"strategy": "TB11_vix_lt_p60_3pct_5pct_wing", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "require_vix_below_p60": True},
+        {"strategy": "TB11_vix_shock_skip_2pct_5pct_wing", "short_call_offset": 0.02, "short_put_offset": 0.02, "wing_width_pct": 0.05, "vix_change_max": 0.15},
+        {"strategy": "TB11_farther_3pct_vix_shock_skip", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15},
+    ]
+    metadata = {
+        "output_prefix": output_prefix,
+        "spot_path": str(spot_path) if spot_path is not None else "",
+        "spot_status": spot_status,
+        "vix_path": str(vix_path) if vix_path is not None else "",
+        "vix_status": vix_status,
+        "bhavcopy_root": str(bhavcopy_root),
+        "bhavcopy_file_count": len(list(bhavcopy_root.rglob("fo*bhav.csv.zip"))) if bhavcopy_root.exists() else 0,
+        "variant_count": len(variants),
+        "mode_scope": "real_chain_options_tail_control_sweep_research_only",
+    }
+    pd.DataFrame([metadata]).to_csv(metadata_csv, index=False)
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        msg = (
+            "[TB11-TAIL] missing spot, VIX, or F&O bhavcopy root; "
+            f"spot_status={spot_status} vix_status={vix_status} bhavcopy_exists={bhavcopy_root.exists()}."
+        )
+        main_logger.warning(msg)
+        print(msg, flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-TAIL] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-TAIL] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-TAIL] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_spot_regime_tail_sweep(
+    output_prefix: str = "tb11_options_spot_regime_tail",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    variants = [
+        {"strategy": "TB11_spot_base_3pct_shock_skip", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15},
+        {"strategy": "TB11_spot_3pct_ret5_gt_m2", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_ret_5d_min": -0.02},
+        {"strategy": "TB11_spot_3pct_ret5_gt_m1", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_ret_5d_min": -0.01},
+        {"strategy": "TB11_spot_3pct_above_sma20_m1", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_vs_sma20_min": -0.01},
+        {"strategy": "TB11_spot_3pct_above_sma20", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_vs_sma20_min": 0.0},
+        {"strategy": "TB11_spot_3pct_ret5_m2_sma_m1", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_ret_5d_min": -0.02, "spot_vs_sma20_min": -0.01},
+        {"strategy": "TB11_spot_3pct_ret5_m1_sma_m1", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_ret_5d_min": -0.01, "spot_vs_sma20_min": -0.01},
+        {"strategy": "TB11_spot_3pct_ret5_m1_sma_0", "short_call_offset": 0.03, "short_put_offset": 0.03, "wing_width_pct": 0.05, "vix_change_max": 0.15, "spot_ret_5d_min": -0.01, "spot_vs_sma20_min": 0.0},
+    ]
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_spot_regime_tail_control_research_only",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-SPOT-TAIL] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-SPOT-TAIL] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-SPOT-TAIL] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-SPOT-TAIL] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def _tb11_audit_max_drawdown(points: pd.Series) -> float:
+    equity = pd.to_numeric(points, errors="coerce").fillna(0.0).cumsum()
+    if equity.empty:
+        return 0.0
+    return float((equity - equity.cummax()).min())
+
+
+def _tb11_audit_metrics(group: pd.DataFrame, label: str, bucket: str) -> dict:
+    if group.empty:
+        return {
+            "bucket": bucket,
+            "label": label,
+            "trade_count": 0,
+            "first_entry": "",
+            "last_expiry": "",
+            "total_pnl_points": 0.0,
+            "worst_trade_points": np.nan,
+            "max_drawdown_points": 0.0,
+            "win_rate": np.nan,
+            "total_return_on_margin": 0.0,
+            "annualized_return_on_margin": np.nan,
+        }
+    pnl = pd.to_numeric(group["net_pnl_points"], errors="coerce").fillna(0.0)
+    returns = pd.to_numeric(group["return_on_margin"], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    first_entry = pd.to_datetime(group["entry_date"]).min()
+    last_expiry = pd.to_datetime(group["expiry_date"]).max()
+    years = max((last_expiry - first_entry).days / 365.25, len(group) / 52.0, 1.0 / 52.0)
+    total_return_on_margin = float(returns.sum()) if not returns.empty else np.nan
+    annualized = (
+        (1.0 + total_return_on_margin) ** (1.0 / years) - 1.0
+        if pd.notna(total_return_on_margin) and total_return_on_margin > -0.999999
+        else np.nan
+    )
+    return {
+        "bucket": bucket,
+        "label": label,
+        "trade_count": int(len(group)),
+        "first_entry": first_entry.date().isoformat(),
+        "last_expiry": last_expiry.date().isoformat(),
+        "total_pnl_points": float(pnl.sum()),
+        "mean_pnl_points": float(pnl.mean()),
+        "worst_trade_points": float(pnl.min()),
+        "max_drawdown_points": _tb11_audit_max_drawdown(pnl),
+        "win_rate": float((pnl > 0).mean()),
+        "total_return_on_margin": total_return_on_margin,
+        "annualized_return_on_margin": float(annualized) if pd.notna(annualized) else np.nan,
+    }
+
+
+def run_tb11_options_robustness_tail_audit(
+    output_prefix: str = "tb11_options_robustness_tail_audit",
+    candidate_strategy: str = "TB11_spot_3pct_ret5_m1_sma_0",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / "tb11_options_spot_regime_tail_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    years_csv = baseline_dir / f"{output_prefix}_years.csv"
+    folds_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    stress_csv = baseline_dir / f"{output_prefix}_stress.csv"
+    worst_csv = baseline_dir / f"{output_prefix}_worst_trades.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    metadata = {
+        "output_prefix": output_prefix,
+        "source_detail": str(detail_csv),
+        "candidate_strategy": candidate_strategy,
+        "mode_scope": "real_chain_options_robustness_tail_audit_no_promotion",
+    }
+    pd.DataFrame([metadata]).to_csv(metadata_csv, index=False)
+
+    if not detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(years_csv, index=False)
+        pd.DataFrame().to_csv(folds_csv, index=False)
+        pd.DataFrame().to_csv(stress_csv, index=False)
+        pd.DataFrame().to_csv(worst_csv, index=False)
+        print(f"[TB11-AUDIT] missing source detail: {detail_csv}", flush=True)
+        return pd.DataFrame()
+
+    detail_df = pd.read_csv(detail_csv)
+    candidate_df = detail_df.loc[detail_df["strategy"] == candidate_strategy].copy()
+    if candidate_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(years_csv, index=False)
+        pd.DataFrame().to_csv(folds_csv, index=False)
+        pd.DataFrame().to_csv(stress_csv, index=False)
+        pd.DataFrame().to_csv(worst_csv, index=False)
+        print(f"[TB11-AUDIT] no rows for candidate strategy: {candidate_strategy}", flush=True)
+        return pd.DataFrame()
+
+    candidate_df["entry_date"] = pd.to_datetime(candidate_df["entry_date"])
+    candidate_df["expiry_date"] = pd.to_datetime(candidate_df["expiry_date"])
+    candidate_df = candidate_df.sort_values(["entry_date", "expiry_date"]).reset_index(drop=True)
+    candidate_df["entry_year"] = candidate_df["entry_date"].dt.year
+
+    summary_rows = [
+        _tb11_audit_metrics(candidate_df, candidate_strategy, "all"),
+        _tb11_audit_metrics(candidate_df.loc[candidate_df["entry_year"] < 2024], candidate_strategy, "pre_2024"),
+        _tb11_audit_metrics(candidate_df.loc[candidate_df["entry_year"] == 2024], candidate_strategy, "year_2024"),
+    ]
+    total_pnl = float(pd.to_numeric(candidate_df["net_pnl_points"], errors="coerce").fillna(0.0).sum())
+    pnl_2024 = float(pd.to_numeric(candidate_df.loc[candidate_df["entry_year"] == 2024, "net_pnl_points"], errors="coerce").fillna(0.0).sum())
+    summary_rows[0]["year_2024_pnl_share"] = pnl_2024 / total_pnl if abs(total_pnl) > 1e-12 else np.nan
+    summary_rows[0]["advance_gate"] = "blocked_pending_review" if summary_rows[0]["year_2024_pnl_share"] > 0.35 else "audit_review_required"
+
+    year_rows = [
+        _tb11_audit_metrics(group, candidate_strategy, str(year))
+        for year, group in candidate_df.groupby("entry_year", sort=True)
+    ]
+
+    fold_rows = []
+    for idx, fold_index in enumerate(np.array_split(candidate_df.index.to_numpy(), 4), start=1):
+        fold_df = candidate_df.loc[fold_index]
+        fold_rows.append(_tb11_audit_metrics(fold_df.copy(), candidate_strategy, f"fold_{idx}"))
+
+    worst_trade = candidate_df.sort_values("net_pnl_points", ascending=True).iloc[0]
+    stress_start = pd.Timestamp(worst_trade["entry_date"])
+    stress_end = pd.Timestamp(worst_trade["expiry_date"])
+    stress_mask = (candidate_df["entry_date"] >= stress_start) & (candidate_df["expiry_date"] <= stress_end)
+    stress_rows = [
+        _tb11_audit_metrics(candidate_df.loc[stress_mask], candidate_strategy, "worst_trade_window_only"),
+        _tb11_audit_metrics(candidate_df.loc[~stress_mask], candidate_strategy, "exclude_worst_trade_window"),
+    ]
+
+    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False)
+    pd.DataFrame(year_rows).to_csv(years_csv, index=False)
+    pd.DataFrame(fold_rows).to_csv(folds_csv, index=False)
+    pd.DataFrame(stress_rows).to_csv(stress_csv, index=False)
+    candidate_df.sort_values("net_pnl_points", ascending=True).head(20).to_csv(worst_csv, index=False)
+
+    print(f"[TB11-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-AUDIT] years saved: {years_csv}", flush=True)
+    print(f"[TB11-AUDIT] folds saved: {folds_csv}", flush=True)
+    print(f"[TB11-AUDIT] stress saved: {stress_csv}", flush=True)
+    return pd.DataFrame(summary_rows)
+
+
+def run_tb11_options_loss_cluster_control(
+    output_prefix: str = "tb11_options_loss_cluster_control",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    base_filter = {"vix_change_max": 0.15, "spot_ret_5d_min": 0.01, "spot_vs_sma20_min": 0.0}
+    variants = [
+        {
+            "strategy": "TB11_T04_3pct_5wing_ret5_1pct",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.05,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_3pct_5wing_ret5_1pct_margin700",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.05,
+            "max_margin_points": 700.0,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_3pct_5wing_ret5_1pct_margin600",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.05,
+            "max_margin_points": 600.0,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_3pct_3wing_ret5_1pct",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.03,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_3pct_3wing_ret5_1pct_margin500",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.03,
+            "max_margin_points": 500.0,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_4pct_5wing_ret5_1pct",
+            "short_call_offset": 0.04,
+            "short_put_offset": 0.04,
+            "wing_width_pct": 0.05,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_4pct_4wing_ret5_1pct_margin650",
+            "short_call_offset": 0.04,
+            "short_put_offset": 0.04,
+            "wing_width_pct": 0.04,
+            "max_margin_points": 650.0,
+            **base_filter,
+        },
+        {
+            "strategy": "TB11_T04_3pct_5wing_ret5_2pct",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.05,
+            "vix_change_max": 0.15,
+            "spot_ret_5d_min": 0.02,
+            "spot_vs_sma20_min": 0.0,
+        },
+        {
+            "strategy": "TB11_T04_3pct_5wing_ret5_1pct_liq50k",
+            "short_call_offset": 0.03,
+            "short_put_offset": 0.03,
+            "wing_width_pct": 0.05,
+            "min_total_contracts": 50000.0,
+            **base_filter,
+        },
+    ]
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_loss_cluster_max_risk_control_research_only",
+                "design_note": "narrow variants only: stronger 5d spot momentum, narrower wings, margin caps, and liquidity floor",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T04] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T04] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T04] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T04] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_loss_cluster_control_audit(
+    output_prefix: str = "tb11_options_loss_cluster_control_audit",
+    candidate_strategy: str = "TB11_T04_3pct_5wing_ret5_1pct_liq50k",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / "tb11_options_loss_cluster_control_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    years_csv = baseline_dir / f"{output_prefix}_years.csv"
+    folds_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    worst_csv = baseline_dir / f"{output_prefix}_worst_trades.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "source_detail": str(detail_csv),
+                "candidate_strategy": candidate_strategy,
+                "mode_scope": "real_chain_options_loss_cluster_control_candidate_audit_no_promotion",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(years_csv, index=False)
+        pd.DataFrame().to_csv(folds_csv, index=False)
+        pd.DataFrame().to_csv(worst_csv, index=False)
+        print(f"[TB11-T04-AUDIT] missing source detail: {detail_csv}", flush=True)
+        return pd.DataFrame()
+
+    detail_df = pd.read_csv(detail_csv)
+    candidate_df = detail_df.loc[detail_df["strategy"] == candidate_strategy].copy()
+    if candidate_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(years_csv, index=False)
+        pd.DataFrame().to_csv(folds_csv, index=False)
+        pd.DataFrame().to_csv(worst_csv, index=False)
+        print(f"[TB11-T04-AUDIT] no rows for candidate strategy: {candidate_strategy}", flush=True)
+        return pd.DataFrame()
+
+    candidate_df["entry_date"] = pd.to_datetime(candidate_df["entry_date"])
+    candidate_df["expiry_date"] = pd.to_datetime(candidate_df["expiry_date"])
+    candidate_df = candidate_df.sort_values(["entry_date", "expiry_date"]).reset_index(drop=True)
+    candidate_df["entry_year"] = candidate_df["entry_date"].dt.year
+
+    summary_rows = [
+        _tb11_audit_metrics(candidate_df, candidate_strategy, "all"),
+        _tb11_audit_metrics(candidate_df.loc[candidate_df["entry_year"] < 2024], candidate_strategy, "pre_2024"),
+        _tb11_audit_metrics(candidate_df.loc[candidate_df["entry_year"] == 2024], candidate_strategy, "year_2024"),
+    ]
+    total_pnl = float(pd.to_numeric(candidate_df["net_pnl_points"], errors="coerce").fillna(0.0).sum())
+    pnl_2024 = float(pd.to_numeric(candidate_df.loc[candidate_df["entry_year"] == 2024, "net_pnl_points"], errors="coerce").fillna(0.0).sum())
+    summary_rows[0]["year_2024_pnl_share"] = pnl_2024 / total_pnl if abs(total_pnl) > 1e-12 else np.nan
+    summary_rows[0]["advance_gate"] = "advance_candidate_needs_broader_validation"
+
+    year_rows = [
+        _tb11_audit_metrics(group, candidate_strategy, str(year))
+        for year, group in candidate_df.groupby("entry_year", sort=True)
+    ]
+    fold_rows = []
+    for idx, fold_index in enumerate(np.array_split(candidate_df.index.to_numpy(), 4), start=1):
+        fold_df = candidate_df.loc[fold_index]
+        fold_rows.append(_tb11_audit_metrics(fold_df.copy(), candidate_strategy, f"fold_{idx}"))
+
+    pd.DataFrame(summary_rows).to_csv(summary_csv, index=False)
+    pd.DataFrame(year_rows).to_csv(years_csv, index=False)
+    pd.DataFrame(fold_rows).to_csv(folds_csv, index=False)
+    candidate_df.sort_values("net_pnl_points", ascending=True).head(20).to_csv(worst_csv, index=False)
+
+    print(f"[TB11-T04-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T04-AUDIT] years saved: {years_csv}", flush=True)
+    print(f"[TB11-T04-AUDIT] folds saved: {folds_csv}", flush=True)
+    print(f"[TB11-T04-AUDIT] worst trades saved: {worst_csv}", flush=True)
+    return pd.DataFrame(summary_rows)
+
+
+def run_tb11_options_broader_validation(
+    output_prefix: str = "tb11_options_broader_validation",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    base = {
+        "short_call_offset": 0.03,
+        "short_put_offset": 0.03,
+        "wing_width_pct": 0.05,
+        "vix_change_max": 0.15,
+        "spot_ret_5d_min": 0.01,
+        "spot_vs_sma20_min": 0.0,
+    }
+    variants = [
+        {"strategy": "TB11_T05_base_liq50k_h15_c1", "min_total_contracts": 50000.0, "premium_haircut": 0.15, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h20_liq50k_c1", "min_total_contracts": 50000.0, "premium_haircut": 0.20, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h25_liq50k_c1", "min_total_contracts": 50000.0, "premium_haircut": 0.25, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h15_liq50k_c2", "min_total_contracts": 50000.0, "premium_haircut": 0.15, "cost_per_leg_points": 2.0, **base},
+        {"strategy": "TB11_T05_h20_liq50k_c2", "min_total_contracts": 50000.0, "premium_haircut": 0.20, "cost_per_leg_points": 2.0, **base},
+        {"strategy": "TB11_T05_h25_liq50k_c2", "min_total_contracts": 50000.0, "premium_haircut": 0.25, "cost_per_leg_points": 2.0, **base},
+        {"strategy": "TB11_T05_h15_liq25k_c1", "min_total_contracts": 25000.0, "premium_haircut": 0.15, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h15_liq75k_c1", "min_total_contracts": 75000.0, "premium_haircut": 0.15, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h15_liq100k_c1", "min_total_contracts": 100000.0, "premium_haircut": 0.15, "cost_per_leg_points": 1.0, **base},
+        {"strategy": "TB11_T05_h20_liq75k_c2", "min_total_contracts": 75000.0, "premium_haircut": 0.20, "cost_per_leg_points": 2.0, **base},
+        {"strategy": "TB11_T05_h25_liq75k_c2", "min_total_contracts": 75000.0, "premium_haircut": 0.25, "cost_per_leg_points": 2.0, **base},
+        {"strategy": "TB11_T05_h20_liq100k_c2", "min_total_contracts": 100000.0, "premium_haircut": 0.20, "cost_per_leg_points": 2.0, **base},
+    ]
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_broader_validation_cost_haircut_liquidity_stress",
+                "candidate_reference": "TB11_T04_3pct_5wing_ret5_1pct_liq50k",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T05] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T05] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T05] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T05] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_frontier_optimization(
+    output_prefix: str = "tb11_options_frontier_optimization",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    common = {
+        "short_call_offset": 0.03,
+        "short_put_offset": 0.03,
+        "wing_width_pct": 0.05,
+        "vix_change_max": 0.15,
+        "spot_vs_sma20_min": 0.0,
+        "premium_haircut": 0.15,
+        "cost_per_leg_points": 1.0,
+    }
+    variants = []
+    for liq in [60000.0, 75000.0, 90000.0, 100000.0, 125000.0]:
+        for ret5 in [0.008, 0.010, 0.012, 0.015, 0.020]:
+            variants.append(
+                {
+                    "strategy": f"TB11_T06_liq{int(liq/1000)}k_ret5_{str(ret5).replace('.', 'p')}",
+                    "min_total_contracts": liq,
+                    "spot_ret_5d_min": ret5,
+                    **common,
+                }
+            )
+    variants.extend(
+        [
+            {
+                "strategy": "TB11_T06_liq75k_ret5_1pct_h20_c2",
+                "min_total_contracts": 75000.0,
+                "spot_ret_5d_min": 0.010,
+                "premium_haircut": 0.20,
+                "cost_per_leg_points": 2.0,
+                **{k: v for k, v in common.items() if k not in {"premium_haircut", "cost_per_leg_points"}},
+            },
+            {
+                "strategy": "TB11_T06_liq90k_ret5_1pct_h20_c2",
+                "min_total_contracts": 90000.0,
+                "spot_ret_5d_min": 0.010,
+                "premium_haircut": 0.20,
+                "cost_per_leg_points": 2.0,
+                **{k: v for k, v in common.items() if k not in {"premium_haircut", "cost_per_leg_points"}},
+            },
+            {
+                "strategy": "TB11_T06_liq75k_ret5_0p8pct_h20_c2",
+                "min_total_contracts": 75000.0,
+                "spot_ret_5d_min": 0.008,
+                "premium_haircut": 0.20,
+                "cost_per_leg_points": 2.0,
+                **{k: v for k, v in common.items() if k not in {"premium_haircut", "cost_per_leg_points"}},
+            },
+        ]
+    )
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_return_loss_frontier_optimization_research_only",
+                "design_note": "narrow frontier around T05: liquidity floor and 5d momentum threshold only, plus harsh cost checks",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T06] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T06] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T06] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T06] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_harsh_cost_validation(
+    output_prefix: str = "tb11_options_harsh_cost_validation",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    exact_candidate = {
+        "short_call_offset": 0.03,
+        "short_put_offset": 0.03,
+        "wing_width_pct": 0.05,
+        "vix_change_max": 0.15,
+        "spot_vs_sma20_min": 0.0,
+        "spot_ret_5d_min": 0.01,
+        "min_total_contracts": 60000.0,
+    }
+    variants = []
+    for haircut in [0.15, 0.20, 0.25, 0.30]:
+        for cost in [1.0, 2.0, 3.0]:
+            variants.append(
+                {
+                    "strategy": f"TB11_T07_h{int(haircut * 100)}_c{int(cost)}",
+                    "premium_haircut": haircut,
+                    "cost_per_leg_points": cost,
+                    **exact_candidate,
+                }
+            )
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_exact_candidate_harsh_cost_validation_no_search",
+                "candidate_reference": "TB11_T06_liq60k_ret5_0p01",
+                "fixed_rule": "3pct shorts, 5pct wings, vix_change<=15pct, spot_ret_5d>=1pct, spot_vs_sma20>=0, total_entry_contracts>=60000",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T07] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T07] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T07] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T07] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_expiry_risk_frontier(
+    output_prefix: str = "tb11_options_expiry_risk_frontier",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    common = {
+        "short_call_offset": 0.03,
+        "short_put_offset": 0.03,
+        "wing_width_pct": 0.05,
+        "vix_change_max": 0.15,
+        "spot_vs_sma20_min": 0.0,
+        "min_total_contracts": 60000.0,
+        "premium_haircut": 0.15,
+        "cost_per_leg_points": 1.0,
+    }
+    variants = []
+    for max_dte in [6, 7, 8, 9, 10]:
+        for ret5 in [0.010, 0.012, 0.015, 0.020]:
+            variants.append(
+                {
+                    "strategy": f"TB11_T08_dte{max_dte}_ret5_{str(ret5).replace('.', 'p')}",
+                    "max_days_to_expiry": max_dte,
+                    "spot_ret_5d_min": ret5,
+                    **common,
+                }
+            )
+    variants.extend(
+        [
+            {
+                "strategy": "TB11_T08_dte6_ret5_1pct_h25_c2",
+                "max_days_to_expiry": 6,
+                "spot_ret_5d_min": 0.010,
+                "premium_haircut": 0.25,
+                "cost_per_leg_points": 2.0,
+                **{k: v for k, v in common.items() if k not in {"premium_haircut", "cost_per_leg_points"}},
+            },
+            {
+                "strategy": "TB11_T08_dte7_ret5_1pct_h25_c2",
+                "max_days_to_expiry": 7,
+                "spot_ret_5d_min": 0.010,
+                "premium_haircut": 0.25,
+                "cost_per_leg_points": 2.0,
+                **{k: v for k, v in common.items() if k not in {"premium_haircut", "cost_per_leg_points"}},
+            },
+        ]
+    )
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_expiry_risk_frontier_research_only",
+                "design_note": "narrow DTE cap and 5-day momentum frontier around T06/T07 candidate",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T08] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T08] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T08] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T08] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_low_loss_harsh_cost(
+    output_prefix: str = "tb11_options_low_loss_harsh_cost",
+) -> pd.DataFrame:
+    from signal_options_synth import load_price_frame, run_real_chain_condor_scan
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+
+    spot_df, spot_path, spot_status = load_price_frame([DATA_DIR / "data_fetched_NIFTY_day_3650d.csv"], "Spot")
+    vix_df, vix_path, vix_status = load_price_frame([DATA_DIR / "data_fetched_INDIAVIX_day_3650d.csv"], "VIX")
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    exact_candidate = {
+        "short_call_offset": 0.03,
+        "short_put_offset": 0.03,
+        "wing_width_pct": 0.05,
+        "vix_change_max": 0.15,
+        "spot_vs_sma20_min": 0.0,
+        "spot_ret_5d_min": 0.02,
+        "min_total_contracts": 60000.0,
+        "max_days_to_expiry": 8,
+    }
+    variants = []
+    for haircut in [0.15, 0.20, 0.25, 0.30]:
+        for cost in [1.0, 2.0, 3.0]:
+            variants.append(
+                {
+                    "strategy": f"TB11_T09_low_loss_h{int(haircut * 100)}_c{int(cost)}",
+                    "premium_haircut": haircut,
+                    "cost_per_leg_points": cost,
+                    **exact_candidate,
+                }
+            )
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "vix_path": str(vix_path) if vix_path is not None else "",
+                "vix_status": vix_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "variant_count": len(variants),
+                "mode_scope": "real_chain_options_low_loss_exact_candidate_harsh_cost_validation",
+                "candidate_reference": "TB11_T08_dte8_ret5_0p02",
+                "fixed_rule": "3pct shorts, 5pct wings, vix_change<=15pct, spot_ret_5d>=2pct, spot_vs_sma20>=0, total_entry_contracts>=60000, days_to_expiry<=8",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or vix_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        print("[TB11-T09] missing required input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    detail_df, summary_df, skipped_df = run_real_chain_condor_scan(
+        spot_df=spot_df,
+        vix_df=vix_df,
+        bhavcopy_root=bhavcopy_root,
+        variants=variants,
+    )
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    print(f"[TB11-T09] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T09] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T09] skipped rows saved: {skipped_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_allocation_sizing_frontier(
+    output_prefix: str = "tb11_options_allocation_sizing_frontier",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    growth_detail_csv = baseline_dir / "tb11_options_harsh_cost_validation_detail.csv"
+    defensive_detail_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    scenarios = [
+        ("base", "TB11_T07_h15_c1", "TB11_T09_low_loss_h15_c1"),
+        ("moderate_stress", "TB11_T07_h25_c2", "TB11_T09_low_loss_h25_c2"),
+        ("harsh_stress", "TB11_T07_h30_c3", "TB11_T09_low_loss_h30_c3"),
+    ]
+    weights = [
+        ("growth_100", 1.00, 0.00),
+        ("growth_80_def_20", 0.80, 0.20),
+        ("growth_60_def_40", 0.60, 0.40),
+        ("equal_50_50", 0.50, 0.50),
+        ("growth_40_def_60", 0.40, 0.60),
+        ("growth_25_def_75", 0.25, 0.75),
+        ("defensive_100", 0.00, 1.00),
+    ]
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "growth_detail_source": str(growth_detail_csv),
+                "defensive_detail_source": str(defensive_detail_csv),
+                "scenario_count": len(scenarios),
+                "allocation_count": len(weights),
+                "mode_scope": "real_chain_options_growth_defensive_fixed_risk_allocation_frontier",
+                "note": "Combines growth and defensive candidate returns by allocation weight on trade dates; no broker execution.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not growth_detail_csv.exists() or not defensive_detail_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T10] missing growth or defensive detail source; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_all = pd.read_csv(growth_detail_csv)
+    defensive_all = pd.read_csv(defensive_detail_csv)
+    detail_rows = []
+    summary_rows = []
+
+    for scenario, growth_strategy, defensive_strategy in scenarios:
+        growth = growth_all.loc[growth_all["strategy"] == growth_strategy].copy()
+        defensive = defensive_all.loc[defensive_all["strategy"] == defensive_strategy].copy()
+        if growth.empty or defensive.empty:
+            continue
+        for df in [growth, defensive]:
+            df["entry_date"] = pd.to_datetime(df["entry_date"])
+            df["expiry_date"] = pd.to_datetime(df["expiry_date"])
+            df["return_on_margin"] = pd.to_numeric(df["return_on_margin"], errors="coerce").fillna(0.0)
+            df["net_pnl_points"] = pd.to_numeric(df["net_pnl_points"], errors="coerce").fillna(0.0)
+        growth = growth.sort_values(["entry_date", "expiry_date"])
+        defensive = defensive.sort_values(["entry_date", "expiry_date"])
+
+        for allocation_name, growth_weight, defensive_weight in weights:
+            combined_rows = []
+            for label, weight, source in [
+                ("growth", growth_weight, growth),
+                ("defensive", defensive_weight, defensive),
+            ]:
+                if weight <= 0:
+                    continue
+                tmp = source.copy()
+                tmp["candidate_role"] = label
+                tmp["weight"] = weight
+                tmp["weighted_return_on_margin"] = tmp["return_on_margin"] * weight
+                tmp["weighted_pnl_points"] = tmp["net_pnl_points"] * weight
+                combined_rows.append(tmp)
+            if not combined_rows:
+                continue
+            combo = pd.concat(combined_rows, ignore_index=True).sort_values(["entry_date", "expiry_date", "candidate_role"])
+            daily = (
+                combo.groupby("entry_date", as_index=False)
+                .agg(
+                    expiry_date=("expiry_date", "max"),
+                    weighted_return_on_margin=("weighted_return_on_margin", "sum"),
+                    weighted_pnl_points=("weighted_pnl_points", "sum"),
+                    legs=("candidate_role", "nunique"),
+                )
+                .sort_values("entry_date")
+            )
+            equity = daily["weighted_pnl_points"].cumsum()
+            dd = equity - equity.cummax()
+            years = max((daily["expiry_date"].max() - daily["entry_date"].min()).days / 365.25, len(daily) / 52.0, 1.0 / 52.0)
+            total_rom = float(daily["weighted_return_on_margin"].sum())
+            ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+            yearly = daily.assign(year=daily["entry_date"].dt.year).groupby("year")["weighted_pnl_points"].sum()
+            positive_years = int((yearly > 0).sum())
+            negative_years = int((yearly < 0).sum())
+            for _, row in daily.iterrows():
+                detail_rows.append(
+                    {
+                        "scenario": scenario,
+                        "allocation": allocation_name,
+                        "growth_weight": growth_weight,
+                        "defensive_weight": defensive_weight,
+                        "entry_date": row["entry_date"],
+                        "expiry_date": row["expiry_date"],
+                        "weighted_return_on_margin": row["weighted_return_on_margin"],
+                        "weighted_pnl_points": row["weighted_pnl_points"],
+                        "active_legs": int(row["legs"]),
+                    }
+                )
+            summary_rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": allocation_name,
+                    "growth_strategy": growth_strategy,
+                    "defensive_strategy": defensive_strategy,
+                    "growth_weight": growth_weight,
+                    "defensive_weight": defensive_weight,
+                    "trade_dates": int(len(daily)),
+                    "first_entry": daily["entry_date"].min(),
+                    "last_expiry": daily["expiry_date"].max(),
+                    "total_weighted_pnl_points": float(daily["weighted_pnl_points"].sum()),
+                    "mean_weighted_pnl_points": float(daily["weighted_pnl_points"].mean()),
+                    "worst_weighted_trade_points": float(daily["weighted_pnl_points"].min()),
+                    "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                    "win_rate": float((daily["weighted_pnl_points"] > 0).mean()),
+                    "total_return_on_margin": total_rom,
+                    "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                    "positive_years": positive_years,
+                    "negative_years": negative_years,
+                    "year_count": int(len(yearly)),
+                }
+            )
+
+    detail_df = pd.DataFrame(detail_rows)
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["scenario", "annualized_return_on_margin", "max_drawdown_points"],
+            ascending=[True, False, False],
+        ).reset_index(drop=True)
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T10] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T10] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_conditional_overlay_frontier(
+    output_prefix: str = "tb11_options_conditional_overlay_frontier",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    growth_detail_csv = baseline_dir / "tb11_options_harsh_cost_validation_detail.csv"
+    defensive_detail_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    scenarios = [
+        ("base", "TB11_T07_h15_c1", "TB11_T09_low_loss_h15_c1"),
+        ("moderate_stress", "TB11_T07_h25_c2", "TB11_T09_low_loss_h25_c2"),
+        ("harsh_stress", "TB11_T07_h30_c3", "TB11_T09_low_loss_h30_c3"),
+    ]
+    residual_growth_weights = [0.0, 0.25, 0.50, 0.75, 1.0]
+    overlap_growth_weights = [0.0, 0.25, 0.50]
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "growth_detail_source": str(growth_detail_csv),
+                "defensive_detail_source": str(defensive_detail_csv),
+                "scenario_count": len(scenarios),
+                "mode_scope": "real_chain_options_conditional_defensive_overlay_frontier",
+                "note": "Uses defensive candidate at full size on defensive dates; controls growth weight on residual and overlap dates.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not growth_detail_csv.exists() or not defensive_detail_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T11] missing growth or defensive detail source; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_all = pd.read_csv(growth_detail_csv)
+    defensive_all = pd.read_csv(defensive_detail_csv)
+    detail_rows = []
+    summary_rows = []
+
+    for scenario, growth_strategy, defensive_strategy in scenarios:
+        growth = growth_all.loc[growth_all["strategy"] == growth_strategy].copy()
+        defensive = defensive_all.loc[defensive_all["strategy"] == defensive_strategy].copy()
+        if growth.empty or defensive.empty:
+            continue
+        for df in [growth, defensive]:
+            df["entry_date"] = pd.to_datetime(df["entry_date"])
+            df["expiry_date"] = pd.to_datetime(df["expiry_date"])
+            df["return_on_margin"] = pd.to_numeric(df["return_on_margin"], errors="coerce").fillna(0.0)
+            df["net_pnl_points"] = pd.to_numeric(df["net_pnl_points"], errors="coerce").fillna(0.0)
+        growth_by_date = {row["entry_date"]: row for _, row in growth.iterrows()}
+        defensive_by_date = {row["entry_date"]: row for _, row in defensive.iterrows()}
+        all_dates = sorted(set(growth_by_date.keys()).union(defensive_by_date.keys()))
+
+        for residual_growth_weight in residual_growth_weights:
+            for overlap_growth_weight in overlap_growth_weights:
+                allocation = f"def_full_resg{int(residual_growth_weight*100)}_ovg{int(overlap_growth_weight*100)}"
+                rows = []
+                for entry_date in all_dates:
+                    has_def = entry_date in defensive_by_date
+                    has_growth = entry_date in growth_by_date
+                    if has_def:
+                        drow = defensive_by_date[entry_date]
+                        weighted_pnl = float(drow["net_pnl_points"])
+                        weighted_rom = float(drow["return_on_margin"])
+                        expiry_date = pd.Timestamp(drow["expiry_date"])
+                        active_legs = 1
+                        if has_growth and overlap_growth_weight > 0:
+                            grow = growth_by_date[entry_date]
+                            weighted_pnl += float(grow["net_pnl_points"]) * overlap_growth_weight
+                            weighted_rom += float(grow["return_on_margin"]) * overlap_growth_weight
+                            expiry_date = max(expiry_date, pd.Timestamp(grow["expiry_date"]))
+                            active_legs += 1
+                    elif has_growth and residual_growth_weight > 0:
+                        grow = growth_by_date[entry_date]
+                        weighted_pnl = float(grow["net_pnl_points"]) * residual_growth_weight
+                        weighted_rom = float(grow["return_on_margin"]) * residual_growth_weight
+                        expiry_date = pd.Timestamp(grow["expiry_date"])
+                        active_legs = 1
+                    else:
+                        continue
+                    rows.append(
+                        {
+                            "scenario": scenario,
+                            "allocation": allocation,
+                            "residual_growth_weight": residual_growth_weight,
+                            "overlap_growth_weight": overlap_growth_weight,
+                            "entry_date": entry_date,
+                            "expiry_date": expiry_date,
+                            "weighted_pnl_points": weighted_pnl,
+                            "weighted_return_on_margin": weighted_rom,
+                            "active_legs": active_legs,
+                            "has_defensive": has_def,
+                            "has_growth": has_growth,
+                        }
+                    )
+                if not rows:
+                    continue
+                daily = pd.DataFrame(rows).sort_values("entry_date")
+                equity = daily["weighted_pnl_points"].cumsum()
+                dd = equity - equity.cummax()
+                years = max((daily["expiry_date"].max() - daily["entry_date"].min()).days / 365.25, len(daily) / 52.0, 1.0 / 52.0)
+                total_rom = float(daily["weighted_return_on_margin"].sum())
+                ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+                yearly = daily.assign(year=daily["entry_date"].dt.year).groupby("year")["weighted_pnl_points"].sum()
+                detail_rows.extend(rows)
+                summary_rows.append(
+                    {
+                        "scenario": scenario,
+                        "allocation": allocation,
+                        "growth_strategy": growth_strategy,
+                        "defensive_strategy": defensive_strategy,
+                        "residual_growth_weight": residual_growth_weight,
+                        "overlap_growth_weight": overlap_growth_weight,
+                        "trade_dates": int(len(daily)),
+                        "defensive_dates": int(daily["has_defensive"].sum()),
+                        "growth_dates": int(daily["has_growth"].sum()),
+                        "first_entry": daily["entry_date"].min(),
+                        "last_expiry": daily["expiry_date"].max(),
+                        "total_weighted_pnl_points": float(daily["weighted_pnl_points"].sum()),
+                        "worst_weighted_trade_points": float(daily["weighted_pnl_points"].min()),
+                        "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                        "win_rate": float((daily["weighted_pnl_points"] > 0).mean()),
+                        "total_return_on_margin": total_rom,
+                        "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                        "positive_years": int((yearly > 0).sum()),
+                        "negative_years": int((yearly < 0).sum()),
+                        "year_count": int(len(yearly)),
+                    }
+                )
+
+    detail_df = pd.DataFrame(detail_rows)
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["scenario", "annualized_return_on_margin", "max_drawdown_points"],
+            ascending=[True, False, False],
+        ).reset_index(drop=True)
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T11] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T11] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -15085,6 +16411,20 @@ if __name__ == "__main__":
             "signal_baseline_tb07_earnings_event_risk",
             "signal_baseline_tb07_breadth_confirmation_gate",
             "signal_baseline_tb08_pairs_relative_value_scan",
+            "signal_baseline_tb10_options_premium_scan",
+            "signal_baseline_tb10_real_chain_condor_validation",
+            "signal_baseline_tb11_options_tail_control_sweep",
+            "signal_baseline_tb11_options_spot_regime_tail_sweep",
+            "signal_baseline_tb11_options_robustness_tail_audit",
+            "signal_baseline_tb11_options_loss_cluster_control",
+            "signal_baseline_tb11_options_loss_cluster_control_audit",
+            "signal_baseline_tb11_options_broader_validation",
+            "signal_baseline_tb11_options_frontier_optimization",
+            "signal_baseline_tb11_options_harsh_cost_validation",
+            "signal_baseline_tb11_options_expiry_risk_frontier",
+            "signal_baseline_tb11_options_low_loss_harsh_cost",
+            "signal_baseline_tb11_options_allocation_sizing_frontier",
+            "signal_baseline_tb11_options_conditional_overlay_frontier",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -15527,6 +16867,118 @@ if __name__ == "__main__":
             "This is a research-only signal-quality check, not a new trading branch."
         )
         run_signal_bucket_quality_diagnostic()
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb10_options_premium_scan":
+        main_logger.info(
+            "Starting TB10 options-premium synthetic viability scan. "
+            "This is research-only and uses daily spot plus India VIX inputs; no live trading or broker execution."
+        )
+        run_tb10_options_premium_scan(output_prefix="tb10_options_premium")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb10_real_chain_condor_validation":
+        main_logger.info(
+            "Starting TB10 real-chain NIFTY iron-condor validation. "
+            "This uses local NSE F&O bhavcopy option closes and remains research-only."
+        )
+        run_tb10_real_chain_condor_validation(output_prefix="tb10_real_chain_condor")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_tail_control_sweep":
+        main_logger.info(
+            "Starting TB11 real-chain options tail-control sweep. "
+            "This tests narrower risk budgets, farther shorts, and VIX filters using actual bhavcopy option closes."
+        )
+        run_tb11_options_tail_control_sweep(output_prefix="tb11_options_tail_control")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_spot_regime_tail_sweep":
+        main_logger.info(
+            "Starting TB11 real-chain options spot-regime tail-control sweep. "
+            "This tests NIFTY trend filters around the best prior real-chain condor variant."
+        )
+        run_tb11_options_spot_regime_tail_sweep(output_prefix="tb11_options_spot_regime_tail")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_robustness_tail_audit":
+        main_logger.info(
+            "Starting TB11 real-chain options robustness/tail audit. "
+            "This audits the best candidate without promotion or broker execution."
+        )
+        run_tb11_options_robustness_tail_audit(output_prefix="tb11_options_robustness_tail_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_loss_cluster_control":
+        main_logger.info(
+            "Starting TB11 T04 loss-cluster and max-risk control test. "
+            "This is a narrow real-chain follow-up, not a broad options sweep."
+        )
+        run_tb11_options_loss_cluster_control(output_prefix="tb11_options_loss_cluster_control")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_loss_cluster_control_audit":
+        main_logger.info(
+            "Starting TB11 T04 focused candidate audit. "
+            "This audits the loss-cluster control candidate without promotion or broker execution."
+        )
+        run_tb11_options_loss_cluster_control_audit(output_prefix="tb11_options_loss_cluster_control_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_broader_validation":
+        main_logger.info(
+            "Starting TB11 T05 broader validation. "
+            "This stresses haircut, cost, and liquidity assumptions without promotion or broker execution."
+        )
+        run_tb11_options_broader_validation(output_prefix="tb11_options_broader_validation")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_frontier_optimization":
+        main_logger.info(
+            "Starting TB11 T06 return/loss frontier optimization. "
+            "This is a narrow follow-up around the T05 validated candidate family."
+        )
+        run_tb11_options_frontier_optimization(output_prefix="tb11_options_frontier_optimization")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_harsh_cost_validation":
+        main_logger.info(
+            "Starting TB11 T07 harsh-cost validation. "
+            "This stresses the exact T06 candidate without searching new rules."
+        )
+        run_tb11_options_harsh_cost_validation(output_prefix="tb11_options_harsh_cost_validation")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_expiry_risk_frontier":
+        main_logger.info(
+            "Starting TB11 T08 expiry-risk frontier. "
+            "This varies only DTE cap and 5-day momentum around the current candidate."
+        )
+        run_tb11_options_expiry_risk_frontier(output_prefix="tb11_options_expiry_risk_frontier")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_low_loss_harsh_cost":
+        main_logger.info(
+            "Starting TB11 T09 low-loss harsh-cost validation. "
+            "This stresses the exact low-loss T08 candidate without searching new rules."
+        )
+        run_tb11_options_low_loss_harsh_cost(output_prefix="tb11_options_low_loss_harsh_cost")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_allocation_sizing_frontier":
+        main_logger.info(
+            "Starting TB11 T10 allocation sizing frontier. "
+            "This combines growth and defensive candidates under fixed weights."
+        )
+        run_tb11_options_allocation_sizing_frontier(output_prefix="tb11_options_allocation_sizing_frontier")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_conditional_overlay_frontier":
+        main_logger.info(
+            "Starting TB11 T11 conditional defensive-overlay frontier. "
+            "This applies defensive trades first and sizes residual growth exposure."
+        )
+        run_tb11_options_conditional_overlay_frontier(output_prefix="tb11_options_conditional_overlay_frontier")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

@@ -27,6 +27,179 @@ Key evidence:
 
 Practical conclusion: under the current data ceiling, new information axes mainly improved participation or drawdown shape, not alpha. The only honest next systematic branch is a narrow incumbent overlay rather than another standalone selector family.
 
+## 2026-06-20 Update
+
+`TB10 OptionsPremiumSyntheticViability` is opened as a separate options-premium viability branch.
+
+Decision:
+
+- keep `TB09 DeliveryAwareIncumbentOverlay` intact
+- keep `SIGNAL_E211_BANDED_68` as the equity incumbent benchmark
+- do not compare the options-premium strategy to `E211` as if it were the same instrument class
+- use `TB10` only to decide whether real option-chain validation is worth building
+- keep live trading, broker execution, and RL out of scope
+
+First command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb10_options_premium_scan
+```
+
+Synthetic result:
+
+- `TB10_T02_iron_condor_2pct_5pct_wing` was the only variant worth advancing
+- synthetic annualized return on estimated margin: `17.83%`
+- worst trade: `-673.55` points
+- max drawdown: `-1691.77` points
+- naked strangles remained research-only because the 2020 crash weeks produced unacceptable tail losses
+- VIX-above-median gating failed because it did not avoid the crash losses
+
+Decision:
+
+- advance only `TB10_T02` to real option-chain validation
+- do not promote or deploy any synthetic TB10 result
+- next validation must use actual NIFTY option expiries, strikes, premiums, bid-ask haircut, lot size, and margin assumptions
+
+Real-chain validation result:
+
+- `TB10_T02_real_chain_iron_condor_2pct_5pct_wing` produced `978` trades from `2016-06-23` to `2024-06-27`
+- annualized return on estimated margin: `6.60%`
+- worst trade: `-723.53` points
+- max drawdown: `-4831.48` points
+- verdict: `research_only`
+
+Decision update:
+
+- close `TB10_T02` as `research_only`
+- no TB10 options variant is promoted
+- only reopen options if the next branch is real-chain-first and directly targets tail control
+
+## 2026-06-22 Update
+
+`TB11 Real-Chain Options Tail Control` was opened under the `TB10` constraint: real-chain-first, no synthetic promotion evidence, and direct focus on reducing tail losses.
+
+Completed commands:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_tail_control_sweep
+python -u -B ssell1.py --mode signal_baseline_tb11_options_spot_regime_tail_sweep
+```
+
+Key evidence:
+
+| Thesis | Best Variant | Trades | Ann. Return On Est. Margin | Worst Trade | Max DD | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| `TB11_T01 OptionsTailControlSweep` | `TB11_farther_3pct_vix_shock_skip` | `864` | `10.18%` | `-611.03` | `-3650.11` | improve, not enough |
+| `TB11_T02 SpotRegimeTailSweep` | `TB11_spot_3pct_ret5_m1_sma_0` | `498` | `18.19%` | `-611.03` | `-1390.71` | `advance_candidate` |
+
+Decision:
+
+- keep `TB11_spot_3pct_ret5_m1_sma_0` as an `advance_candidate`
+- do not promote it or connect it to broker execution
+- open `TB11_T03 RobustnessTailAudit` as the next required gate
+- audit fold robustness, pre-2024 versus 2024 contribution, stress-week sensitivity, and max-loss budget before any further options branch expansion
+
+`TB11_T03 RobustnessTailAudit` is now complete.
+
+Audit read:
+
+- all-period annualized return on estimated margin: `18.19%`
+- pre-2024 annualized return on estimated margin: `16.60%`
+- 2024 annualized return on estimated margin: `199.33%`
+- 2024 PnL share: `41.14%`
+- fold 2 point PnL: `-7.42`
+- worst trade remains `-611.03`
+- excluding the worst 2022 trade window leaves max drawdown unchanged at `-1390.71`
+
+Decision update:
+
+- block promotion of `TB11_spot_3pct_ret5_m1_sma_0`
+- keep it as a research artifact
+- only continue options through a narrow `TB11_T04 LossClusterMaxRiskControl` design
+- do not run broad sweep, RL, live trading, or broker execution
+
+`TB11_T04 LossClusterMaxRiskControl` is now complete.
+
+Best candidate:
+
+- `TB11_T04_3pct_5wing_ret5_1pct_liq50k`
+- trades: `157`
+- annualized return on estimated margin: `24.92%`
+- total PnL: `3229.66` points
+- worst trade: `-270.89` points
+- max drawdown: `-274.28` points
+- win rate: `88.54%`
+- 2024 PnL share: `9.24%`
+
+Decision update:
+
+- mark `TB11_T04_3pct_5wing_ret5_1pct_liq50k` as `advance_candidate_needs_broader_validation`
+- do not promote yet
+- next gate is `TB11_T05 BroaderValidation`
+- the validation must stress costs/haircuts, liquidity-floor stability, skipped-leg bias, and missing-wing sensitivity
+
+`TB11_T05 BroaderValidation` and `TB11_T06 FrontierOptimization` are now complete.
+
+Key result:
+
+- `TB11_T06_liq60k_ret5_0p01`
+- trades: `141`
+- annualized return on estimated margin: `24.38%`
+- total PnL: `2984.61` points
+- worst trade: `-69.21` points
+- max drawdown: `-69.21` points
+- win rate: `89.36%`
+- all calendar years positive
+- all four chronological folds positive
+
+Decision update:
+
+- supersede the T04 candidate with `TB11_T06_liq60k_ret5_0p01`
+- keep verdict as `advance_candidate_needs_harsh_cost_validation`
+- next gate is `TB11_T07 HarshCostValidation`
+- do not promote until this exact candidate survives `20-25%` premium haircut and `2-3` points per-leg cost stress
+
+`TB11_T07 HarshCostValidation`, `TB11_T08 ExpiryRiskFrontier`, and `TB11_T09 LowLossHarshCost` are now complete.
+
+Current frontier:
+
+| Candidate | Role | Trades | Base Ann. | Base Worst | Base Max DD | Harshest Ann. | Harshest Worst | Harshest Max DD |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| `TB11_T06_liq60k_ret5_0p01` | growth | `141` | `24.38%` | `-69.21` | `-69.21` | `11.77%` | `-86.61` | `-142.84` |
+| `TB11_T08_dte8_ret5_0p02` | defensive | `51` | `17.57%` | `-1.25` | `-1.25` | `9.11%` | `-10.36` | `-18.77` |
+
+Decision update:
+
+- do not choose a final promoted branch yet
+- preserve both candidates as the current efficient frontier
+- next gate is `TB11_T10 AllocationSizingFrontier`
+- compare fixed-risk allocation between growth and defensive candidates before any promotion discussion
+
+`TB11_T10 AllocationSizingFrontier` and `TB11_T11 ConditionalOverlayFrontier` are now complete.
+
+Key read:
+
+- fixed allocation reduced risk mostly by scaling down growth exposure
+- conditional overlay created a better frontier by using defensive trades on defensive dates and retaining partial growth exposure elsewhere
+
+Current preferred balanced overlay:
+
+- allocation: `def_full_resg50_ovg50`
+- base annualized return: `24.00%`
+- base worst trade: `-34.60`
+- base max drawdown: `-34.60`
+- harsh-stress annualized return: `12.66%`
+- harsh-stress worst trade: `-43.30`
+- harsh-stress max drawdown: `-91.32`
+- base, moderate, and harsh chronological folds are all positive
+
+Decision update:
+
+- mark `def_full_resg50_ovg50` as the current balanced candidate
+- keep `def_full_resg100_ovg50` as the max-return candidate
+- next gate is `TB11_T12 LotCapitalRiskCalibration`
+- no promotion until point-based results are converted into rupee/lot/capital risk constraints
+
 ## 2026-05-04 Update
 
 `TB06` is closed. The Zerodha-only OHLCV swing rescue path failed across large-cap stocks, ETFs, and the 30-name mid/small-cap universe.

@@ -1,0 +1,2 @@
+output_prefix,source_detail,candidate_strategy,mode_scope
+tb11_options_robustness_tail_audit,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_spot_regime_tail_detail.csv,TB11_spot_3pct_ret5_m1_sma_0,real_chain_options_robustness_tail_audit_no_promotion

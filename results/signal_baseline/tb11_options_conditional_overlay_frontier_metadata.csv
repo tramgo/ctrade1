@@ -1,0 +1,2 @@
+output_prefix,growth_detail_source,defensive_detail_source,scenario_count,mode_scope,note
+tb11_options_conditional_overlay_frontier,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_harsh_cost_validation_detail.csv,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_low_loss_harsh_cost_detail.csv,3,real_chain_options_conditional_defensive_overlay_frontier,Uses defensive candidate at full size on defensive dates; controls growth weight on residual and overlap dates.
