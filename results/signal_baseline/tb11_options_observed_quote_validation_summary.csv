@@ -1,0 +1,2 @@
+template_rows,observed_rows,pending_rows,pass_rows,review_rows,fail_rows,broker_block_violations,freshness_fail_rows,missing_leg_rows,spread_fail_rows,outside_15pct_rows,surprise_cost_rows,validator_schema_gate_passed,phase1_evidence_gate_passed,validator_status
+50,0,50,0,0,0,0,0,0,0,0,0,True,False,ready_pending_observations

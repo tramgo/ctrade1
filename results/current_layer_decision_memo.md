@@ -887,6 +887,208 @@ Decision read:
 
 Immediate next gate:
 
-- `TB11_T17_ProfileFreezeExecutionReadiness`
-- freeze the paper-only profile and write kill-switch/no-trade rules
+- superseded by `TB11_T18_ItemizedIndianFNOCostAudit`
+- freeze work must wait until broker-accurate Indian F&O costs are audited
 - keep RL, live trading, and broker execution blocked
+
+### TB11 itemized Indian F&O cost checkpoint
+
+`TB11_T17 ITMExpirySTTAudit` and `TB11_T18 ItemizedIndianFNOCostAudit` are complete.
+
+T17 evidence:
+
+- output:
+  - `results/signal_baseline/tb11_options_itm_expiry_stt_audit_summary.csv`
+  - `results/signal_baseline/tb11_options_itm_expiry_stt_audit_trades.csv`
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- result: only `1` selected-profile trade had ITM short-leg intrinsic at expiry
+- conservative short-leg intrinsic STT check did not break the base/moderate/harsh gates
+
+T18 evidence:
+
+- command: `python -u -B ssell1.py --mode signal_baseline_tb11_options_itemized_fno_cost_audit`
+- outputs:
+  - `results/signal_baseline/tb11_options_itemized_fno_cost_audit_summary.csv`
+  - `results/signal_baseline/tb11_options_itemized_fno_cost_audit_trades.csv`
+  - `results/signal_baseline/tb11_options_itemized_fno_cost_audit_legs.csv`
+  - `results/signal_baseline/tb11_options_itemized_fno_cost_audit_metadata.csv`
+- current cost assumptions:
+  - `20` rupees option brokerage per order/leg
+  - `0.05%` option sell-side premium STT
+  - `0.15%` ITM intrinsic exercise/assignment stress bucket
+  - `0.03553%` NSE option transaction charge on premium
+  - `18%` GST on brokerage + SEBI + transaction charges
+  - `10` rupees per crore SEBI charge
+  - `0.003%` buy-side option stamp duty
+
+Decision read:
+
+- the selected maturity-gated profile passes the itemized-cost gate in base, moderate, and harsh stress
+- at reference lot size `65`, itemized cost is `112.99` points versus `300/600/900` points in the old base/moderate/harsh lumped proxy
+- harsh-stress annualized return after itemized cost is `26.50%`
+- all years and folds remain positive
+- the old lumped proxy was harsher than broker-itemized costs in this sample, but the cost module must now be mandatory for any future paper/live read
+
+Immediate next gate:
+
+- `TB11_T19_ProfileFreezeExecutionReadiness`
+- freeze the paper-only selected profile and budget rules
+- require the itemized Indian F&O cost module in every future TB11 run
+- write exit-before-expiry, kill-switch, and no-trade rules
+- keep RL, live trading, and broker execution blocked
+
+### TB11 profile-freeze and staged validation checkpoint
+
+`TB11_T19 ProfileFreezeExecutionReadiness` is complete.
+
+Evidence:
+
+- artifacts:
+  - `results/signal_baseline/tb11_options_profile_freeze_execution_readiness.md`
+  - `results/signal_baseline/tb11_options_profile_freeze_execution_readiness_summary.csv`
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- reference lot size: `65`
+- itemized Indian F&O cost module: mandatory
+- broker/live execution: still blocked
+
+Staged validation plan:
+
+- Phase 1 dry run for `1-2 months`: log every signal and simulate fills; no broker orders
+- Phase 2 paper at real prices for `3-6 months`: at least `10-15` paper trades; available premiums within `10-15%` adverse tolerance; no surprise costs
+- Phase 3 tiny live for `3-6 months`: future human-approved `1` lot only; at least `10` real-money trades
+- Phase 4 scale: ongoing, only after phases 1-3 hold up and the target budget is revalidated
+
+Decision read:
+
+- T19 passes as a profile-freeze and process-readiness gate
+- the result is not a live/paper order-placement approval
+- the next useful engineering task is to build the dry-run signal logger so Phase 1 can produce evidence rather than relying on manual notes
+
+Immediate next gate:
+
+- `TB11_T20_DryRunSignalLogger`
+- implement no-order signal logging for every candidate signal and skip reason
+- output signal log, summary, and reconciliation artifacts
+- keep Phase 1 and Phase 2 broker-order placement blocked
+
+### TB11 dry-run signal logger checkpoint
+
+`TB11_T20 DryRunSignalLogger` is complete.
+
+Evidence:
+
+- command: `python -B ssell1.py --mode signal_baseline_tb11_options_dry_run_signal_logger`
+- outputs:
+  - `results/signal_baseline/tb11_options_dry_run_signal_log.csv`
+  - `results/signal_baseline/tb11_options_dry_run_signal_log_summary.csv`
+  - `results/signal_baseline/tb11_options_dry_run_reconciliation.md`
+  - `results/signal_baseline/tb11_options_dry_run_signal_log_metadata.csv`
+- source mode: `historical_replay_no_order`
+- selected profile: `def_full_resg0_ovg50`
+- lot size: `65`
+
+Decision read:
+
+- the logger recorded `51` signals
+- `50` signals are simulated after the maturity gate
+- `1` signal is skipped by the maturity warmup rule
+- broker orders allowed is `False` for the artifact
+- schema gate passed
+- this is a logger/readiness pass, not completion of the required 1-2 month Phase 1 dry run
+
+Immediate next gate:
+
+- `TB11_T21_DryRunObservedQuoteCapture`
+- define the observed quote capture template and daily reconciliation workflow
+- compare observed available premiums against modeled premium with the `10-15%` adverse tolerance
+- keep broker orders blocked
+
+### TB11 observed quote capture checkpoint
+
+`TB11_T21 DryRunObservedQuoteCapture` is complete.
+
+Evidence:
+
+- command: `python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_capture_template`
+- outputs:
+  - `results/signal_baseline/tb11_options_observed_quote_capture_template.csv`
+  - `results/signal_baseline/tb11_options_observed_quote_capture_template_summary.csv`
+  - `results/signal_baseline/tb11_options_observed_quote_capture_template_metadata.csv`
+  - `results/signal_baseline/tb11_options_observed_quote_reconciliation.md`
+
+Decision read:
+
+- template rows: `50`
+- all rows keep `broker_order_allowed=False`
+- observed quote fields are blank and ready for Phase 1 capture
+- quote freshness target is `300` seconds
+- adverse premium tolerance is `15%`
+- template gate passed
+- this is still no-order dry-run infrastructure, not paper/live approval
+
+Immediate next gate:
+
+- `TB11_T22_ObservedQuoteReconciliationValidator`
+- score filled-in observations for quote freshness, leg completeness, spread quality, and premium tolerance
+- summarize pass/fail counts and skip reasons
+- keep broker orders blocked
+
+### TB11 observed quote validator checkpoint
+
+`TB11_T22 ObservedQuoteReconciliationValidator` is complete.
+
+Evidence:
+
+- command: `python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator`
+- outputs:
+  - `results/signal_baseline/tb11_options_observed_quote_validation_detail.csv`
+  - `results/signal_baseline/tb11_options_observed_quote_validation_summary.csv`
+  - `results/signal_baseline/tb11_options_observed_quote_validation_metadata.csv`
+
+Decision read:
+
+- validator schema gate passed
+- template rows: `50`
+- observed rows: `0`
+- pending rows: `50`
+- broker-block violations: `0`
+- Phase 1 evidence gate has not passed because no real observed quotes have been collected yet
+
+Immediate next gate:
+
+- `TB11_T23_DryRunObservationCollection`
+- collect real no-order observed quote rows for `1-2 months`
+- rerun the validator after each observation batch
+- require fresh quotes, all legs available, acceptable spread quality, and observed credit inside the `10-15%` adverse tolerance
+- keep broker orders blocked
+
+### TB11 dry-run observation collection setup
+
+`TB11_T23 DryRunObservationCollection` is operationally prepared but not complete.
+
+Evidence:
+
+- command: `python -B ssell1.py --mode signal_baseline_tb11_options_dry_run_observation_collection_pack`
+- outputs:
+  - `results/signal_baseline/tb11_options_dry_run_observation_collection_20260623.csv`
+  - `results/signal_baseline/tb11_options_dry_run_observation_collection_ledger.csv`
+  - `results/signal_baseline/tb11_options_dry_run_observation_collection_summary.csv`
+  - `results/signal_baseline/tb11_options_dry_run_observation_collection_metadata.csv`
+  - `results/signal_baseline/tb11_options_dry_run_observation_collection_runbook.md`
+
+Decision read:
+
+- collection batch id: `TB11_PHASE1_OBS_20260623`
+- rows prepared: `50`
+- prior observed rows: `0`
+- broker orders allowed: `False`
+- status: `manual_no_order_collection_ready`
+- the Phase 1 evidence gate is still open and needs real observed quote rows over `1-2 months`
+
+Continue current gate:
+
+- fill observed quote fields only
+- rerun the observed-quote validator after each batch
+- do not advance to Phase 2 until enough observations pass freshness, all-leg, spread-quality, and premium-tolerance checks

@@ -16103,6 +16103,1438 @@ def run_tb11_options_maturity_adjusted_rupee_profile(
     return summary_df
 
 
+def run_tb11_options_itm_expiry_stt_audit(
+    output_prefix: str = "tb11_options_itm_expiry_stt_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    growth_detail_csv = baseline_dir / "tb11_options_harsh_cost_validation_detail.csv"
+    defensive_detail_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    trades_csv = baseline_dir / f"{output_prefix}_trades.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    warmup_trade_count = 1
+    stt_exercise_rate = 0.00125
+    scenarios = [
+        ("base", "TB11_T07_h15_c1", "TB11_T09_low_loss_h15_c1"),
+        ("moderate_stress", "TB11_T07_h25_c2", "TB11_T09_low_loss_h25_c2"),
+        ("harsh_stress", "TB11_T07_h30_c3", "TB11_T09_low_loss_h30_c3"),
+    ]
+    lot_sizes = [50, 65, 75]
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "growth_detail_source": str(growth_detail_csv),
+                "defensive_detail_source": str(defensive_detail_csv),
+                "selected_allocation": selected_allocation,
+                "warmup_trade_count": warmup_trade_count,
+                "stt_exercise_rate": stt_exercise_rate,
+                "mode_scope": "tb11_itm_expiry_stt_hazard_audit",
+                "note": "Conservatively subtracts 0.125% of ITM short-leg intrinsic value at expiry before selected-profile aggregation.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not growth_detail_csv.exists() or not defensive_detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(trades_csv, index=False)
+        print("[TB11-T17] missing growth or defensive source detail; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_all = pd.read_csv(growth_detail_csv)
+    defensive_all = pd.read_csv(defensive_detail_csv)
+    required_cols = ["spot_expiry", "short_call_strike", "short_put_strike", "net_pnl_points", "return_on_margin"]
+    if any(col not in growth_all.columns for col in required_cols) or any(col not in defensive_all.columns for col in required_cols):
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(trades_csv, index=False)
+        print("[TB11-T17] source detail lacks strike/expiry columns for STT audit; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    def _prep_option_rows(df: pd.DataFrame, strategy: str, role: str, weight: float) -> pd.DataFrame:
+        out = df.loc[df["strategy"] == strategy].copy()
+        if out.empty:
+            return out
+        out["entry_date"] = pd.to_datetime(out["entry_date"])
+        out["expiry_date"] = pd.to_datetime(out["expiry_date"])
+        for col in [
+            "spot_expiry",
+            "short_call_strike",
+            "short_put_strike",
+            "net_pnl_points",
+            "return_on_margin",
+            "margin_estimate_points",
+        ]:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+        short_call_intrinsic = (out["spot_expiry"] - out["short_call_strike"]).clip(lower=0.0)
+        short_put_intrinsic = (out["short_put_strike"] - out["spot_expiry"]).clip(lower=0.0)
+        out["short_call_intrinsic_points"] = short_call_intrinsic
+        out["short_put_intrinsic_points"] = short_put_intrinsic
+        out["short_intrinsic_points"] = short_call_intrinsic + short_put_intrinsic
+        out["itm_short_legs"] = (short_call_intrinsic > 0).astype(int) + (short_put_intrinsic > 0).astype(int)
+        out["exercise_stt_points"] = out["short_intrinsic_points"] * stt_exercise_rate
+        out["net_pnl_after_exercise_stt_points"] = out["net_pnl_points"] - out["exercise_stt_points"]
+        out["return_after_exercise_stt"] = np.where(
+            out["margin_estimate_points"].abs() > 1e-12,
+            out["net_pnl_after_exercise_stt_points"] / out["margin_estimate_points"],
+            out["return_on_margin"],
+        )
+        out["candidate_role"] = role
+        out["weight"] = weight
+        out["weighted_pnl_points_before_stt"] = out["net_pnl_points"] * weight
+        out["weighted_exercise_stt_points"] = out["exercise_stt_points"] * weight
+        out["weighted_pnl_points_after_stt"] = out["net_pnl_after_exercise_stt_points"] * weight
+        out["weighted_return_after_stt"] = out["return_after_exercise_stt"] * weight
+        return out
+
+    trade_rows = []
+    summary_rows = []
+    for scenario, growth_strategy, defensive_strategy in scenarios:
+        growth = _prep_option_rows(growth_all, growth_strategy, "growth_overlap", 0.5)
+        defensive = _prep_option_rows(defensive_all, defensive_strategy, "defensive", 1.0)
+        if growth.empty or defensive.empty:
+            continue
+        growth_by_date = {row["entry_date"]: row for _, row in growth.iterrows()}
+        rows = []
+        for _, drow in defensive.sort_values("entry_date").iterrows():
+            entry_date = drow["entry_date"]
+            if entry_date not in growth_by_date:
+                continue
+            grow = growth_by_date[entry_date]
+            weighted_before = float(drow["weighted_pnl_points_before_stt"]) + float(grow["weighted_pnl_points_before_stt"])
+            weighted_stt = float(drow["weighted_exercise_stt_points"]) + float(grow["weighted_exercise_stt_points"])
+            weighted_after = float(drow["weighted_pnl_points_after_stt"]) + float(grow["weighted_pnl_points_after_stt"])
+            weighted_return_after = float(drow["weighted_return_after_stt"]) + float(grow["weighted_return_after_stt"])
+            rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": selected_allocation,
+                    "entry_date": entry_date,
+                    "expiry_date": max(pd.Timestamp(drow["expiry_date"]), pd.Timestamp(grow["expiry_date"])),
+                    "weighted_pnl_before_stt_points": weighted_before,
+                    "weighted_exercise_stt_points": weighted_stt,
+                    "weighted_pnl_after_stt_points": weighted_after,
+                    "weighted_return_after_stt": weighted_return_after,
+                    "defensive_short_intrinsic_points": float(drow["short_intrinsic_points"]),
+                    "growth_short_intrinsic_points": float(grow["short_intrinsic_points"]),
+                    "defensive_itm_short_legs": int(drow["itm_short_legs"]),
+                    "growth_itm_short_legs": int(grow["itm_short_legs"]),
+                }
+            )
+        if len(rows) <= warmup_trade_count:
+            continue
+        selected = pd.DataFrame(rows).sort_values("entry_date").reset_index(drop=True)
+        selected = selected.iloc[warmup_trade_count:].copy()
+        trade_rows.extend(selected.to_dict("records"))
+        equity = selected["weighted_pnl_after_stt_points"].cumsum()
+        dd = equity - equity.cummax()
+        years = max(
+            (selected["expiry_date"].max() - selected["entry_date"].min()).days / 365.25,
+            len(selected) / 52.0,
+            1.0 / 52.0,
+        )
+        total_return = float(selected["weighted_return_after_stt"].sum())
+        ann_return = (1.0 + total_return) ** (1.0 / years) - 1.0 if total_return > -0.999999 else np.nan
+        yearly = (
+            selected.assign(year=selected["entry_date"].dt.year)
+            .groupby("year", as_index=False)
+            .agg(pnl_after_stt_points=("weighted_pnl_after_stt_points", "sum"))
+        )
+        folds = [
+            float(selected.iloc[idx]["weighted_pnl_after_stt_points"].sum())
+            for idx in np.array_split(np.arange(len(selected)), 4)
+            if len(idx) > 0
+        ]
+        total_pnl_after = float(selected["weighted_pnl_after_stt_points"].sum())
+        max_year_share = (
+            float((yearly["pnl_after_stt_points"] / total_pnl_after).max())
+            if total_pnl_after > 0 and not yearly.empty
+            else np.nan
+        )
+        itm_trades = int((selected["weighted_exercise_stt_points"] > 0).sum())
+        for lot_size in lot_sizes:
+            summary_rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": selected_allocation,
+                    "warmup_trade_count": warmup_trade_count,
+                    "lot_size": lot_size,
+                    "trades": int(len(selected)),
+                    "first_entry": selected["entry_date"].min(),
+                    "last_expiry": selected["expiry_date"].max(),
+                    "itm_expiry_trades": itm_trades,
+                    "itm_expiry_trade_rate": itm_trades / len(selected) if len(selected) else np.nan,
+                    "total_pnl_before_stt_points": float(selected["weighted_pnl_before_stt_points"].sum()),
+                    "total_exercise_stt_points": float(selected["weighted_exercise_stt_points"].sum()),
+                    "total_pnl_after_stt_points": total_pnl_after,
+                    "annualized_return_after_stt": float(ann_return) if pd.notna(ann_return) else np.nan,
+                    "worst_trade_after_stt_points": float(selected["weighted_pnl_after_stt_points"].min()),
+                    "max_drawdown_after_stt_points": float(dd.min()) if not dd.empty else 0.0,
+                    "win_rate_after_stt": float((selected["weighted_pnl_after_stt_points"] > 0).mean()),
+                    "total_exercise_stt_rupees": float(selected["weighted_exercise_stt_points"].sum()) * lot_size,
+                    "worst_trade_after_stt_rupees": float(selected["weighted_pnl_after_stt_points"].min()) * lot_size,
+                    "max_drawdown_after_stt_rupees": (float(dd.min()) if not dd.empty else 0.0) * lot_size,
+                    "positive_years_after_stt": int((yearly["pnl_after_stt_points"] > 0).sum()),
+                    "negative_years_after_stt": int((yearly["pnl_after_stt_points"] <= 0).sum()),
+                    "positive_folds_after_stt": int(sum(1 for value in folds if value > 0)),
+                    "negative_folds_after_stt": int(sum(1 for value in folds if value <= 0)),
+                    "max_year_pnl_share_after_stt": max_year_share,
+                    "passes_stt_audit": (
+                        int((yearly["pnl_after_stt_points"] <= 0).sum()) == 0
+                        and int(sum(1 for value in folds if value <= 0)) == 0
+                        and pd.notna(max_year_share)
+                        and max_year_share <= 0.35
+                    ),
+                }
+            )
+
+    trades_df = pd.DataFrame(trade_rows)
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["scenario", "lot_size", "annualized_return_after_stt"],
+            ascending=[True, True, False],
+        ).reset_index(drop=True)
+    trades_df.to_csv(trades_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T17] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T17] trades saved: {trades_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_itemized_fno_cost_audit(
+    output_prefix: str = "tb11_options_itemized_fno_cost_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    growth_detail_csv = baseline_dir / "tb11_options_harsh_cost_validation_detail.csv"
+    defensive_detail_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    trades_csv = baseline_dir / f"{output_prefix}_trades.csv"
+    legs_csv = baseline_dir / f"{output_prefix}_legs.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    warmup_trade_count = 1
+    lot_sizes = [50, 65, 75]
+    scenarios = [
+        ("base", "TB11_T07_h15_c1", "TB11_T09_low_loss_h15_c1"),
+        ("moderate_stress", "TB11_T07_h25_c2", "TB11_T09_low_loss_h25_c2"),
+        ("harsh_stress", "TB11_T07_h30_c3", "TB11_T09_low_loss_h30_c3"),
+    ]
+    charges = {
+        "brokerage_per_order_rupees": 20.0,
+        "stt_sell_premium_rate": 0.0005,
+        "stt_exercise_intrinsic_rate": 0.0015,
+        "exchange_transaction_rate": 0.0003553,
+        "gst_rate": 0.18,
+        "sebi_turnover_rate": 10.0 / 10_000_000.0,
+        "stamp_buy_premium_rate": 0.00003,
+    }
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "growth_detail_source": str(growth_detail_csv),
+                "defensive_detail_source": str(defensive_detail_csv),
+                "selected_allocation": selected_allocation,
+                "warmup_trade_count": warmup_trade_count,
+                "lot_sizes": ",".join(str(size) for size in lot_sizes),
+                "mode_scope": "zerodha_style_indian_fno_itemized_cost_audit",
+                "brokerage_per_order_rupees": charges["brokerage_per_order_rupees"],
+                "stt_sell_premium_rate": charges["stt_sell_premium_rate"],
+                "stt_exercise_intrinsic_rate": charges["stt_exercise_intrinsic_rate"],
+                "exchange_transaction_rate": charges["exchange_transaction_rate"],
+                "gst_rate": charges["gst_rate"],
+                "sebi_turnover_rate": charges["sebi_turnover_rate"],
+                "stamp_buy_premium_rate": charges["stamp_buy_premium_rate"],
+                "note": (
+                    "Itemizes option-leg brokerage, sell-side premium STT, NSE option transaction charges, "
+                    "SEBI charges, GST, buy-side stamp duty, and a conservative ITM-expiry intrinsic STT/brokerage bucket."
+                ),
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not growth_detail_csv.exists() or not defensive_detail_csv.exists():
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(trades_csv, index=False)
+        pd.DataFrame().to_csv(legs_csv, index=False)
+        print("[TB11-T18] missing growth or defensive source detail; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_all = pd.read_csv(growth_detail_csv)
+    defensive_all = pd.read_csv(defensive_detail_csv)
+    required_cols = [
+        "entry_date",
+        "expiry_date",
+        "spot_expiry",
+        "short_call_strike",
+        "short_put_strike",
+        "call_wing_strike",
+        "put_wing_strike",
+        "short_call_close",
+        "short_put_close",
+        "call_wing_close",
+        "put_wing_close",
+        "total_cost_points",
+        "net_pnl_points",
+        "return_on_margin",
+        "margin_estimate_points",
+    ]
+    if any(col not in growth_all.columns for col in required_cols) or any(col not in defensive_all.columns for col in required_cols):
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(trades_csv, index=False)
+        pd.DataFrame().to_csv(legs_csv, index=False)
+        print("[TB11-T18] source detail lacks required leg premium/strike columns; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    def _leg_charge_rupees(premium_points: float, lot_size: int, side: str) -> dict:
+        premium_turnover = abs(float(premium_points)) * lot_size
+        brokerage = charges["brokerage_per_order_rupees"]
+        exchange = premium_turnover * charges["exchange_transaction_rate"]
+        sebi = premium_turnover * charges["sebi_turnover_rate"]
+        stt = premium_turnover * charges["stt_sell_premium_rate"] if side == "sell" else 0.0
+        stamp = premium_turnover * charges["stamp_buy_premium_rate"] if side == "buy" else 0.0
+        gst = (brokerage + exchange + sebi) * charges["gst_rate"]
+        total = brokerage + stt + exchange + sebi + gst + stamp
+        return {
+            "premium_turnover_rupees": premium_turnover,
+            "brokerage_rupees": brokerage,
+            "stt_premium_rupees": stt,
+            "exchange_rupees": exchange,
+            "sebi_rupees": sebi,
+            "gst_rupees": gst,
+            "stamp_rupees": stamp,
+            "total_rupees": total,
+        }
+
+    def _expiry_charge_rupees(intrinsic_points: float, lot_size: int) -> dict:
+        intrinsic_turnover = max(float(intrinsic_points), 0.0) * lot_size
+        if intrinsic_turnover <= 0.0:
+            return {
+                "intrinsic_turnover_rupees": 0.0,
+                "expiry_brokerage_rupees": 0.0,
+                "stt_exercise_rupees": 0.0,
+                "expiry_gst_rupees": 0.0,
+                "total_rupees": 0.0,
+            }
+        brokerage = charges["brokerage_per_order_rupees"]
+        stt = intrinsic_turnover * charges["stt_exercise_intrinsic_rate"]
+        gst = brokerage * charges["gst_rate"]
+        return {
+            "intrinsic_turnover_rupees": intrinsic_turnover,
+            "expiry_brokerage_rupees": brokerage,
+            "stt_exercise_rupees": stt,
+            "expiry_gst_rupees": gst,
+            "total_rupees": brokerage + stt + gst,
+        }
+
+    def _prep_option_rows(df: pd.DataFrame, strategy: str, role: str, weight: float, lot_size: int) -> pd.DataFrame:
+        out = df.loc[df["strategy"] == strategy].copy()
+        if out.empty:
+            return out
+        out["entry_date"] = pd.to_datetime(out["entry_date"])
+        out["expiry_date"] = pd.to_datetime(out["expiry_date"])
+        numeric_cols = [
+            "spot_expiry",
+            "short_call_strike",
+            "short_put_strike",
+            "call_wing_strike",
+            "put_wing_strike",
+            "short_call_close",
+            "short_put_close",
+            "call_wing_close",
+            "put_wing_close",
+            "total_cost_points",
+            "net_pnl_points",
+            "return_on_margin",
+            "margin_estimate_points",
+        ]
+        for col in numeric_cols:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+
+        leg_rows = []
+        entry_costs = []
+        expiry_costs = []
+        expiry_intrinsic_points = []
+        itm_expiry_legs = []
+        for _, row in out.iterrows():
+            legs = [
+                ("short_call", "sell", float(row["short_call_close"]), max(float(row["spot_expiry"]) - float(row["short_call_strike"]), 0.0)),
+                ("short_put", "sell", float(row["short_put_close"]), max(float(row["short_put_strike"]) - float(row["spot_expiry"]), 0.0)),
+                ("long_call_wing", "buy", float(row["call_wing_close"]), max(float(row["spot_expiry"]) - float(row["call_wing_strike"]), 0.0)),
+                ("long_put_wing", "buy", float(row["put_wing_close"]), max(float(row["put_wing_strike"]) - float(row["spot_expiry"]), 0.0)),
+            ]
+            entry_total = 0.0
+            expiry_total = 0.0
+            intrinsic_total = 0.0
+            itm_count = 0
+            for leg_name, side, premium, intrinsic in legs:
+                entry = _leg_charge_rupees(premium, lot_size, side)
+                expiry = _expiry_charge_rupees(intrinsic, lot_size)
+                entry_total += entry["total_rupees"]
+                expiry_total += expiry["total_rupees"]
+                intrinsic_total += intrinsic
+                itm_count += int(intrinsic > 0.0)
+                leg_rows.append(
+                    {
+                        "scenario": row.get("scenario", ""),
+                        "strategy": strategy,
+                        "candidate_role": role,
+                        "weight": weight,
+                        "lot_size": lot_size,
+                        "entry_date": row["entry_date"],
+                        "expiry_date": row["expiry_date"],
+                        "leg_name": leg_name,
+                        "side": side,
+                        "premium_points": premium,
+                        "intrinsic_points": intrinsic,
+                        "weighted_intrinsic_points": intrinsic * weight,
+                        "weighted_entry_total_rupees": entry["total_rupees"] * weight,
+                        "weighted_expiry_total_rupees": expiry["total_rupees"] * weight,
+                        **{f"entry_{key}": value for key, value in entry.items()},
+                        **{f"expiry_{key}": value for key, value in expiry.items()},
+                    }
+                )
+            entry_costs.append(entry_total)
+            expiry_costs.append(expiry_total)
+            expiry_intrinsic_points.append(intrinsic_total)
+            itm_expiry_legs.append(itm_count)
+
+        out["candidate_role"] = role
+        out["weight"] = weight
+        out["itemized_entry_cost_points"] = np.asarray(entry_costs, dtype=float) / float(lot_size)
+        out["itemized_expiry_cost_points"] = np.asarray(expiry_costs, dtype=float) / float(lot_size)
+        out["itemized_total_cost_points"] = out["itemized_entry_cost_points"] + out["itemized_expiry_cost_points"]
+        out["model_lumped_cost_points"] = out["total_cost_points"]
+        out["net_pnl_before_lumped_cost_points"] = out["net_pnl_points"] + out["model_lumped_cost_points"]
+        out["net_pnl_after_itemized_cost_points"] = out["net_pnl_before_lumped_cost_points"] - out["itemized_total_cost_points"]
+        out["itemized_minus_lumped_cost_points"] = out["itemized_total_cost_points"] - out["model_lumped_cost_points"]
+        out["return_after_itemized_cost"] = np.where(
+            out["margin_estimate_points"].abs() > 1e-12,
+            out["net_pnl_after_itemized_cost_points"] / out["margin_estimate_points"],
+            out["return_on_margin"],
+        )
+        out["weighted_model_lumped_cost_points"] = out["model_lumped_cost_points"] * weight
+        out["weighted_itemized_entry_cost_points"] = out["itemized_entry_cost_points"] * weight
+        out["weighted_itemized_expiry_cost_points"] = out["itemized_expiry_cost_points"] * weight
+        out["weighted_itemized_total_cost_points"] = out["itemized_total_cost_points"] * weight
+        out["weighted_itemized_minus_lumped_cost_points"] = out["itemized_minus_lumped_cost_points"] * weight
+        out["weighted_pnl_before_lumped_cost_points"] = out["net_pnl_before_lumped_cost_points"] * weight
+        out["weighted_pnl_after_lumped_cost_points"] = out["net_pnl_points"] * weight
+        out["weighted_pnl_after_itemized_cost_points"] = out["net_pnl_after_itemized_cost_points"] * weight
+        out["weighted_return_after_itemized_cost"] = out["return_after_itemized_cost"] * weight
+        out["expiry_intrinsic_points"] = expiry_intrinsic_points
+        out["itm_expiry_legs"] = itm_expiry_legs
+        out.attrs["leg_rows"] = leg_rows
+        return out
+
+    trade_rows = []
+    leg_rows_all = []
+    summary_rows = []
+    for lot_size in lot_sizes:
+        for scenario, growth_strategy, defensive_strategy in scenarios:
+            growth = _prep_option_rows(growth_all, growth_strategy, "growth_overlap", 0.5, lot_size)
+            defensive = _prep_option_rows(defensive_all, defensive_strategy, "defensive", 1.0, lot_size)
+            leg_rows_all.extend(growth.attrs.get("leg_rows", []))
+            leg_rows_all.extend(defensive.attrs.get("leg_rows", []))
+            if growth.empty or defensive.empty:
+                continue
+            growth_by_date = {row["entry_date"]: row for _, row in growth.iterrows()}
+            rows = []
+            for _, drow in defensive.sort_values("entry_date").iterrows():
+                entry_date = drow["entry_date"]
+                if entry_date not in growth_by_date:
+                    continue
+                grow = growth_by_date[entry_date]
+                weighted_after_itemized = float(drow["weighted_pnl_after_itemized_cost_points"]) + float(grow["weighted_pnl_after_itemized_cost_points"])
+                weighted_return_after_itemized = float(drow["weighted_return_after_itemized_cost"]) + float(grow["weighted_return_after_itemized_cost"])
+                rows.append(
+                    {
+                        "scenario": scenario,
+                        "allocation": selected_allocation,
+                        "lot_size": lot_size,
+                        "entry_date": entry_date,
+                        "expiry_date": max(pd.Timestamp(drow["expiry_date"]), pd.Timestamp(grow["expiry_date"])),
+                        "weighted_pnl_before_lumped_cost_points": float(drow["weighted_pnl_before_lumped_cost_points"]) + float(grow["weighted_pnl_before_lumped_cost_points"]),
+                        "weighted_pnl_after_lumped_cost_points": float(drow["weighted_pnl_after_lumped_cost_points"]) + float(grow["weighted_pnl_after_lumped_cost_points"]),
+                        "weighted_pnl_after_itemized_cost_points": weighted_after_itemized,
+                        "weighted_return_after_itemized_cost": weighted_return_after_itemized,
+                        "weighted_model_lumped_cost_points": float(drow["weighted_model_lumped_cost_points"]) + float(grow["weighted_model_lumped_cost_points"]),
+                        "weighted_itemized_entry_cost_points": float(drow["weighted_itemized_entry_cost_points"]) + float(grow["weighted_itemized_entry_cost_points"]),
+                        "weighted_itemized_expiry_cost_points": float(drow["weighted_itemized_expiry_cost_points"]) + float(grow["weighted_itemized_expiry_cost_points"]),
+                        "weighted_itemized_total_cost_points": float(drow["weighted_itemized_total_cost_points"]) + float(grow["weighted_itemized_total_cost_points"]),
+                        "weighted_itemized_minus_lumped_cost_points": float(drow["weighted_itemized_minus_lumped_cost_points"]) + float(grow["weighted_itemized_minus_lumped_cost_points"]),
+                        "defensive_itm_expiry_legs": int(drow["itm_expiry_legs"]),
+                        "growth_itm_expiry_legs": int(grow["itm_expiry_legs"]),
+                        "defensive_expiry_intrinsic_points": float(drow["expiry_intrinsic_points"]),
+                        "growth_expiry_intrinsic_points": float(grow["expiry_intrinsic_points"]),
+                    }
+                )
+            if len(rows) <= warmup_trade_count:
+                continue
+            selected = pd.DataFrame(rows).sort_values("entry_date").reset_index(drop=True)
+            selected = selected.iloc[warmup_trade_count:].copy()
+            trade_rows.extend(selected.to_dict("records"))
+
+            equity = selected["weighted_pnl_after_itemized_cost_points"].cumsum()
+            dd = equity - equity.cummax()
+            years = max(
+                (selected["expiry_date"].max() - selected["entry_date"].min()).days / 365.25,
+                len(selected) / 52.0,
+                1.0 / 52.0,
+            )
+            total_return = float(selected["weighted_return_after_itemized_cost"].sum())
+            ann_return = (1.0 + total_return) ** (1.0 / years) - 1.0 if total_return > -0.999999 else np.nan
+            yearly = (
+                selected.assign(year=selected["entry_date"].dt.year)
+                .groupby("year", as_index=False)
+                .agg(pnl_after_itemized_points=("weighted_pnl_after_itemized_cost_points", "sum"))
+            )
+            folds = [
+                float(selected.iloc[idx]["weighted_pnl_after_itemized_cost_points"].sum())
+                for idx in np.array_split(np.arange(len(selected)), 4)
+                if len(idx) > 0
+            ]
+            total_pnl_after = float(selected["weighted_pnl_after_itemized_cost_points"].sum())
+            max_year_share = (
+                float((yearly["pnl_after_itemized_points"] / total_pnl_after).max())
+                if total_pnl_after > 0 and not yearly.empty
+                else np.nan
+            )
+            negative_years = int((yearly["pnl_after_itemized_points"] <= 0).sum())
+            negative_folds = int(sum(1 for value in folds if value <= 0))
+            summary_rows.append(
+                {
+                    "scenario": scenario,
+                    "allocation": selected_allocation,
+                    "warmup_trade_count": warmup_trade_count,
+                    "lot_size": lot_size,
+                    "trades": int(len(selected)),
+                    "first_entry": selected["entry_date"].min(),
+                    "last_expiry": selected["expiry_date"].max(),
+                    "itm_expiry_trades": int(((selected["defensive_itm_expiry_legs"] + selected["growth_itm_expiry_legs"]) > 0).sum()),
+                    "itm_expiry_leg_count": int((selected["defensive_itm_expiry_legs"] + selected["growth_itm_expiry_legs"]).sum()),
+                    "total_pnl_before_lumped_cost_points": float(selected["weighted_pnl_before_lumped_cost_points"].sum()),
+                    "total_pnl_after_lumped_cost_points": float(selected["weighted_pnl_after_lumped_cost_points"].sum()),
+                    "total_pnl_after_itemized_cost_points": total_pnl_after,
+                    "total_model_lumped_cost_points": float(selected["weighted_model_lumped_cost_points"].sum()),
+                    "total_itemized_entry_cost_points": float(selected["weighted_itemized_entry_cost_points"].sum()),
+                    "total_itemized_expiry_cost_points": float(selected["weighted_itemized_expiry_cost_points"].sum()),
+                    "total_itemized_cost_points": float(selected["weighted_itemized_total_cost_points"].sum()),
+                    "itemized_minus_lumped_cost_points": float(selected["weighted_itemized_minus_lumped_cost_points"].sum()),
+                    "total_model_lumped_cost_rupees": float(selected["weighted_model_lumped_cost_points"].sum()) * lot_size,
+                    "total_itemized_cost_rupees": float(selected["weighted_itemized_total_cost_points"].sum()) * lot_size,
+                    "itemized_minus_lumped_cost_rupees": float(selected["weighted_itemized_minus_lumped_cost_points"].sum()) * lot_size,
+                    "annualized_return_after_itemized_cost": float(ann_return) if pd.notna(ann_return) else np.nan,
+                    "worst_trade_after_itemized_cost_points": float(selected["weighted_pnl_after_itemized_cost_points"].min()),
+                    "max_drawdown_after_itemized_cost_points": float(dd.min()) if not dd.empty else 0.0,
+                    "win_rate_after_itemized_cost": float((selected["weighted_pnl_after_itemized_cost_points"] > 0).mean()),
+                    "positive_years_after_itemized_cost": int((yearly["pnl_after_itemized_points"] > 0).sum()),
+                    "negative_years_after_itemized_cost": negative_years,
+                    "positive_folds_after_itemized_cost": int(sum(1 for value in folds if value > 0)),
+                    "negative_folds_after_itemized_cost": negative_folds,
+                    "max_year_pnl_share_after_itemized_cost": max_year_share,
+                    "passes_itemized_cost_gate": (
+                        negative_years == 0
+                        and negative_folds == 0
+                        and pd.notna(max_year_share)
+                        and max_year_share <= 0.35
+                    ),
+                }
+            )
+
+    trades_df = pd.DataFrame(trade_rows)
+    legs_df = pd.DataFrame(leg_rows_all)
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["scenario", "lot_size", "annualized_return_after_itemized_cost"],
+            ascending=[True, True, False],
+        ).reset_index(drop=True)
+    trades_df.to_csv(trades_csv, index=False)
+    legs_df.to_csv(legs_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T18] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T18] trades saved: {trades_csv}", flush=True)
+    print(f"[TB11-T18] legs saved: {legs_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_dry_run_signal_logger(
+    output_prefix: str = "tb11_options_dry_run_signal_log",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    growth_detail_csv = baseline_dir / "tb11_options_harsh_cost_validation_detail.csv"
+    defensive_detail_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    log_csv = baseline_dir / f"{output_prefix}.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    reconciliation_md = baseline_dir / "tb11_options_dry_run_reconciliation.md"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    growth_strategy = "TB11_T07_h15_c1"
+    defensive_strategy = "TB11_T09_low_loss_h15_c1"
+    lot_size = 65
+    warmup_trade_count = 1
+    adverse_premium_tolerance = 0.15
+    charges = {
+        "brokerage_per_order_rupees": 20.0,
+        "stt_sell_premium_rate": 0.0005,
+        "stt_exercise_intrinsic_rate": 0.0015,
+        "exchange_transaction_rate": 0.0003553,
+        "gst_rate": 0.18,
+        "sebi_turnover_rate": 10.0 / 10_000_000.0,
+        "stamp_buy_premium_rate": 0.00003,
+    }
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "growth_detail_source": str(growth_detail_csv),
+                "defensive_detail_source": str(defensive_detail_csv),
+                "selected_allocation": selected_allocation,
+                "growth_strategy": growth_strategy,
+                "defensive_strategy": defensive_strategy,
+                "lot_size": lot_size,
+                "warmup_trade_count": warmup_trade_count,
+                "adverse_premium_tolerance": adverse_premium_tolerance,
+                "mode_scope": "tb11_phase1_no_order_dry_run_signal_logger",
+                "note": "No broker calls and no orders. Replays the frozen selected profile into a signal log schema for Phase 1 dry-run validation.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    empty_outputs = [
+        (log_csv, pd.DataFrame()),
+        (summary_csv, pd.DataFrame()),
+    ]
+    if not growth_detail_csv.exists() or not defensive_detail_csv.exists():
+        for path, df in empty_outputs:
+            df.to_csv(path, index=False)
+        reconciliation_md.write_text(
+            "# TB11 Dry-Run Reconciliation\n\n"
+            "Status: `blocked_missing_source_detail`\n\n"
+            "The dry-run logger could not run because the required growth or defensive detail file was missing.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T20] missing growth or defensive source detail; empty dry-run artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_all = pd.read_csv(growth_detail_csv)
+    defensive_all = pd.read_csv(defensive_detail_csv)
+    required_cols = [
+        "entry_date",
+        "expiry_date",
+        "spot_entry",
+        "spot_expiry",
+        "vix_entry",
+        "short_call_strike",
+        "short_put_strike",
+        "call_wing_strike",
+        "put_wing_strike",
+        "short_call_close",
+        "short_put_close",
+        "call_wing_close",
+        "put_wing_close",
+        "net_credit",
+        "margin_estimate_points",
+    ]
+    if any(col not in growth_all.columns for col in required_cols) or any(col not in defensive_all.columns for col in required_cols):
+        for path, df in empty_outputs:
+            df.to_csv(path, index=False)
+        reconciliation_md.write_text(
+            "# TB11 Dry-Run Reconciliation\n\n"
+            "Status: `blocked_missing_required_columns`\n\n"
+            "The dry-run logger source detail lacks one or more required strike, premium, or date columns.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T20] source detail lacks required columns; empty dry-run artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    def _leg_charge_rupees(premium_points: float, side: str) -> float:
+        premium_turnover = abs(float(premium_points)) * lot_size
+        brokerage = charges["brokerage_per_order_rupees"]
+        exchange = premium_turnover * charges["exchange_transaction_rate"]
+        sebi = premium_turnover * charges["sebi_turnover_rate"]
+        stt = premium_turnover * charges["stt_sell_premium_rate"] if side == "sell" else 0.0
+        stamp = premium_turnover * charges["stamp_buy_premium_rate"] if side == "buy" else 0.0
+        gst = (brokerage + exchange + sebi) * charges["gst_rate"]
+        return brokerage + stt + exchange + sebi + gst + stamp
+
+    def _candidate_cost_points(row: pd.Series) -> float:
+        leg_specs = [
+            ("short_call_close", "sell"),
+            ("short_put_close", "sell"),
+            ("call_wing_close", "buy"),
+            ("put_wing_close", "buy"),
+        ]
+        total_rupees = sum(_leg_charge_rupees(float(row[col]), side) for col, side in leg_specs)
+        return total_rupees / float(lot_size)
+
+    def _prep(df: pd.DataFrame, strategy: str, role: str, weight: float) -> pd.DataFrame:
+        out = df.loc[df["strategy"] == strategy].copy()
+        if out.empty:
+            return out
+        out["entry_date"] = pd.to_datetime(out["entry_date"])
+        out["expiry_date"] = pd.to_datetime(out["expiry_date"])
+        numeric_cols = [col for col in required_cols if col not in {"entry_date", "expiry_date"}]
+        for col in numeric_cols:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0)
+        out["candidate_role"] = role
+        out["profile_weight"] = weight
+        out["itemized_entry_cost_points"] = out.apply(_candidate_cost_points, axis=1)
+        out["weighted_net_credit_points"] = out["net_credit"] * weight
+        out["weighted_entry_cost_points"] = out["itemized_entry_cost_points"] * weight
+        out["weighted_margin_estimate_points"] = out["margin_estimate_points"] * weight
+        return out
+
+    growth = _prep(growth_all, growth_strategy, "growth_overlap", 0.5)
+    defensive = _prep(defensive_all, defensive_strategy, "defensive", 1.0)
+    if growth.empty or defensive.empty:
+        for path, df in empty_outputs:
+            df.to_csv(path, index=False)
+        reconciliation_md.write_text(
+            "# TB11 Dry-Run Reconciliation\n\n"
+            "Status: `blocked_missing_selected_strategy_rows`\n\n"
+            "The frozen growth or defensive strategy rows were not present in the source detail files.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T20] selected strategy rows missing; empty dry-run artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    growth_by_date = {row["entry_date"]: row for _, row in growth.iterrows()}
+    rows = []
+    generated_at = pd.Timestamp.utcnow().isoformat()
+    for signal_idx, (_, drow) in enumerate(defensive.sort_values("entry_date").iterrows(), start=1):
+        entry_date = drow["entry_date"]
+        grow = growth_by_date.get(entry_date)
+        if grow is None:
+            rows.append(
+                {
+                    "signal_id": f"TB11_DRY_{signal_idx:04d}",
+                    "generated_at_utc": generated_at,
+                    "source_mode": "historical_replay_no_order",
+                    "phase": "phase_1_dry_run",
+                    "profile": selected_allocation,
+                    "entry_date": entry_date,
+                    "expiry_date": drow["expiry_date"],
+                    "lot_size": lot_size,
+                    "signal_status": "skipped_missing_growth_overlap",
+                    "skip_reason": "growth_overlap_row_missing_for_defensive_date",
+                    "broker_order_allowed": False,
+                    "trigger_decision": "no_order_skip",
+                }
+            )
+            continue
+
+        active_after_maturity_gate = signal_idx > warmup_trade_count
+        expiry_date = max(pd.Timestamp(drow["expiry_date"]), pd.Timestamp(grow["expiry_date"]))
+        weighted_net_credit = float(drow["weighted_net_credit_points"]) + float(grow["weighted_net_credit_points"])
+        weighted_entry_cost = float(drow["weighted_entry_cost_points"]) + float(grow["weighted_entry_cost_points"])
+        weighted_margin = float(drow["weighted_margin_estimate_points"]) + float(grow["weighted_margin_estimate_points"])
+        modeled_net_after_cost = weighted_net_credit - weighted_entry_cost
+        signal_status = "simulated_signal_logged" if active_after_maturity_gate else "skipped_maturity_warmup"
+        skip_reason = "none" if active_after_maturity_gate else "first_observed_selected_profile_trade_skipped_by_maturity_gate"
+        trigger_decision = "would_open_paper_condor_no_order" if active_after_maturity_gate else "no_order_skip"
+        rows.append(
+            {
+                "signal_id": f"TB11_DRY_{signal_idx:04d}",
+                "generated_at_utc": generated_at,
+                "source_mode": "historical_replay_no_order",
+                "phase": "phase_1_dry_run",
+                "profile": selected_allocation,
+                "entry_date": entry_date,
+                "expiry_date": expiry_date,
+                "days_to_expiry": int((expiry_date - entry_date).days),
+                "lot_size": lot_size,
+                "signal_status": signal_status,
+                "skip_reason": skip_reason,
+                "broker_order_allowed": False,
+                "trigger_decision": trigger_decision,
+                "order_route": "blocked_no_broker_call",
+                "fill_model": "historical_close_premium_proxy",
+                "adverse_premium_tolerance": adverse_premium_tolerance,
+                "modeled_credit_points": weighted_net_credit,
+                "premium_tolerance_floor_points": weighted_net_credit * (1.0 - adverse_premium_tolerance),
+                "premium_tolerance_ceiling_points": weighted_net_credit * (1.0 + adverse_premium_tolerance),
+                "itemized_entry_cost_points": weighted_entry_cost,
+                "itemized_entry_cost_rupees": weighted_entry_cost * lot_size,
+                "modeled_net_after_entry_cost_points": modeled_net_after_cost,
+                "margin_estimate_points": weighted_margin,
+                "spot_entry": float(drow["spot_entry"]),
+                "spot_expiry": float(drow["spot_expiry"]),
+                "vix_entry": float(drow["vix_entry"]),
+                "defensive_short_call_strike": float(drow["short_call_strike"]),
+                "defensive_short_put_strike": float(drow["short_put_strike"]),
+                "defensive_call_wing_strike": float(drow["call_wing_strike"]),
+                "defensive_put_wing_strike": float(drow["put_wing_strike"]),
+                "growth_short_call_strike": float(grow["short_call_strike"]),
+                "growth_short_put_strike": float(grow["short_put_strike"]),
+                "growth_call_wing_strike": float(grow["call_wing_strike"]),
+                "growth_put_wing_strike": float(grow["put_wing_strike"]),
+                "defensive_leg_premiums": (
+                    f"SC={float(drow['short_call_close']):.4f}|SP={float(drow['short_put_close']):.4f}|"
+                    f"LC={float(drow['call_wing_close']):.4f}|LP={float(drow['put_wing_close']):.4f}"
+                ),
+                "growth_leg_premiums": (
+                    f"SC={float(grow['short_call_close']):.4f}|SP={float(grow['short_put_close']):.4f}|"
+                    f"LC={float(grow['call_wing_close']):.4f}|LP={float(grow['put_wing_close']):.4f}"
+                ),
+                "expiry_policy": "exit_before_expiry_required",
+                "no_trade_violation": False,
+                "cost_module_status": "itemized_indian_fno_cost_enabled",
+                "chain_integrity_status": "historical_chain_detail_available",
+                "reconciliation_required": True,
+            }
+        )
+
+    log_df = pd.DataFrame(rows)
+    if not log_df.empty:
+        log_df = log_df.sort_values("entry_date").reset_index(drop=True)
+    active = log_df.loc[log_df["signal_status"] == "simulated_signal_logged"].copy() if not log_df.empty else pd.DataFrame()
+    skipped = log_df.loc[log_df["signal_status"] != "simulated_signal_logged"].copy() if not log_df.empty else pd.DataFrame()
+    summary_rows = [
+        {
+            "profile": selected_allocation,
+            "phase": "phase_1_dry_run",
+            "lot_size": lot_size,
+            "source_mode": "historical_replay_no_order",
+            "signals_logged": int(len(log_df)),
+            "simulated_signals": int(len(active)),
+            "skipped_signals": int(len(skipped)),
+            "maturity_warmup_skips": int((log_df.get("skip_reason", pd.Series(dtype=str)) == "first_observed_selected_profile_trade_skipped_by_maturity_gate").sum()),
+            "broker_orders_allowed": False,
+            "first_signal_date": log_df["entry_date"].min() if not log_df.empty else pd.NaT,
+            "last_signal_date": log_df["entry_date"].max() if not log_df.empty else pd.NaT,
+            "mean_modeled_credit_points": float(active["modeled_credit_points"].mean()) if not active.empty else np.nan,
+            "mean_itemized_entry_cost_points": float(active["itemized_entry_cost_points"].mean()) if not active.empty else np.nan,
+            "max_itemized_entry_cost_points": float(active["itemized_entry_cost_points"].max()) if not active.empty else np.nan,
+            "min_modeled_net_after_entry_cost_points": float(active["modeled_net_after_entry_cost_points"].min()) if not active.empty else np.nan,
+            "passes_phase1_schema_gate": (
+                not active.empty
+                and "broker_order_allowed" in log_df.columns
+                and not bool(log_df["broker_order_allowed"].any())
+                and not bool(log_df["signal_id"].duplicated().any())
+                and int(log_df["trigger_decision"].isna().sum()) == 0
+                and int(log_df["skip_reason"].isna().sum()) == 0
+            ),
+        }
+    ]
+    summary_df = pd.DataFrame(summary_rows)
+    log_df.to_csv(log_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+
+    phase_pass = bool(summary_df.iloc[0]["passes_phase1_schema_gate"]) if not summary_df.empty else False
+    reconciliation_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Dry-Run Reconciliation",
+                "",
+                f"Status: `{'schema_ready_no_order_logger' if phase_pass else 'schema_gate_failed'}`",
+                "",
+                "This artifact is a Phase 1 dry-run logger replay from historical selected-profile chain detail.",
+                "It does not call a broker, place orders, or authorize paper/live trading.",
+                "",
+                "## Readout",
+                "",
+                f"- profile: `{selected_allocation}`",
+                f"- source mode: `historical_replay_no_order`",
+                f"- lot size: `{lot_size}`",
+                f"- signals logged: `{int(summary_df.iloc[0]['signals_logged'])}`",
+                f"- simulated signals after maturity gate: `{int(summary_df.iloc[0]['simulated_signals'])}`",
+                f"- skipped signals: `{int(summary_df.iloc[0]['skipped_signals'])}`",
+                f"- broker orders allowed: `False`",
+                f"- schema gate passed: `{phase_pass}`",
+                "",
+                "## Next Use",
+                "",
+                "Use the same schema for real-time Phase 1 dry-run observations, then reconcile observed quote snapshots against modeled premium and itemized costs before Phase 2.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    print(f"[TB11-T20] log saved: {log_csv}", flush=True)
+    print(f"[TB11-T20] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T20] reconciliation saved: {reconciliation_md}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_observed_quote_capture_template(
+    output_prefix: str = "tb11_options_observed_quote_capture",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    dry_run_log_csv = baseline_dir / "tb11_options_dry_run_signal_log.csv"
+    template_csv = baseline_dir / f"{output_prefix}_template.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_template_summary.csv"
+    reconciliation_md = baseline_dir / "tb11_options_observed_quote_reconciliation.md"
+    metadata_csv = baseline_dir / f"{output_prefix}_template_metadata.csv"
+
+    adverse_premium_tolerance = 0.15
+    stale_quote_seconds = 300
+    required_observed_trade_count = "10-15"
+    lot_size = 65
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "dry_run_log_source": str(dry_run_log_csv),
+                "lot_size": lot_size,
+                "adverse_premium_tolerance": adverse_premium_tolerance,
+                "stale_quote_seconds": stale_quote_seconds,
+                "required_observed_trade_count": required_observed_trade_count,
+                "mode_scope": "tb11_phase1_observed_quote_capture_template",
+                "note": "No broker calls and no orders. Creates a manual/observed quote capture schema for Phase 1 dry-run reconciliation.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not dry_run_log_csv.exists():
+        pd.DataFrame().to_csv(template_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        reconciliation_md.write_text(
+            "# TB11 Observed Quote Reconciliation\n\n"
+            "Status: `blocked_missing_dry_run_signal_log`\n\n"
+            "Run `signal_baseline_tb11_options_dry_run_signal_logger` first.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T21] dry-run signal log missing; empty observed quote template saved.", flush=True)
+        return pd.DataFrame()
+
+    dry_run = pd.read_csv(dry_run_log_csv)
+    required_cols = [
+        "signal_id",
+        "entry_date",
+        "expiry_date",
+        "profile",
+        "lot_size",
+        "signal_status",
+        "broker_order_allowed",
+        "modeled_credit_points",
+        "premium_tolerance_floor_points",
+        "premium_tolerance_ceiling_points",
+        "itemized_entry_cost_points",
+        "modeled_net_after_entry_cost_points",
+        "expiry_policy",
+        "defensive_leg_premiums",
+        "growth_leg_premiums",
+    ]
+    if any(col not in dry_run.columns for col in required_cols):
+        pd.DataFrame().to_csv(template_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        reconciliation_md.write_text(
+            "# TB11 Observed Quote Reconciliation\n\n"
+            "Status: `blocked_missing_required_signal_log_columns`\n\n"
+            "The dry-run signal log does not contain the required schema columns.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T21] dry-run signal log lacks required columns; empty observed quote template saved.", flush=True)
+        return pd.DataFrame()
+
+    active = dry_run.loc[dry_run["signal_status"] == "simulated_signal_logged"].copy()
+    active["entry_date"] = pd.to_datetime(active["entry_date"])
+    active["expiry_date"] = pd.to_datetime(active["expiry_date"])
+    active = active.sort_values("entry_date").reset_index(drop=True)
+
+    capture_rows = []
+    for _, row in active.iterrows():
+        capture_rows.append(
+            {
+                "capture_id": f"OBS_{row['signal_id']}",
+                "signal_id": row["signal_id"],
+                "capture_status": "pending_observation",
+                "observation_phase": "phase_1_dry_run_observed_quotes",
+                "profile": row["profile"],
+                "entry_date": row["entry_date"].date().isoformat(),
+                "expiry_date": row["expiry_date"].date().isoformat(),
+                "lot_size": int(row["lot_size"]),
+                "broker_order_allowed": False,
+                "order_route": "blocked_no_broker_call",
+                "expiry_policy": row["expiry_policy"],
+                "modeled_credit_points": float(row["modeled_credit_points"]),
+                "premium_tolerance_floor_points": float(row["premium_tolerance_floor_points"]),
+                "premium_tolerance_ceiling_points": float(row["premium_tolerance_ceiling_points"]),
+                "itemized_entry_cost_points": float(row["itemized_entry_cost_points"]),
+                "modeled_net_after_entry_cost_points": float(row["modeled_net_after_entry_cost_points"]),
+                "defensive_leg_premiums_model": row["defensive_leg_premiums"],
+                "growth_leg_premiums_model": row["growth_leg_premiums"],
+                "observed_timestamp_ist": "",
+                "quote_source": "",
+                "quote_age_seconds": "",
+                "def_short_call_bid": "",
+                "def_short_call_ask": "",
+                "def_short_put_bid": "",
+                "def_short_put_ask": "",
+                "def_long_call_bid": "",
+                "def_long_call_ask": "",
+                "def_long_put_bid": "",
+                "def_long_put_ask": "",
+                "growth_short_call_bid": "",
+                "growth_short_call_ask": "",
+                "growth_short_put_bid": "",
+                "growth_short_put_ask": "",
+                "growth_long_call_bid": "",
+                "growth_long_call_ask": "",
+                "growth_long_put_bid": "",
+                "growth_long_put_ask": "",
+                "observed_defensive_credit_points": "",
+                "observed_growth_credit_points": "",
+                "observed_weighted_credit_points": "",
+                "observed_vs_modeled_credit_diff_points": "",
+                "observed_vs_modeled_credit_diff_pct": "",
+                "within_10pct_adverse_tolerance": "",
+                "within_15pct_adverse_tolerance": "",
+                "quote_freshness_pass": "",
+                "all_legs_available": "",
+                "spread_quality_pass": "",
+                "cost_module_version_checked": "itemized_indian_fno_cost_enabled",
+                "surprise_cost_flag": "",
+                "skip_or_accept_decision": "pending_observation",
+                "skip_reason_observed": "",
+                "operator_notes": "",
+            }
+        )
+
+    template_df = pd.DataFrame(capture_rows)
+    summary_df = pd.DataFrame(
+        [
+            {
+                "template_rows": int(len(template_df)),
+                "source_signals": int(len(active)),
+                "broker_orders_allowed": False,
+                "adverse_premium_tolerance": adverse_premium_tolerance,
+                "stale_quote_seconds": stale_quote_seconds,
+                "required_phase2_trade_count": required_observed_trade_count,
+                "required_columns_present": True,
+                "blank_observation_fields_ready": True,
+                "passes_template_gate": (
+                    not template_df.empty
+                    and "observed_timestamp_ist" in template_df.columns
+                    and "observed_weighted_credit_points" in template_df.columns
+                    and "within_15pct_adverse_tolerance" in template_df.columns
+                    and not bool(template_df["broker_order_allowed"].any())
+                ),
+            }
+        ]
+    )
+
+    template_df.to_csv(template_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    passed = bool(summary_df.iloc[0]["passes_template_gate"])
+    reconciliation_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Observed Quote Reconciliation",
+                "",
+                f"Status: `{'template_ready_no_order' if passed else 'template_gate_failed'}`",
+                "",
+                "This artifact defines the Phase 1 observed-quote workflow. It does not call a broker, place orders, or authorize paper/live trading.",
+                "",
+                "## Daily Capture Workflow",
+                "",
+                "1. Start from `tb11_options_observed_quote_capture_template.csv`.",
+                "2. For each live dry-run candidate, copy the matching signal row or create a new row with the same schema.",
+                "3. Record the observation timestamp in IST, quote source, quote age, and bid/ask for every required leg.",
+                "4. Compute observed defensive credit, observed growth credit, and weighted observed credit.",
+                "5. Compare observed weighted credit with modeled credit.",
+                "6. Mark whether the observation passes 10% and 15% adverse-premium tolerance.",
+                "7. Leave `broker_order_allowed` as `False`; Phase 1 remains no-order.",
+                "",
+                "## Gate Rules",
+                "",
+                f"- quote freshness target: `{stale_quote_seconds}` seconds or newer",
+                "- all legs must have usable bid/ask quotes",
+                "- observed premium must stay within the 10-15% adverse tolerance band before Phase 2 consideration",
+                "- any surprise cost, stale quote, missing leg, or spread-quality failure becomes a skip reason",
+                "- collect real observed dry-run evidence for 1-2 months before paper-at-real-prices validation",
+                "",
+                "## Readout",
+                "",
+                f"- template rows: `{int(summary_df.iloc[0]['template_rows'])}`",
+                f"- broker orders allowed: `False`",
+                f"- template gate passed: `{passed}`",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    print(f"[TB11-T21] template saved: {template_csv}", flush=True)
+    print(f"[TB11-T21] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T21] reconciliation saved: {reconciliation_md}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_observed_quote_reconciliation_validator(
+    output_prefix: str = "tb11_options_observed_quote_validation",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    template_csv = baseline_dir / "tb11_options_observed_quote_capture_template.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    stale_quote_seconds = 300.0
+    max_leg_spread_pct = 0.50
+    adverse_tolerance_10 = 0.10
+    adverse_tolerance_15 = 0.15
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "template_source": str(template_csv),
+                "stale_quote_seconds": stale_quote_seconds,
+                "max_leg_spread_pct": max_leg_spread_pct,
+                "adverse_tolerance_10": adverse_tolerance_10,
+                "adverse_tolerance_15": adverse_tolerance_15,
+                "mode_scope": "tb11_phase1_observed_quote_reconciliation_validator",
+                "note": "Scores filled-in observed quote rows. No broker calls and no orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not template_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        print("[TB11-T22] observed quote template missing; empty validation artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    template = pd.read_csv(template_csv)
+    required_cols = [
+        "capture_id",
+        "signal_id",
+        "broker_order_allowed",
+        "modeled_credit_points",
+        "premium_tolerance_floor_points",
+        "premium_tolerance_ceiling_points",
+        "quote_age_seconds",
+        "skip_or_accept_decision",
+    ]
+    quote_cols = [
+        "def_short_call_bid",
+        "def_short_call_ask",
+        "def_short_put_bid",
+        "def_short_put_ask",
+        "def_long_call_bid",
+        "def_long_call_ask",
+        "def_long_put_bid",
+        "def_long_put_ask",
+        "growth_short_call_bid",
+        "growth_short_call_ask",
+        "growth_short_put_bid",
+        "growth_short_put_ask",
+        "growth_long_call_bid",
+        "growth_long_call_ask",
+        "growth_long_put_bid",
+        "growth_long_put_ask",
+    ]
+    if any(col not in template.columns for col in required_cols + quote_cols):
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "rows": int(len(template)),
+                    "schema_valid": False,
+                    "validator_status": "blocked_missing_required_columns",
+                }
+            ]
+        ).to_csv(summary_csv, index=False)
+        print("[TB11-T22] template lacks required validation columns; summary saved.", flush=True)
+        return pd.DataFrame()
+
+    def _num(row: pd.Series, col: str) -> float:
+        return float(pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0])
+
+    def _has_all_quotes(row: pd.Series) -> bool:
+        return all(pd.notna(pd.to_numeric(pd.Series([row.get(col)]), errors="coerce").iloc[0]) for col in quote_cols)
+
+    def _spread_quality(row: pd.Series) -> tuple[bool, float]:
+        max_spread = 0.0
+        for prefix in [
+            "def_short_call",
+            "def_short_put",
+            "def_long_call",
+            "def_long_put",
+            "growth_short_call",
+            "growth_short_put",
+            "growth_long_call",
+            "growth_long_put",
+        ]:
+            bid = _num(row, f"{prefix}_bid")
+            ask = _num(row, f"{prefix}_ask")
+            if pd.isna(bid) or pd.isna(ask) or ask < bid or bid < 0:
+                return False, np.nan
+            mid = (bid + ask) / 2.0
+            spread_pct = (ask - bid) / mid if mid > 0 else 0.0
+            max_spread = max(max_spread, spread_pct)
+            if spread_pct > max_leg_spread_pct:
+                return False, max_spread
+        return True, max_spread
+
+    def _credit(row: pd.Series, prefix: str) -> float:
+        return (
+            _num(row, f"{prefix}_short_call_bid")
+            + _num(row, f"{prefix}_short_put_bid")
+            - _num(row, f"{prefix}_long_call_ask")
+            - _num(row, f"{prefix}_long_put_ask")
+        )
+
+    detail_rows = []
+    for _, row in template.iterrows():
+        broker_block_ok = not bool(row.get("broker_order_allowed", False))
+        all_quotes = _has_all_quotes(row)
+        quote_age = _num(row, "quote_age_seconds")
+        freshness_pass = bool(pd.notna(quote_age) and quote_age <= stale_quote_seconds)
+        spread_pass, max_spread_seen = _spread_quality(row) if all_quotes else (False, np.nan)
+        if all_quotes:
+            observed_defensive_credit = _credit(row, "def")
+            observed_growth_credit = _credit(row, "growth")
+            observed_weighted_credit = observed_defensive_credit + (0.5 * observed_growth_credit)
+        else:
+            observed_defensive_credit = _num(row, "observed_defensive_credit_points") if "observed_defensive_credit_points" in row else np.nan
+            observed_growth_credit = _num(row, "observed_growth_credit_points") if "observed_growth_credit_points" in row else np.nan
+            observed_weighted_credit = _num(row, "observed_weighted_credit_points") if "observed_weighted_credit_points" in row else np.nan
+
+        modeled_credit = _num(row, "modeled_credit_points")
+        floor_15 = _num(row, "premium_tolerance_floor_points")
+        floor_10 = modeled_credit * (1.0 - adverse_tolerance_10) if pd.notna(modeled_credit) else np.nan
+        diff_points = observed_weighted_credit - modeled_credit if pd.notna(observed_weighted_credit) and pd.notna(modeled_credit) else np.nan
+        diff_pct = diff_points / modeled_credit if pd.notna(diff_points) and modeled_credit != 0 else np.nan
+        within_10 = bool(pd.notna(observed_weighted_credit) and pd.notna(floor_10) and observed_weighted_credit >= floor_10)
+        within_15 = bool(pd.notna(observed_weighted_credit) and pd.notna(floor_15) and observed_weighted_credit >= floor_15)
+        has_observation = all_quotes or pd.notna(observed_weighted_credit) or pd.notna(quote_age)
+        surprise_cost_raw = str(row.get("surprise_cost_flag", "")).strip().lower()
+        surprise_cost = surprise_cost_raw in {"true", "1", "yes", "y"}
+
+        reasons = []
+        if not has_observation:
+            reasons.append("pending_observation")
+        if not broker_block_ok:
+            reasons.append("broker_order_allowed_not_false")
+        if has_observation and not freshness_pass:
+            reasons.append("stale_or_missing_quote_age")
+        if has_observation and not all_quotes:
+            reasons.append("missing_leg_quote")
+        if has_observation and all_quotes and not spread_pass:
+            reasons.append("spread_quality_fail")
+        if has_observation and not within_15:
+            reasons.append("outside_15pct_adverse_tolerance")
+        if surprise_cost:
+            reasons.append("surprise_cost_flag")
+
+        validation_status = "pending_observation"
+        if has_observation:
+            validation_status = "pass" if not reasons and within_10 else "review" if within_15 and not surprise_cost else "fail"
+
+        detail_rows.append(
+            {
+                "capture_id": row["capture_id"],
+                "signal_id": row["signal_id"],
+                "validation_status": validation_status,
+                "has_observation": bool(has_observation),
+                "broker_block_ok": bool(broker_block_ok),
+                "quote_freshness_pass_calc": freshness_pass,
+                "all_legs_available_calc": bool(all_quotes),
+                "spread_quality_pass_calc": bool(spread_pass),
+                "max_leg_spread_pct_seen": max_spread_seen,
+                "observed_defensive_credit_points_calc": observed_defensive_credit,
+                "observed_growth_credit_points_calc": observed_growth_credit,
+                "observed_weighted_credit_points_calc": observed_weighted_credit,
+                "modeled_credit_points": modeled_credit,
+                "observed_vs_modeled_credit_diff_points_calc": diff_points,
+                "observed_vs_modeled_credit_diff_pct_calc": diff_pct,
+                "within_10pct_adverse_tolerance_calc": within_10,
+                "within_15pct_adverse_tolerance_calc": within_15,
+                "surprise_cost_flag_calc": surprise_cost,
+                "skip_or_accept_decision": row.get("skip_or_accept_decision", ""),
+                "validation_reasons": "|".join(reasons) if reasons else "none",
+            }
+        )
+
+    detail_df = pd.DataFrame(detail_rows)
+    observed = detail_df.loc[detail_df["has_observation"]].copy()
+    summary_df = pd.DataFrame(
+        [
+            {
+                "template_rows": int(len(detail_df)),
+                "observed_rows": int(len(observed)),
+                "pending_rows": int((~detail_df["has_observation"]).sum()) if not detail_df.empty else 0,
+                "pass_rows": int((detail_df["validation_status"] == "pass").sum()) if not detail_df.empty else 0,
+                "review_rows": int((detail_df["validation_status"] == "review").sum()) if not detail_df.empty else 0,
+                "fail_rows": int((detail_df["validation_status"] == "fail").sum()) if not detail_df.empty else 0,
+                "broker_block_violations": int((~detail_df["broker_block_ok"]).sum()) if not detail_df.empty else 0,
+                "freshness_fail_rows": int((observed["quote_freshness_pass_calc"] == False).sum()) if not observed.empty else 0,
+                "missing_leg_rows": int((observed["all_legs_available_calc"] == False).sum()) if not observed.empty else 0,
+                "spread_fail_rows": int((observed["spread_quality_pass_calc"] == False).sum()) if not observed.empty else 0,
+                "outside_15pct_rows": int((observed["within_15pct_adverse_tolerance_calc"] == False).sum()) if not observed.empty else 0,
+                "surprise_cost_rows": int((observed["surprise_cost_flag_calc"] == True).sum()) if not observed.empty else 0,
+                "validator_schema_gate_passed": bool(not detail_df.empty and int((~detail_df["broker_block_ok"]).sum()) == 0),
+                "phase1_evidence_gate_passed": bool(
+                    len(observed) >= 10
+                    and int((detail_df["validation_status"] == "fail").sum()) == 0
+                    and int((detail_df["validation_status"] == "review").sum()) == 0
+                ),
+                "validator_status": "ready_pending_observations" if observed.empty else "observations_scored",
+            }
+        ]
+    )
+
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T22] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T22] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_dry_run_observation_collection_pack(
+    output_prefix: str = "tb11_options_dry_run_observation_collection",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    template_csv = baseline_dir / "tb11_options_observed_quote_capture_template.csv"
+    validator_summary_csv = baseline_dir / "tb11_options_observed_quote_validation_summary.csv"
+    runbook_md = baseline_dir / f"{output_prefix}_runbook.md"
+    ledger_csv = baseline_dir / f"{output_prefix}_ledger.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
+    batch_id = f"TB11_PHASE1_OBS_{today_ist.replace('-', '')}"
+    batch_csv = baseline_dir / f"{output_prefix}_{today_ist.replace('-', '')}.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "template_source": str(template_csv),
+                "validator_summary_source": str(validator_summary_csv),
+                "collection_date_ist": today_ist,
+                "batch_id": batch_id,
+                "mode_scope": "tb11_phase1_manual_no_order_observation_collection_pack",
+                "note": "Creates the no-order daily observation collection batch and runbook. Does not fetch quotes, call a broker, or place orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not template_csv.exists():
+        pd.DataFrame().to_csv(ledger_csv, index=False)
+        pd.DataFrame().to_csv(batch_csv, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "batch_id": batch_id,
+                    "collection_date_ist": today_ist,
+                    "collection_pack_ready": False,
+                    "reason": "missing_observed_quote_capture_template",
+                }
+            ]
+        ).to_csv(summary_csv, index=False)
+        runbook_md.write_text(
+            "# TB11 Phase 1 Observation Collection Runbook\n\n"
+            "Status: `blocked_missing_observed_quote_template`\n\n"
+            "Run `signal_baseline_tb11_options_observed_quote_capture_template` first.\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T23] observed quote template missing; empty collection pack saved.", flush=True)
+        return pd.DataFrame()
+
+    template = pd.read_csv(template_csv)
+    collection = template.copy()
+    collection.insert(0, "collection_batch_id", batch_id)
+    collection.insert(1, "collection_date_ist", today_ist)
+    collection.insert(2, "collection_status", "awaiting_live_market_observation")
+    collection.insert(3, "operator_action", "fill_observed_quote_fields_only_no_orders")
+    collection["broker_order_allowed"] = False
+    collection["skip_or_accept_decision"] = "pending_observation"
+    collection["operator_notes"] = collection.get("operator_notes", "").fillna("")
+    collection.to_csv(batch_csv, index=False)
+    collection.to_csv(ledger_csv, index=False)
+
+    prior_observed_rows = 0
+    prior_pending_rows = int(len(collection))
+    if validator_summary_csv.exists():
+        validator_summary = pd.read_csv(validator_summary_csv)
+        if not validator_summary.empty:
+            prior_observed_rows = int(validator_summary.iloc[0].get("observed_rows", 0))
+            prior_pending_rows = int(validator_summary.iloc[0].get("pending_rows", prior_pending_rows))
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "batch_id": batch_id,
+                "collection_date_ist": today_ist,
+                "collection_pack_ready": True,
+                "rows_prepared": int(len(collection)),
+                "broker_orders_allowed": False,
+                "prior_observed_rows": prior_observed_rows,
+                "prior_pending_rows": prior_pending_rows,
+                "phase1_min_duration": "1-2 months",
+                "phase1_required_observed_rows_before_phase2": "10-15",
+                "next_validator_command": "python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator",
+                "status": "manual_no_order_collection_ready",
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+
+    runbook_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Phase 1 Observation Collection Runbook",
+                "",
+                "Status: `manual_no_order_collection_ready`",
+                "",
+                f"- collection date IST: `{today_ist}`",
+                f"- batch id: `{batch_id}`",
+                f"- collection batch: `{batch_csv.name}`",
+                f"- rows prepared: `{len(collection)}`",
+                "- broker orders allowed: `False`",
+                "",
+                "## Daily Procedure",
+                "",
+                "1. Use the collection batch CSV for the current dry-run session.",
+                "2. Record only observed quote data: timestamp, quote source, quote age, and bid/ask for every required leg.",
+                "3. Keep `broker_order_allowed` as `False` for every row.",
+                "4. Do not place broker orders from Phase 1.",
+                "5. After entering observations, run:",
+                "",
+                "```powershell",
+                "python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator",
+                "```",
+                "",
+                "## Acceptance Rules",
+                "",
+                "- Quote age must be `300` seconds or newer.",
+                "- Every required leg must have usable bid/ask quotes.",
+                "- Observed weighted credit must stay inside the 10-15% adverse tolerance band.",
+                "- Any stale quote, missing leg, spread-quality failure, or surprise cost becomes a skip reason.",
+                "- Collect observations for `1-2 months`; do not advance to Phase 2 from a single-day batch.",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    print(f"[TB11-T23] batch saved: {batch_csv}", flush=True)
+    print(f"[TB11-T23] ledger saved: {ledger_csv}", flush=True)
+    print(f"[TB11-T23] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T23] runbook saved: {runbook_md}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -17356,6 +18788,12 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_selected_profile_robustness_audit",
             "signal_baseline_tb11_options_selected_profile_maturity_gate",
             "signal_baseline_tb11_options_maturity_adjusted_rupee_profile",
+            "signal_baseline_tb11_options_itm_expiry_stt_audit",
+            "signal_baseline_tb11_options_itemized_fno_cost_audit",
+            "signal_baseline_tb11_options_dry_run_signal_logger",
+            "signal_baseline_tb11_options_observed_quote_capture_template",
+            "signal_baseline_tb11_options_observed_quote_reconciliation_validator",
+            "signal_baseline_tb11_options_dry_run_observation_collection_pack",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -17950,6 +19388,54 @@ if __name__ == "__main__":
             "This recalibrates lot, rupee, margin, and capital budgets after the selected warmup gate."
         )
         run_tb11_options_maturity_adjusted_rupee_profile(output_prefix="tb11_options_maturity_adjusted_rupee_profile")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_itm_expiry_stt_audit":
+        main_logger.info(
+            "Starting TB11 T17 ITM expiry STT audit. "
+            "This conservatively subtracts STT on ITM short-leg intrinsic value at expiry."
+        )
+        run_tb11_options_itm_expiry_stt_audit(output_prefix="tb11_options_itm_expiry_stt_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_itemized_fno_cost_audit":
+        main_logger.info(
+            "Starting TB11 T18 itemized Indian F&O cost audit. "
+            "This replaces the lumped per-leg cost proxy with Zerodha-style itemized option charges."
+        )
+        run_tb11_options_itemized_fno_cost_audit(output_prefix="tb11_options_itemized_fno_cost_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_dry_run_signal_logger":
+        main_logger.info(
+            "Starting TB11 T20 dry-run signal logger. "
+            "This logs the frozen profile with simulated fills only and no broker orders."
+        )
+        run_tb11_options_dry_run_signal_logger(output_prefix="tb11_options_dry_run_signal_log")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_observed_quote_capture_template":
+        main_logger.info(
+            "Starting TB11 T21 observed quote capture template. "
+            "This prepares Phase 1 observed quote reconciliation with no broker orders."
+        )
+        run_tb11_options_observed_quote_capture_template(output_prefix="tb11_options_observed_quote_capture")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_observed_quote_reconciliation_validator":
+        main_logger.info(
+            "Starting TB11 T22 observed quote reconciliation validator. "
+            "This scores filled-in observed quote rows and keeps broker orders blocked."
+        )
+        run_tb11_options_observed_quote_reconciliation_validator(output_prefix="tb11_options_observed_quote_validation")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_dry_run_observation_collection_pack":
+        main_logger.info(
+            "Starting TB11 T23 dry-run observation collection pack. "
+            "This prepares the manual no-order Phase 1 collection batch and runbook."
+        )
+        run_tb11_options_dry_run_observation_collection_pack(output_prefix="tb11_options_dry_run_observation_collection")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

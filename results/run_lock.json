@@ -1,13 +1,14 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
-  "stage": "ready_for_design",
+  "thesis": "TB11_T23_DryRunObservationCollection",
+  "stage": "ready_for_manual_phase1_collection",
   "started_at": "2026-06-22T00:00:00+05:30",
   "expected_outputs": [
-    "results/signal_baseline/tb11_options_profile_freeze_execution_readiness.md",
-    "results/signal_baseline/tb11_options_profile_freeze_execution_readiness_summary.csv"
+    "results/signal_baseline/tb11_options_observed_quote_capture_template.csv",
+    "results/signal_baseline/tb11_options_observed_quote_validation_summary.csv",
+    "results/signal_baseline/tb11_options_observed_quote_validation_detail.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T16 passed maturity-adjusted rupee/capital gates for the selected profile across base, moderate, and harsh scenarios. Next step freezes the paper-trading profile and execution-readiness checklist; no broker or live execution."
+  "notes": "TB11_T23 setup created the 2026-06-23 no-order observation collection batch and runbook. Current result: 50 rows prepared, 0 observed rows, broker orders blocked. Continue real Phase 1 dry-run observation collection for 1-2 months and rerun the validator after each batch."
 }

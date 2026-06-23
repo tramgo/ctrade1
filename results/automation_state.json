@@ -4,11 +4,11 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB11",
-  "active_thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
-  "active_stage": "maturity_adjusted_rupee_profile_passed_needs_final_freeze_review",
-  "last_completed_thesis": "TB11_T16_MaturityAdjustedRupeeProfile",
-  "last_completed_verdict": "maturity_adjusted_profile_passes_rupee_capital_budget_gates_no_live_promotion_yet",
-  "next_thesis": "TB11_T17_ProfileFreezeExecutionReadiness",
+  "active_thesis": "TB11_T23_DryRunObservationCollection",
+  "active_stage": "dry_run_observation_collection_pack_ready_manual_observations_required",
+  "last_completed_thesis": "TB11_T22_ObservedQuoteReconciliationValidator",
+  "last_completed_verdict": "validator_schema_gate_passed_50_pending_rows_zero_observed_rows_zero_broker_block_violations_t23_collection_pack_ready",
+  "next_thesis": "TB11_T23_DryRunObservationCollection",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -38,7 +38,10 @@
     "Do not start a new thesis while run_lock.json is locked.",
     "Use E211 as incumbent benchmark until displaced by executable validation.",
     "Do not treat TB11 options results as deployable before robustness and tail audit.",
-    "Do not promote TB11 until the selected maturity-adjusted profile is frozen into an explicit paper-trading specification and execution-readiness checklist."
+    "Do not promote TB11 until the selected maturity-adjusted profile is frozen into an explicit paper-trading specification and execution-readiness checklist.",
+    "Do not paper/live trade TB11 without the itemized Indian F&O charge module enabled and reviewed against current broker schedules.",
+    "Phase 1 and Phase 2 must not place broker orders; they are logging and paper-price validation only.",
+    "Tiny live one-lot validation requires explicit future human approval after dry-run and paper-price gates pass."
   ],
-  "last_updated_by": "codex_tb11_maturity_adjusted_rupee_profile_2026-06-22"
+  "last_updated_by": "codex_tb11_dry_run_observation_collection_pack_2026-06-23"
 }

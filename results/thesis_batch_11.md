@@ -630,3 +630,259 @@ Verdict:
 - positive harsh-stress annualized return on capital across tested budget tiers
 
 No live promotion yet. The next required gate is `TB11_T17 ProfileFreezeExecutionReadiness`: freeze the paper-trading profile, document kill switches, and keep broker execution blocked.
+
+## `TB11_T17 ITMExpirySTTAudit`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_itm_expiry_stt_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_itm_expiry_stt_audit_summary.csv`
+- `results/signal_baseline/tb11_options_itm_expiry_stt_audit_trades.csv`
+- `results/signal_baseline/tb11_options_itm_expiry_stt_audit_metadata.csv`
+
+Reason:
+
+The prior cost model used premium haircut plus points-per-leg costs as a lumped cost proxy. That is deliberately conservative for normal execution frictions, but it does not separately model STT, GST, SEBI, exchange, stamp duty, or ITM expiry STT. The specific high-risk omission is STT on exercised ITM options, so this gate audits short-leg intrinsic exposure at expiry.
+
+Method:
+
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- conservative extra charge: `0.125%` of ITM short-leg intrinsic value at expiry
+- charge applied before selected-profile aggregation and lot-size read
+
+Result:
+
+- active selected-profile trades: `50`
+- ITM-expiry short-leg trades: `1`
+- ITM-expiry event rate: `2%`
+- total extra exercise-STT impact: `0.01546875` points
+- lot-size `65` total extra exercise-STT impact: about `1.01` rupees
+- base annualized return after STT: `31.62%`
+- moderate-stress annualized return after STT: `23.93%`
+- harsh-stress annualized return after STT: `17.32%`
+- all years and folds remain positive
+
+Verdict:
+
+`TB11_T17` passes. ITM-expiry STT is still a mandatory risk note, but it is not material for the selected maturity-gated profile in the historical sample. The planned profile-freeze gate is superseded by `TB11_T18 ItemizedIndianFNOCostAudit` before any paper/live consideration.
+
+## `TB11_T18 ItemizedIndianFNOCostAudit`
+
+Command:
+
+```powershell
+python -u -B ssell1.py --mode signal_baseline_tb11_options_itemized_fno_cost_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_itemized_fno_cost_audit_summary.csv`
+- `results/signal_baseline/tb11_options_itemized_fno_cost_audit_trades.csv`
+- `results/signal_baseline/tb11_options_itemized_fno_cost_audit_legs.csv`
+- `results/signal_baseline/tb11_options_itemized_fno_cost_audit_metadata.csv`
+
+Reason:
+
+TB11 previously used a premium haircut plus points-per-leg cost proxy. That proxy was intentionally conservative, but it did not itemize Zerodha-style Indian F&O costs. This gate adds explicit per-leg accounting for option brokerage, sell-side premium STT, exchange transaction charges, SEBI charges, GST, buy-side stamp duty, plus a conservative ITM-expiry intrinsic STT and brokerage bucket.
+
+Current broker-charge assumptions used:
+
+- brokerage: `20` rupees per option order/leg
+- option sell-side premium STT: `0.05%`
+- ITM exercised intrinsic STT stress bucket: `0.15%`
+- NSE option transaction charge: `0.03553%` of premium
+- GST: `18%` of brokerage + SEBI + transaction charges
+- SEBI: `10` rupees per crore
+- stamp duty: `0.003%` on buy-side option premium
+
+Result:
+
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- active selected-profile trades: `50`
+- ITM-expiry trades: `1`
+- ITM-expiry legs: `2`
+- all years and folds remain positive under base, moderate, and harsh stress
+- concentration remains below the gate
+
+Reference lot size `65`:
+
+- base itemized cost: `112.99` points versus `300.00` lumped points; annualized return after itemized cost: `33.18%`
+- moderate-stress itemized cost: `112.99` points versus `600.00` lumped points; annualized return after itemized cost: `28.84%`
+- harsh-stress itemized cost: `112.99` points versus `900.00` lumped points; annualized return after itemized cost: `26.50%`
+
+Verdict:
+
+`TB11_T18` passes. The itemized cost model shows that the prior lumped proxy was materially harsher than the Zerodha-style cost model in this selected-profile sample. No paper/live promotion yet.
+
+The next gate becomes `TB11_T19 ProfileFreezeExecutionReadiness`: freeze the paper-only profile, require this cost module for every future run, specify exit-before-expiry behavior, and keep broker/live execution blocked.
+
+## `TB11_T19 ProfileFreezeExecutionReadiness`
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_profile_freeze_execution_readiness.md`
+- `results/signal_baseline/tb11_options_profile_freeze_execution_readiness_summary.csv`
+
+Frozen paper-only profile:
+
+- selected profile: `def_full_resg0_ovg50`
+- maturity gate: skip first observed selected-profile trade
+- reference lot size: `65`
+- itemized Indian F&O cost module is mandatory
+- broker/live execution remains blocked
+
+Practical staged validation plan:
+
+| Phase | Duration | Mode | Gate |
+|---|---:|---|---|
+| 1. Dry run | 1-2 months | Log signals and simulate fills only. | Every signal is logged; trigger timing and skip reasons are reproducible. |
+| 2. Paper at real prices | 3-6 months | Paper-fill from observed option prices. | At least `10-15` paper trades; real available premiums within `10-15%` adverse tolerance; no surprise costs. |
+| 3. Tiny live | 3-6 months | Future human-approved `1` lot only. | At least `10` real-money trades; broker mechanics, charges, and psychology are acceptable. |
+| 4. Scale to target | ongoing | Gradual size increase. | Only after phases 1-3 hold up and budget is revalidated. |
+
+No-trade and kill-switch rules:
+
+- no itemized cost module, no trade
+- no complete option chain and realistic leg premiums, no trade
+- no intentional hold through expiry without a separate expiry-risk thesis
+- pause if premium slippage exceeds `15%` adverse tolerance
+- pause if median adverse fill drift exceeds `10%` across the latest `5` fills
+- pause on any unmodeled cost or broker/API order attempt during phases 1 or 2
+
+Verdict:
+
+`TB11_T19` passes as a paper-only profile freeze. The next gate is `TB11_T20 DryRunSignalLogger`, which must implement no-order signal logging before any paper-at-real-prices phase.
+
+## `TB11_T20 DryRunSignalLogger`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_dry_run_signal_logger
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_dry_run_signal_log.csv`
+- `results/signal_baseline/tb11_options_dry_run_signal_log_summary.csv`
+- `results/signal_baseline/tb11_options_dry_run_reconciliation.md`
+- `results/signal_baseline/tb11_options_dry_run_signal_log_metadata.csv`
+
+Method:
+
+The logger replays the frozen selected profile into the Phase 1 signal schema using historical chain-detail rows. It records signal id, entry/expiry date, profile, skip reason, simulated fill proxy, itemized entry cost, premium tolerance band, expiry policy, and broker-order block status.
+
+Result:
+
+- signals logged: `51`
+- simulated signals after maturity gate: `50`
+- skipped warmup signals: `1`
+- broker orders allowed: `False`
+- schema gate passed: `True`
+- mean modeled credit: `46.7961` points
+- mean itemized entry cost: `2.24853` points
+- minimum modeled net after entry cost: `1.933874` points
+
+Verdict:
+
+`TB11_T20` passes as a no-order logger schema gate. The next gate is `TB11_T21 DryRunObservedQuoteCapture`, which must capture real observed quotes during Phase 1 and reconcile them against modeled premium before any Phase 2 paper-at-real-prices gate.
+
+## `TB11_T21 DryRunObservedQuoteCapture`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_capture_template
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_observed_quote_capture_template.csv`
+- `results/signal_baseline/tb11_options_observed_quote_capture_template_summary.csv`
+- `results/signal_baseline/tb11_options_observed_quote_capture_template_metadata.csv`
+- `results/signal_baseline/tb11_options_observed_quote_reconciliation.md`
+
+Method:
+
+The template is generated from the T20 no-order signal log. It keeps modeled premium, tolerance bands, itemized costs, profile, expiry policy, and broker-order block fields, then adds blank observed quote fields for timestamp, quote source, bid/ask by leg, observed weighted credit, tolerance checks, freshness checks, spread-quality checks, and operator notes.
+
+Result:
+
+- template rows: `50`
+- source signals: `50`
+- broker orders allowed: `False`
+- stale quote threshold: `300` seconds
+- adverse premium tolerance: `15%`
+- template gate passed: `True`
+
+Verdict:
+
+`TB11_T21` passes. The next gate is `TB11_T22 ObservedQuoteReconciliationValidator`, which should score filled-in observed quotes against freshness, leg completeness, spread quality, and 10-15% adverse-premium tolerance.
+
+## `TB11_T22 ObservedQuoteReconciliationValidator`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_observed_quote_validation_detail.csv`
+- `results/signal_baseline/tb11_options_observed_quote_validation_summary.csv`
+- `results/signal_baseline/tb11_options_observed_quote_validation_metadata.csv`
+
+Method:
+
+The validator reads the observed-quote capture template. For filled rows, it computes observed weighted credit from leg bid/ask quotes, checks quote freshness, all-leg availability, spread quality, adverse-premium tolerance, surprise-cost flags, and broker-order blocking. Empty observed rows remain explicitly pending.
+
+Result:
+
+- template rows: `50`
+- observed rows: `0`
+- pending rows: `50`
+- broker-block violations: `0`
+- validator schema gate passed: `True`
+- Phase 1 evidence gate passed: `False`
+- validator status: `ready_pending_observations`
+
+Verdict:
+
+`TB11_T22` passes as a validator/readiness gate, not as observed trading evidence. The next gate is `TB11_T23 DryRunObservationCollection`: collect real no-order quote observations for `1-2 months` and rerun the validator after each batch.
+
+## `TB11_T23 DryRunObservationCollection` Setup
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_dry_run_observation_collection_pack
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_dry_run_observation_collection_20260623.csv`
+- `results/signal_baseline/tb11_options_dry_run_observation_collection_ledger.csv`
+- `results/signal_baseline/tb11_options_dry_run_observation_collection_summary.csv`
+- `results/signal_baseline/tb11_options_dry_run_observation_collection_metadata.csv`
+- `results/signal_baseline/tb11_options_dry_run_observation_collection_runbook.md`
+
+Result:
+
+- collection date: `2026-06-23`
+- batch id: `TB11_PHASE1_OBS_20260623`
+- rows prepared: `50`
+- broker orders allowed: `False`
+- prior observed rows: `0`
+- status: `manual_no_order_collection_ready`
+
+Verdict:
+
+`TB11_T23` is prepared for manual Phase 1 collection but remains open. The strategy cannot advance to Phase 2 until real no-order observations are collected for `1-2 months` and the validator shows enough clean rows.
