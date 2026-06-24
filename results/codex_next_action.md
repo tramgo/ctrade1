@@ -790,3 +790,43 @@ Continue T23:
 - keep `broker_order_allowed=False`
 - rerun `signal_baseline_tb11_options_observed_quote_reconciliation_validator` after each batch
 - do not move to Phase 2 until enough observations pass the validator
+
+## `TB11_T24 ZerodhaQuoteOnlyCollector`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_zerodha_quote_only_collector
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260624.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_metadata.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260624.csv`
+
+Result:
+
+- input rows: `50`
+- quote symbols requested: `0`
+- quote packets received: `0`
+- captured rows: `0`
+- unresolved rows: `50`
+- broker orders allowed: `False`
+- collector status: `awaiting_resolved_nfo_symbols`
+
+Interpretation:
+
+The quote-only collector is implemented and order-blocked, but today's batch still contains historical replay rows without current NFO tradingsymbols. The collector correctly refused to guess option contracts or call order routes.
+
+## Next Action
+
+Open `TB11_T25_CurrentNFOLegResolver`.
+
+Required checks:
+
+- generate current-day option legs from the frozen TB11 signal logic, not historical replay rows
+- resolve each leg to current NFO tradingsymbols or instrument tokens
+- feed those symbols into the T24 quote-only collector
+- keep broker orders blocked

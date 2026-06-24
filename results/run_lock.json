@@ -1,14 +1,23 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB11_T23_DryRunObservationCollection",
-  "stage": "ready_for_manual_phase1_collection",
+  "thesis": "TB11_T28_NiftyChainBandQuoteCollector",
+  "stage": "ready_for_design",
   "started_at": "2026-06-22T00:00:00+05:30",
   "expected_outputs": [
-    "results/signal_baseline/tb11_options_observed_quote_capture_template.csv",
-    "results/signal_baseline/tb11_options_observed_quote_validation_summary.csv",
-    "results/signal_baseline/tb11_options_observed_quote_validation_detail.csv"
+    "results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv",
+    "results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv",
+    "results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260624.csv",
+    "results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv",
+    "results/signal_baseline/tb11_options_phase1_observation_ledger.csv",
+    "results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv",
+    "results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv",
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_summary.csv",
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_daily_summary.csv",
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_expiry_summary.csv",
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_liquid_detail.csv",
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_latest_chain.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T23 setup created the 2026-06-23 no-order observation collection batch and runbook. Current result: 50 rows prepared, 0 observed rows, broker orders blocked. Continue real Phase 1 dry-run observation collection for 1-2 months and rerun the validator after each batch."
+  "notes": "TB11_T27 built the local NIFTY option-chain bhavcopy archive from 2346/2346 cached F&O zip files. Coverage is 2015-01-01 through 2024-07-05, with 630897 liquid detail rows and latest cached chain 1634 NIFTY option rows. This is historical EOD OHLC/OI breadth, not live bid/ask. TB11_T26 scheduled quote collection remains active with 5 clean no-order observations. Next step is TB11_T28, a live NIFTY chain-band quote collector around spot/current expiry."
 }

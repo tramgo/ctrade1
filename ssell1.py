@@ -1498,6 +1498,16 @@ import requests
 import pyotp
 from urllib.parse import urlparse, parse_qs
 try:
+    import truststore
+
+    truststore.inject_into_ssl()
+    PYTHON_TRUSTSTORE_STATUS = "windows_os_trust_enabled"
+except ImportError:
+    PYTHON_TRUSTSTORE_STATUS = "truststore_not_installed"
+except Exception as exc:
+    PYTHON_TRUSTSTORE_STATUS = f"truststore_injection_failed:{exc}"
+
+try:
     from kiteconnect import KiteConnect
 except ImportError:
     KiteConnect = None
@@ -1593,6 +1603,10 @@ def extract_request_token_from_input(raw_value: str) -> str:
 
 
 def prompt_manual_request_token(login_url: str) -> str:
+    if os.getenv("SSELL1_NONINTERACTIVE", "").strip().lower() in {"1", "true", "yes", "y"}:
+        raise RuntimeError(
+            "Manual Zerodha request_token input is required, but SSELL1_NONINTERACTIVE is enabled."
+        )
     print("\n[Manual Login Required] Zerodha requested CAPTCHA / manual login.")
     print("Open this URL in a browser, complete login, and paste either the full redirected URL")
     print("or just the request_token shown in that URL.\n")
@@ -17535,6 +17549,1274 @@ def run_tb11_options_dry_run_observation_collection_pack(
     return summary_df
 
 
+def run_tb11_options_zerodha_quote_only_collector(
+    output_prefix: str = "tb11_options_zerodha_quote_only_collector",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
+    today_tag = today_ist.replace("-", "")
+    current_resolver_csv = baseline_dir / "tb11_options_current_nfo_leg_resolver_template.csv"
+    preferred_batch = baseline_dir / f"tb11_options_dry_run_observation_collection_{today_tag}.csv"
+    fallback_batch = baseline_dir / "tb11_options_dry_run_observation_collection_ledger.csv"
+
+    def _current_resolver_ready(path: Path) -> bool:
+        if not path.exists():
+            return False
+        try:
+            preview = pd.read_csv(path, nrows=5)
+        except Exception:
+            return False
+        if preview.empty or "resolution_status" not in preview.columns:
+            return False
+        collection_date = str(preview.iloc[0].get("collection_date_ist", ""))
+        return (
+            collection_date == today_ist
+            and preview["resolution_status"].astype(str).eq("resolved_current_nfo_legs").any()
+        )
+
+    input_csv = (
+        current_resolver_csv
+        if _current_resolver_ready(current_resolver_csv)
+        else preferred_batch
+        if preferred_batch.exists()
+        else fallback_batch
+    )
+    captured_csv = baseline_dir / f"{output_prefix}_{today_tag}.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    unresolved_csv = baseline_dir / f"{output_prefix}_unresolved_{today_tag}.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    symbol_cols = {
+        "def_short_call": "def_short_call_tradingsymbol",
+        "def_short_put": "def_short_put_tradingsymbol",
+        "def_long_call": "def_long_call_tradingsymbol",
+        "def_long_put": "def_long_put_tradingsymbol",
+        "growth_short_call": "growth_short_call_tradingsymbol",
+        "growth_short_put": "growth_short_put_tradingsymbol",
+        "growth_long_call": "growth_long_call_tradingsymbol",
+        "growth_long_put": "growth_long_put_tradingsymbol",
+    }
+    strike_cols = {
+        "def_short_call": ("defensive_short_call_strike", "CE"),
+        "def_short_put": ("defensive_short_put_strike", "PE"),
+        "def_long_call": ("defensive_call_wing_strike", "CE"),
+        "def_long_put": ("defensive_put_wing_strike", "PE"),
+        "growth_short_call": ("growth_short_call_strike", "CE"),
+        "growth_short_put": ("growth_short_put_strike", "PE"),
+        "growth_long_call": ("growth_call_wing_strike", "CE"),
+        "growth_long_put": ("growth_put_wing_strike", "PE"),
+    }
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "input_source": str(input_csv),
+                "collection_date_ist": today_ist,
+                "mode_scope": "tb11_phase1_zerodha_quote_only_collector",
+                "note": "Quote-only Zerodha collector. Uses market-data quote endpoints only; never places orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not input_csv.exists():
+        pd.DataFrame().to_csv(captured_csv, index=False)
+        pd.DataFrame().to_csv(unresolved_csv, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist,
+                    "input_rows": 0,
+                    "captured_rows": 0,
+                    "unresolved_rows": 0,
+                    "quote_requests": 0,
+                    "broker_orders_allowed": False,
+                    "collector_status": "blocked_missing_collection_batch",
+                }
+            ]
+        ).to_csv(summary_csv, index=False)
+        print("[TB11-T24] no observation collection batch found; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    batch = pd.read_csv(input_csv)
+    for col in symbol_cols.values():
+        if col not in batch.columns:
+            batch[col] = ""
+    if "broker_order_allowed" in batch.columns:
+        batch["broker_order_allowed"] = False
+    else:
+        batch["broker_order_allowed"] = False
+
+    def _clean_symbol(value) -> str:
+        if pd.isna(value):
+            return ""
+        text = str(value).strip().upper()
+        if not text or text in {"NAN", "NONE", "NULL"}:
+            return ""
+        return text.split(":", 1)[-1] if ":" in text else text
+
+    def _load_nfo_instruments_if_needed() -> pd.DataFrame:
+        # Only called after we know there are unresolved current/future legs that
+        # may be resolvable from the live NFO instrument dump.
+        try:
+            dump = kite_call_with_retry(get_authenticated_kite().instruments, "NFO")
+            return pd.DataFrame(dump)
+        except Exception as exc:
+            main_logger.warning("[TB11-T24] Unable to load NFO instruments for symbol resolution: %s", exc)
+            return pd.DataFrame()
+
+    nfo_df: Optional[pd.DataFrame] = None
+
+    def _resolve_from_instruments(row: pd.Series, leg_key: str) -> str:
+        nonlocal nfo_df
+        strike_col, instrument_type = strike_cols[leg_key]
+        if strike_col not in row or "expiry_date" not in row:
+            return ""
+        expiry = pd.to_datetime(row.get("expiry_date"), errors="coerce")
+        strike = pd.to_numeric(pd.Series([row.get(strike_col)]), errors="coerce").iloc[0]
+        if pd.isna(expiry) or pd.isna(strike):
+            return ""
+        if expiry.date() < pd.Timestamp.now(tz="Asia/Kolkata").date():
+            return ""
+        if nfo_df is None:
+            nfo_df = _load_nfo_instruments_if_needed()
+        if nfo_df.empty:
+            return ""
+        df = nfo_df.copy()
+        required = {"tradingsymbol", "expiry", "strike", "instrument_type", "segment"}
+        if not required.issubset(df.columns):
+            return ""
+        df["expiry"] = pd.to_datetime(df["expiry"], errors="coerce")
+        df["strike"] = pd.to_numeric(df["strike"], errors="coerce")
+        segment = df["segment"].astype(str).str.upper()
+        opt = df.loc[
+            segment.eq("NFO-OPT")
+            & df["expiry"].dt.date.eq(expiry.date())
+            & np.isclose(df["strike"], float(strike), atol=1e-9)
+            & df["instrument_type"].astype(str).str.upper().eq(instrument_type)
+            & df["tradingsymbol"].astype(str).str.upper().str.startswith("NIFTY")
+        ].copy()
+        if opt.empty:
+            return ""
+        return str(opt.sort_values("tradingsymbol").iloc[0]["tradingsymbol"]).upper()
+
+    unresolved_rows = []
+    quote_symbols = set()
+    row_symbols: list[dict] = []
+    for idx, row in batch.iterrows():
+        resolved_for_row = {}
+        missing = []
+        for leg_key, col in symbol_cols.items():
+            symbol = _clean_symbol(row.get(col, ""))
+            if not symbol:
+                symbol = _resolve_from_instruments(row, leg_key)
+                if symbol:
+                    batch.loc[idx, col] = symbol
+            resolved_for_row[leg_key] = symbol
+            if symbol:
+                quote_symbols.add(f"NFO:{symbol}")
+            else:
+                missing.append(col)
+        row_symbols.append(resolved_for_row)
+        if missing:
+            unresolved_rows.append(
+                {
+                    "capture_id": row.get("capture_id", ""),
+                    "signal_id": row.get("signal_id", ""),
+                    "entry_date": row.get("entry_date", ""),
+                    "expiry_date": row.get("expiry_date", ""),
+                    "missing_symbol_columns": "|".join(missing),
+                    "resolution_status": "needs_current_nfo_tradingsymbols_or_current_expiry_strikes",
+                }
+            )
+
+    quotes = {}
+    quote_error = ""
+    if quote_symbols:
+        try:
+            kite_client = get_authenticated_kite()
+            symbols_sorted = sorted(quote_symbols)
+            for start in range(0, len(symbols_sorted), 500):
+                chunk = symbols_sorted[start : start + 500]
+                quotes.update(kite_call_with_retry(kite_client.quote, chunk))
+        except Exception as exc:
+            quote_error = str(exc)
+
+    def _quote_bid_ask(symbol: str) -> tuple[float, float, str, str]:
+        key = f"NFO:{symbol}"
+        packet = quotes.get(key, {}) if symbol else {}
+        depth = packet.get("depth", {}) if isinstance(packet, dict) else {}
+        buy = depth.get("buy", []) if isinstance(depth, dict) else []
+        sell = depth.get("sell", []) if isinstance(depth, dict) else []
+        bid = buy[0].get("price", np.nan) if buy and isinstance(buy[0], dict) else np.nan
+        ask = sell[0].get("price", np.nan) if sell and isinstance(sell[0], dict) else np.nan
+        timestamp = str(packet.get("timestamp", "")) if isinstance(packet, dict) else ""
+        source = "kite_quote_api" if packet else ""
+        return float(bid) if pd.notna(bid) else np.nan, float(ask) if pd.notna(ask) else np.nan, timestamp, source
+
+    now_ist = pd.Timestamp.now(tz="Asia/Kolkata")
+    captured = batch.copy()
+    captured["quote_fetch_attempted"] = bool(quote_symbols)
+    captured["quote_fetch_error"] = quote_error
+    if "quote_source" not in captured.columns:
+        captured["quote_source"] = ""
+    else:
+        captured["quote_source"] = captured["quote_source"].fillna("")
+    if "observed_timestamp_ist" not in captured.columns:
+        captured["observed_timestamp_ist"] = ""
+    else:
+        captured["observed_timestamp_ist"] = captured["observed_timestamp_ist"].fillna("")
+
+    leg_to_cols = {
+        "def_short_call": ("def_short_call_bid", "def_short_call_ask"),
+        "def_short_put": ("def_short_put_bid", "def_short_put_ask"),
+        "def_long_call": ("def_long_call_bid", "def_long_call_ask"),
+        "def_long_put": ("def_long_put_bid", "def_long_put_ask"),
+        "growth_short_call": ("growth_short_call_bid", "growth_short_call_ask"),
+        "growth_short_put": ("growth_short_put_bid", "growth_short_put_ask"),
+        "growth_long_call": ("growth_long_call_bid", "growth_long_call_ask"),
+        "growth_long_put": ("growth_long_put_bid", "growth_long_put_ask"),
+    }
+    for bid_col, ask_col in leg_to_cols.values():
+        if bid_col not in captured.columns:
+            captured[bid_col] = np.nan
+        if ask_col not in captured.columns:
+            captured[ask_col] = np.nan
+
+    for idx, symbols in enumerate(row_symbols):
+        timestamps = []
+        sources = []
+        for leg_key, symbol in symbols.items():
+            if not symbol:
+                continue
+            bid, ask, ts, source = _quote_bid_ask(symbol)
+            bid_col, ask_col = leg_to_cols[leg_key]
+            captured.loc[idx, bid_col] = bid
+            captured.loc[idx, ask_col] = ask
+            if ts:
+                timestamps.append(ts)
+            if source:
+                sources.append(source)
+        if sources:
+            captured.loc[idx, "quote_source"] = "kite_quote_api"
+            captured.loc[idx, "observed_timestamp_ist"] = now_ist.isoformat()
+            captured.loc[idx, "quote_age_seconds"] = 0
+
+    def _row_credit(row: pd.Series, prefix: str) -> float:
+        vals = [
+            row.get(f"{prefix}_short_call_bid"),
+            row.get(f"{prefix}_short_put_bid"),
+            row.get(f"{prefix}_long_call_ask"),
+            row.get(f"{prefix}_long_put_ask"),
+        ]
+        nums = pd.to_numeric(pd.Series(vals), errors="coerce")
+        if nums.isna().any():
+            return np.nan
+        return float(nums.iloc[0] + nums.iloc[1] - nums.iloc[2] - nums.iloc[3])
+
+    captured["observed_defensive_credit_points"] = captured.apply(lambda row: _row_credit(row, "def"), axis=1)
+    captured["observed_growth_credit_points"] = captured.apply(lambda row: _row_credit(row, "growth"), axis=1)
+    captured["observed_weighted_credit_points"] = captured["observed_defensive_credit_points"] + (
+        0.5 * captured["observed_growth_credit_points"]
+    )
+    modeled_source = (
+        captured["modeled_credit_points"]
+        if "modeled_credit_points" in captured.columns
+        else pd.Series(np.nan, index=captured.index)
+    )
+    modeled = pd.to_numeric(modeled_source, errors="coerce")
+    observed = pd.to_numeric(captured["observed_weighted_credit_points"], errors="coerce")
+    captured["observed_vs_modeled_credit_diff_points"] = observed - modeled
+    captured["observed_vs_modeled_credit_diff_pct"] = np.where(modeled.abs() > 1e-12, (observed - modeled) / modeled, np.nan)
+    captured["within_10pct_adverse_tolerance"] = observed >= (modeled * 0.90)
+    tolerance_floor_source = (
+        captured["premium_tolerance_floor_points"]
+        if "premium_tolerance_floor_points" in captured.columns
+        else pd.Series(np.nan, index=captured.index)
+    )
+    captured["within_15pct_adverse_tolerance"] = observed >= pd.to_numeric(tolerance_floor_source, errors="coerce")
+    all_bid_ask_cols = [col for pair in leg_to_cols.values() for col in pair]
+    captured["all_legs_available"] = ~captured[all_bid_ask_cols].apply(lambda row: pd.to_numeric(row, errors="coerce").isna().any(), axis=1)
+    captured["quote_freshness_pass"] = pd.to_numeric(captured.get("quote_age_seconds"), errors="coerce") <= 300
+    captured["spread_quality_pass"] = captured["all_legs_available"]
+    captured["skip_or_accept_decision"] = np.where(captured["all_legs_available"], "observed_quote_captured_no_order", "pending_observation")
+    captured["broker_order_allowed"] = False
+    captured.to_csv(captured_csv, index=False)
+    unresolved_cols = [
+        "capture_id",
+        "signal_id",
+        "entry_date",
+        "expiry_date",
+        "missing_symbol_columns",
+        "resolution_status",
+    ]
+    pd.DataFrame(unresolved_rows, columns=unresolved_cols).to_csv(unresolved_csv, index=False)
+
+    captured_rows = int(captured["all_legs_available"].sum()) if "all_legs_available" in captured.columns else 0
+    summary_df = pd.DataFrame(
+        [
+            {
+                "collection_date_ist": today_ist,
+                "input_source": str(input_csv),
+                "input_rows": int(len(batch)),
+                "quote_symbols_requested": int(len(quote_symbols)),
+                "quote_packets_received": int(len(quotes)),
+                "captured_rows": captured_rows,
+                "unresolved_rows": int(len(unresolved_rows)),
+                "broker_orders_allowed": False,
+                "quote_fetch_error": quote_error,
+                "collector_status": (
+                    "captured_quotes"
+                    if captured_rows > 0
+                    else "awaiting_resolved_nfo_symbols"
+                    if len(quote_symbols) == 0
+                    else "quote_fetch_failed_or_incomplete"
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T24] captured saved: {captured_csv}", flush=True)
+    print(f"[TB11-T24] unresolved saved: {unresolved_csv}", flush=True)
+    print(f"[TB11-T24] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_current_nfo_leg_resolver(
+    output_prefix: str = "tb11_options_current_nfo_leg_resolver",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date()
+    today_tag = today_ist.isoformat().replace("-", "")
+    template_csv = baseline_dir / f"{output_prefix}_template.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    unresolved_csv = baseline_dir / f"{output_prefix}_unresolved_{today_tag}.csv"
+
+    selected_allocation = "def_full_resg0_ovg50"
+    lot_size = 65
+    short_call_offset = 0.03
+    short_put_offset = 0.03
+    wing_width_pct = 0.05
+    growth_strategy = "TB11_T07_h15_c1"
+    defensive_strategy = "TB11_T09_low_loss_h15_c1"
+    max_days_to_expiry = 8
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "collection_date_ist": today_ist.isoformat(),
+                "selected_allocation": selected_allocation,
+                "growth_strategy": growth_strategy,
+                "defensive_strategy": defensive_strategy,
+                "lot_size": lot_size,
+                "short_call_offset": short_call_offset,
+                "short_put_offset": short_put_offset,
+                "wing_width_pct": wing_width_pct,
+                "max_days_to_expiry": max_days_to_expiry,
+                "mode_scope": "tb11_phase1_current_nfo_leg_resolver_quote_only",
+                "note": "Resolves current NIFTY NFO symbols for Phase 1 observation only. No broker orders are placed or authorized.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    def _empty_outputs(status: str, blocker: str, quote_error: str = "", nfo_error: str = "") -> pd.DataFrame:
+        template_df = pd.DataFrame(
+            [
+                {
+                    "candidate_id": f"TB11_T25_{today_tag}_001",
+                    "collection_date_ist": today_ist.isoformat(),
+                    "profile": selected_allocation,
+                    "lot_size": lot_size,
+                    "broker_order_allowed": False,
+                    "resolution_status": status,
+                    "blocker": blocker,
+                }
+            ]
+        )
+        unresolved_df = pd.DataFrame(
+            [
+                {
+                    "candidate_id": f"TB11_T25_{today_tag}_001",
+                    "resolution_status": status,
+                    "blocker": blocker,
+                    "spot_quote_error": quote_error,
+                    "nfo_instrument_error": nfo_error,
+                }
+            ]
+        )
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist.isoformat(),
+                    "candidate_rows": int(len(template_df)),
+                    "resolved_legs": 0,
+                    "required_legs": 8,
+                    "unique_symbols_resolved": 0,
+                    "broker_orders_allowed": False,
+                    "spot_last_price": np.nan,
+                    "selected_expiry": "",
+                    "days_to_expiry": np.nan,
+                    "resolver_status": status,
+                    "blocker": blocker,
+                    "spot_quote_error": quote_error,
+                    "nfo_instrument_error": nfo_error,
+                }
+            ]
+        )
+        template_df.to_csv(template_csv, index=False)
+        unresolved_df.to_csv(unresolved_csv, index=False)
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"[TB11-T25] template saved: {template_csv}", flush=True)
+        print(f"[TB11-T25] unresolved saved: {unresolved_csv}", flush=True)
+        print(f"[TB11-T25] summary saved: {summary_csv}", flush=True)
+        return summary_df
+
+    try:
+        kite_client = get_authenticated_kite()
+    except Exception as exc:
+        return _empty_outputs(
+            "blocked_kite_auth_unavailable",
+            "Zerodha Kite session could not be authenticated for quote-only resolution.",
+            quote_error=str(exc),
+        )
+
+    spot_quote_error = ""
+    spot_last_price = np.nan
+    spot_timestamp = ""
+    try:
+        spot_quotes = kite_call_with_retry(kite_client.quote, ["NSE:NIFTY 50"])
+        spot_packet = spot_quotes.get("NSE:NIFTY 50", {}) if isinstance(spot_quotes, dict) else {}
+        spot_last_price = pd.to_numeric(pd.Series([spot_packet.get("last_price")]), errors="coerce").iloc[0]
+        spot_timestamp = str(spot_packet.get("timestamp", ""))
+    except Exception as exc:
+        spot_quote_error = str(exc)
+
+    if pd.isna(spot_last_price) or float(spot_last_price) <= 0:
+        return _empty_outputs(
+            "blocked_missing_live_nifty_spot_quote",
+            "Could not fetch a valid NSE:NIFTY 50 quote from Zerodha.",
+            quote_error=spot_quote_error,
+        )
+
+    nfo_error = ""
+    try:
+        nfo_df = pd.DataFrame(kite_call_with_retry(kite_client.instruments, "NFO"))
+    except Exception as exc:
+        nfo_error = str(exc)
+        nfo_df = pd.DataFrame()
+
+    required_cols = {"tradingsymbol", "instrument_token", "expiry", "strike", "instrument_type", "segment"}
+    if nfo_df.empty or not required_cols.issubset(nfo_df.columns):
+        return _empty_outputs(
+            "blocked_missing_nfo_instrument_dump",
+            "Could not load the NFO instrument dump required to resolve option tradingsymbols.",
+            quote_error=spot_quote_error,
+            nfo_error=nfo_error,
+        )
+
+    nfo_df = nfo_df.copy()
+    nfo_df["expiry"] = pd.to_datetime(nfo_df["expiry"], errors="coerce")
+    nfo_df["strike"] = pd.to_numeric(nfo_df["strike"], errors="coerce")
+    nfo_df["instrument_type"] = nfo_df["instrument_type"].astype(str).str.upper()
+    nfo_df["segment"] = nfo_df["segment"].astype(str).str.upper()
+    nfo_df["tradingsymbol"] = nfo_df["tradingsymbol"].astype(str).str.upper()
+    nifty_opts = nfo_df.loc[
+        nfo_df["segment"].eq("NFO-OPT")
+        & nfo_df["tradingsymbol"].str.startswith("NIFTY")
+        & nfo_df["instrument_type"].isin(["CE", "PE"])
+        & nfo_df["expiry"].notna()
+        & nfo_df["strike"].notna()
+        & (nfo_df["expiry"].dt.date >= today_ist)
+    ].copy()
+    if nifty_opts.empty:
+        return _empty_outputs(
+            "blocked_no_current_nifty_nfo_options",
+            "NFO instrument dump did not contain current/future NIFTY option contracts.",
+            quote_error=spot_quote_error,
+            nfo_error=nfo_error,
+        )
+
+    nifty_opts["days_to_expiry"] = nifty_opts["expiry"].dt.date.map(lambda expiry: (expiry - today_ist).days)
+    eligible_expiries = (
+        nifty_opts.loc[nifty_opts["days_to_expiry"].between(0, max_days_to_expiry), ["expiry", "days_to_expiry"]]
+        .drop_duplicates()
+        .sort_values(["days_to_expiry", "expiry"])
+    )
+    expiry_source = "nearest_within_max_dte"
+    if eligible_expiries.empty:
+        eligible_expiries = (
+            nifty_opts[["expiry", "days_to_expiry"]]
+            .drop_duplicates()
+            .sort_values(["days_to_expiry", "expiry"])
+        )
+        expiry_source = "nearest_available_beyond_max_dte"
+    selected_expiry = pd.Timestamp(eligible_expiries.iloc[0]["expiry"])
+    days_to_expiry = int(eligible_expiries.iloc[0]["days_to_expiry"])
+    expiry_opts = nifty_opts.loc[nifty_opts["expiry"].dt.date.eq(selected_expiry.date())].copy()
+
+    spot = float(spot_last_price)
+    target_short_call = spot * (1.0 + short_call_offset)
+    target_short_put = spot * (1.0 - short_put_offset)
+    target_long_call = target_short_call + (spot * wing_width_pct)
+    target_long_put = target_short_put - (spot * wing_width_pct)
+
+    def _resolve_leg(option_type: str, target_strike: float) -> dict:
+        leg_df = expiry_opts.loc[expiry_opts["instrument_type"].eq(option_type)].copy()
+        if leg_df.empty:
+            return {
+                "target_strike": target_strike,
+                "resolved_strike": np.nan,
+                "tradingsymbol": "",
+                "instrument_token": "",
+                "resolution_status": f"missing_{option_type}_contracts",
+            }
+        leg_df["strike_distance"] = (leg_df["strike"] - float(target_strike)).abs()
+        resolved = leg_df.sort_values(["strike_distance", "strike", "tradingsymbol"]).iloc[0]
+        return {
+            "target_strike": float(target_strike),
+            "resolved_strike": float(resolved["strike"]),
+            "tradingsymbol": str(resolved["tradingsymbol"]),
+            "instrument_token": str(resolved["instrument_token"]),
+            "resolution_status": "resolved",
+        }
+
+    resolved_legs = {
+        "short_call": _resolve_leg("CE", target_short_call),
+        "short_put": _resolve_leg("PE", target_short_put),
+        "long_call": _resolve_leg("CE", target_long_call),
+        "long_put": _resolve_leg("PE", target_long_put),
+    }
+    leg_order = [
+        ("def_short_call", "defensive", "short_call", "sell", "CE", 1.0),
+        ("def_short_put", "defensive", "short_put", "sell", "PE", 1.0),
+        ("def_long_call", "defensive", "long_call", "buy", "CE", 1.0),
+        ("def_long_put", "defensive", "long_put", "buy", "PE", 1.0),
+        ("growth_short_call", "growth_overlap", "short_call", "sell", "CE", 0.5),
+        ("growth_short_put", "growth_overlap", "short_put", "sell", "PE", 0.5),
+        ("growth_long_call", "growth_overlap", "long_call", "buy", "CE", 0.5),
+        ("growth_long_put", "growth_overlap", "long_put", "buy", "PE", 0.5),
+    ]
+    row = {
+        "candidate_id": f"TB11_T25_{today_tag}_001",
+        "collection_date_ist": today_ist.isoformat(),
+        "generated_at_ist": pd.Timestamp.now(tz="Asia/Kolkata").isoformat(),
+        "profile": selected_allocation,
+        "lot_size": lot_size,
+        "underlying": "NIFTY",
+        "spot_source": "kite_quote_api:NSE:NIFTY 50",
+        "spot_last_price": spot,
+        "spot_timestamp": spot_timestamp,
+        "expiry_date": selected_expiry.date().isoformat(),
+        "days_to_expiry": days_to_expiry,
+        "expiry_source": expiry_source,
+        "short_call_offset": short_call_offset,
+        "short_put_offset": short_put_offset,
+        "wing_width_pct": wing_width_pct,
+        "growth_strategy": growth_strategy,
+        "defensive_strategy": defensive_strategy,
+        "broker_order_allowed": False,
+        "order_route": "blocked_no_broker_call",
+    }
+    leg_rows = []
+    for symbol_prefix, role, canonical_key, side, option_type, weight in leg_order:
+        leg = resolved_legs[canonical_key]
+        row[f"{symbol_prefix}_target_strike"] = leg["target_strike"]
+        row[f"{symbol_prefix}_strike"] = leg["resolved_strike"]
+        row[f"{symbol_prefix}_tradingsymbol"] = leg["tradingsymbol"]
+        row[f"{symbol_prefix}_instrument_token"] = leg["instrument_token"]
+        row[f"{symbol_prefix}_resolution_status"] = leg["resolution_status"]
+        leg_rows.append(
+            {
+                "candidate_id": row["candidate_id"],
+                "leg_key": symbol_prefix,
+                "role": role,
+                "side": side,
+                "option_type": option_type,
+                "profile_weight": weight,
+                "target_strike": leg["target_strike"],
+                "resolved_strike": leg["resolved_strike"],
+                "tradingsymbol": leg["tradingsymbol"],
+                "instrument_token": leg["instrument_token"],
+                "resolution_status": leg["resolution_status"],
+                "broker_order_allowed": False,
+            }
+        )
+
+    template_df = pd.DataFrame([row])
+    unresolved_df = pd.DataFrame([leg for leg in leg_rows if leg["resolution_status"] != "resolved"])
+    if unresolved_df.empty:
+        unresolved_df = pd.DataFrame(columns=list(pd.DataFrame(leg_rows).columns))
+    resolved_count = int(sum(leg["resolution_status"] == "resolved" for leg in leg_rows))
+    unique_symbols = sorted({str(leg["tradingsymbol"]) for leg in leg_rows if str(leg["tradingsymbol"])})
+    resolver_status = "resolved_current_nfo_legs" if resolved_count == len(leg_rows) else "partial_resolution_blocked"
+    template_df["resolution_status"] = resolver_status
+    summary_df = pd.DataFrame(
+        [
+            {
+                "collection_date_ist": today_ist.isoformat(),
+                "candidate_rows": int(len(template_df)),
+                "resolved_legs": resolved_count,
+                "required_legs": int(len(leg_rows)),
+                "unique_symbols_resolved": int(len(unique_symbols)),
+                "unique_symbols": "|".join(unique_symbols),
+                "broker_orders_allowed": False,
+                "spot_last_price": spot,
+                "selected_expiry": selected_expiry.date().isoformat(),
+                "days_to_expiry": days_to_expiry,
+                "expiry_source": expiry_source,
+                "resolver_status": resolver_status,
+                "blocker": "" if resolver_status == "resolved_current_nfo_legs" else "one_or_more_option_legs_unresolved",
+                "spot_quote_error": spot_quote_error,
+                "nfo_instrument_error": nfo_error,
+            }
+        ]
+    )
+    template_df.to_csv(template_csv, index=False)
+    unresolved_df.to_csv(unresolved_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T25] template saved: {template_csv}", flush=True)
+    print(f"[TB11-T25] unresolved saved: {unresolved_csv}", flush=True)
+    print(f"[TB11-T25] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_phase1_observation_ledger(
+    output_prefix: str = "tb11_options_phase1_observation_ledger",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
+    today_tag = today_ist.replace("-", "")
+    capture_csv = baseline_dir / f"tb11_options_zerodha_quote_only_collector_{today_tag}.csv"
+    ledger_csv = baseline_dir / f"{output_prefix}.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_latest_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+
+    stale_quote_seconds = 300.0
+    max_leg_spread_pct = 0.50
+    required_clean_observations = 10
+    target_clean_observations = 15
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "capture_source": str(capture_csv),
+                "ledger_output": str(ledger_csv),
+                "collection_date_ist": today_ist,
+                "stale_quote_seconds": stale_quote_seconds,
+                "max_leg_spread_pct": max_leg_spread_pct,
+                "required_clean_observations": required_clean_observations,
+                "target_clean_observations": target_clean_observations,
+                "mode_scope": "tb11_phase1_append_only_observation_ledger",
+                "note": "Appends quote-only T24 captures into a Phase 1 evidence ledger. No broker orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not capture_csv.exists():
+        existing = pd.read_csv(ledger_csv) if ledger_csv.exists() else pd.DataFrame()
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist,
+                    "latest_capture_rows": 0,
+                    "ledger_rows": int(len(existing)),
+                    "clean_observations": int(existing.get("clean_observation", pd.Series(dtype=bool)).sum()) if not existing.empty else 0,
+                    "broker_block_violations": int(existing.get("broker_order_allowed", pd.Series(dtype=bool)).astype(bool).sum()) if not existing.empty else 0,
+                    "phase1_required_clean_observations": required_clean_observations,
+                    "phase1_target_clean_observations": target_clean_observations,
+                    "phase1_evidence_gate_passed": False,
+                    "ledger_status": "blocked_missing_today_t24_capture",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        print("[TB11-T26] missing today's T24 quote capture; ledger summary saved.", flush=True)
+        return summary_df
+
+    capture = pd.read_csv(capture_csv)
+    if capture.empty:
+        capture.to_csv(detail_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist,
+                    "latest_capture_rows": 0,
+                    "ledger_rows": int(len(pd.read_csv(ledger_csv))) if ledger_csv.exists() else 0,
+                    "clean_observations": 0,
+                    "broker_block_violations": 0,
+                    "phase1_required_clean_observations": required_clean_observations,
+                    "phase1_target_clean_observations": target_clean_observations,
+                    "phase1_evidence_gate_passed": False,
+                    "ledger_status": "blocked_empty_today_t24_capture",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        print("[TB11-T26] today's T24 capture was empty; ledger summary saved.", flush=True)
+        return summary_df
+
+    def _series(name: str, default=np.nan) -> pd.Series:
+        if name in capture.columns:
+            return capture[name]
+        return pd.Series(default, index=capture.index)
+
+    def _bool_series(name: str, default=False) -> pd.Series:
+        raw = _series(name, default)
+        if raw.dtype == bool:
+            return raw.fillna(default).astype(bool)
+        return raw.astype(str).str.strip().str.lower().isin({"true", "1", "yes", "y"})
+
+    leg_prefixes = [
+        "def_short_call",
+        "def_short_put",
+        "def_long_call",
+        "def_long_put",
+        "growth_short_call",
+        "growth_short_put",
+        "growth_long_call",
+        "growth_long_put",
+    ]
+    spread_cols = []
+    max_spreads = []
+    spread_passes = []
+    for _, row in capture.iterrows():
+        row_max = 0.0
+        row_pass = True
+        for prefix in leg_prefixes:
+            bid = pd.to_numeric(pd.Series([row.get(f"{prefix}_bid")]), errors="coerce").iloc[0]
+            ask = pd.to_numeric(pd.Series([row.get(f"{prefix}_ask")]), errors="coerce").iloc[0]
+            if pd.isna(bid) or pd.isna(ask) or ask < bid or bid < 0:
+                row_max = np.nan
+                row_pass = False
+                break
+            mid = (float(bid) + float(ask)) / 2.0
+            spread_pct = ((float(ask) - float(bid)) / mid) if mid > 0 else 0.0
+            row_max = max(row_max, spread_pct)
+            if spread_pct > max_leg_spread_pct:
+                row_pass = False
+        max_spreads.append(row_max)
+        spread_passes.append(row_pass)
+    spread_cols.extend(["max_leg_spread_pct_seen", "spread_quality_pass_calc"])
+
+    out = capture.copy()
+    out.insert(0, "observation_appended_at_ist", pd.Timestamp.now(tz="Asia/Kolkata").isoformat())
+    out.insert(1, "observation_date_ist", today_ist)
+    candidate_id_text = _series("candidate_id", "").fillna("").astype(str).str.strip()
+    quote_attempted = _bool_series("quote_fetch_attempted", False)
+    out = out.loc[candidate_id_text.ne("") & quote_attempted].copy()
+    if out.empty:
+        existing = pd.read_csv(ledger_csv) if ledger_csv.exists() else pd.DataFrame()
+        out.to_csv(detail_csv, index=False)
+        clean_existing = (
+            int(existing.get("clean_observation", pd.Series(dtype=bool)).astype(bool).sum())
+            if not existing.empty
+            else 0
+        )
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist,
+                    "latest_capture_rows": int(len(capture)),
+                    "latest_clean_observations": 0,
+                    "ledger_rows": int(len(existing)),
+                    "clean_observations": clean_existing,
+                    "unique_observation_dates": int(existing.get("observation_date_ist", pd.Series(dtype=str)).nunique())
+                    if not existing.empty and "observation_date_ist" in existing.columns
+                    else 0,
+                    "broker_block_violations": int(existing.get("broker_order_allowed", pd.Series(dtype=bool)).astype(bool).sum())
+                    if not existing.empty
+                    else 0,
+                    "mean_observed_weighted_credit_points": np.nan,
+                    "min_observed_weighted_credit_points": np.nan,
+                    "max_leg_spread_pct_seen": np.nan,
+                    "phase1_required_clean_observations": required_clean_observations,
+                    "phase1_target_clean_observations": target_clean_observations,
+                    "phase1_evidence_gate_passed": False,
+                    "remaining_clean_observations_to_min_gate": max(required_clean_observations - clean_existing, 0),
+                    "ledger_status": "blocked_no_quote_attempted_capture_rows",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        print("[TB11-T26] no quote-attempted capture rows; ledger summary saved.", flush=True)
+        return summary_df
+    out["quote_age_seconds_calc"] = pd.to_numeric(_series("quote_age_seconds", np.nan), errors="coerce")
+    out["quote_freshness_pass_calc"] = out["quote_age_seconds_calc"] <= stale_quote_seconds
+    out["max_leg_spread_pct_seen"] = max_spreads
+    out["spread_quality_pass_calc"] = spread_passes
+    out["all_legs_available_calc"] = _bool_series("all_legs_available", False)
+    out["broker_order_allowed"] = _bool_series("broker_order_allowed", False)
+    out["broker_block_ok"] = ~out["broker_order_allowed"]
+    out["observed_weighted_credit_points"] = pd.to_numeric(
+        _series("observed_weighted_credit_points", np.nan), errors="coerce"
+    )
+    out["clean_observation"] = (
+        out["broker_block_ok"]
+        & out["all_legs_available_calc"]
+        & out["quote_freshness_pass_calc"].fillna(False)
+        & out["spread_quality_pass_calc"].fillna(False)
+        & out["observed_weighted_credit_points"].notna()
+    )
+    timestamp_key = _series("observed_timestamp_ist", "").fillna("").astype(str)
+    candidate_key = _series("candidate_id", "").fillna("").astype(str)
+    symbol_key = (
+        _series("def_short_call_tradingsymbol", "").fillna("").astype(str)
+        + "|"
+        + _series("def_short_put_tradingsymbol", "").fillna("").astype(str)
+        + "|"
+        + _series("def_long_call_tradingsymbol", "").fillna("").astype(str)
+        + "|"
+        + _series("def_long_put_tradingsymbol", "").fillna("").astype(str)
+    )
+    out["observation_id"] = candidate_key + "|" + timestamp_key + "|" + symbol_key
+    out["phase1_gate_note"] = np.where(
+        out["clean_observation"],
+        "clean_quote_only_observation",
+        "not_clean_review_required",
+    )
+    out.to_csv(detail_csv, index=False)
+
+    if ledger_csv.exists():
+        existing = pd.read_csv(ledger_csv)
+        combined = pd.concat([existing, out], ignore_index=True, sort=False)
+    else:
+        combined = out.copy()
+    if "observation_id" in combined.columns:
+        combined = combined.drop_duplicates(subset=["observation_id"], keep="last")
+    combined = combined.sort_values(
+        [col for col in ["observation_date_ist", "observed_timestamp_ist", "candidate_id"] if col in combined.columns]
+    ).reset_index(drop=True)
+    combined.to_csv(ledger_csv, index=False)
+
+    clean = combined.loc[combined.get("clean_observation", pd.Series(dtype=bool)).astype(bool)].copy()
+    broker_violations = int(combined.get("broker_order_allowed", pd.Series(dtype=bool)).astype(bool).sum()) if not combined.empty else 0
+    unique_dates = int(clean["observation_date_ist"].nunique()) if "observation_date_ist" in clean.columns and not clean.empty else 0
+    latest_clean = int(out["clean_observation"].sum()) if "clean_observation" in out.columns else 0
+    summary_df = pd.DataFrame(
+        [
+            {
+                "collection_date_ist": today_ist,
+                "latest_capture_rows": int(len(out)),
+                "latest_clean_observations": latest_clean,
+                "ledger_rows": int(len(combined)),
+                "clean_observations": int(len(clean)),
+                "unique_observation_dates": unique_dates,
+                "broker_block_violations": broker_violations,
+                "mean_observed_weighted_credit_points": float(clean["observed_weighted_credit_points"].mean()) if not clean.empty else np.nan,
+                "min_observed_weighted_credit_points": float(clean["observed_weighted_credit_points"].min()) if not clean.empty else np.nan,
+                "max_leg_spread_pct_seen": float(pd.to_numeric(clean.get("max_leg_spread_pct_seen"), errors="coerce").max()) if not clean.empty else np.nan,
+                "phase1_required_clean_observations": required_clean_observations,
+                "phase1_target_clean_observations": target_clean_observations,
+                "phase1_evidence_gate_passed": bool(
+                    len(clean) >= required_clean_observations and broker_violations == 0
+                ),
+                "remaining_clean_observations_to_min_gate": max(required_clean_observations - int(len(clean)), 0),
+                "ledger_status": "ledger_updated_pending_more_observations"
+                if len(clean) < required_clean_observations
+                else "phase1_min_observation_count_reached",
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T26] latest detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T26] ledger saved: {ledger_csv}", flush=True)
+    print(f"[TB11-T26] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_phase1_auto_quote_observation(
+    output_prefix: str = "tb11_options_phase1_auto_quote_observation",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "collection_date_ist": today_ist,
+                "sequence": "T25 current NFO resolver -> T24 quote-only collector -> T26 append-only observation ledger",
+                "mode_scope": "tb11_phase1_automated_quote_observation_no_order",
+                "note": "Fully automated quote-only observation sequence. Broker orders remain blocked.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    resolver_summary = run_tb11_options_current_nfo_leg_resolver(
+        output_prefix="tb11_options_current_nfo_leg_resolver"
+    )
+    resolved_legs = 0
+    resolver_status = ""
+    if resolver_summary is not None and not resolver_summary.empty:
+        resolver_status = str(resolver_summary.iloc[0].get("resolver_status", ""))
+        resolved_legs = int(pd.to_numeric(pd.Series([resolver_summary.iloc[0].get("resolved_legs", 0)]), errors="coerce").fillna(0).iloc[0])
+    if resolver_status != "resolved_current_nfo_legs" or resolved_legs < 8:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "collection_date_ist": today_ist,
+                    "resolver_status": resolver_status,
+                    "resolved_legs": resolved_legs,
+                    "collector_status": "skipped_due_resolver_block",
+                    "quote_packets_received": 0,
+                    "captured_rows": 0,
+                    "ledger_status": "skipped_due_resolver_block",
+                    "clean_observations": np.nan,
+                    "remaining_clean_observations_to_min_gate": np.nan,
+                    "broker_orders_allowed": False,
+                    "automation_status": "blocked_resolver_failed_no_order",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        print(f"[TB11-T26-AUTO] resolver blocked; summary saved: {summary_csv}", flush=True)
+        return summary_df
+    collector_summary = run_tb11_options_zerodha_quote_only_collector(
+        output_prefix="tb11_options_zerodha_quote_only_collector"
+    )
+    ledger_summary = run_tb11_options_phase1_observation_ledger(
+        output_prefix="tb11_options_phase1_observation_ledger"
+    )
+
+    def _first(df: pd.DataFrame, col: str, default=np.nan):
+        if df is None or df.empty or col not in df.columns:
+            return default
+        return df.iloc[0].get(col, default)
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "collection_date_ist": today_ist,
+                "resolver_status": _first(resolver_summary, "resolver_status", ""),
+                "resolved_legs": _first(resolver_summary, "resolved_legs", 0),
+                "collector_status": _first(collector_summary, "collector_status", ""),
+                "quote_packets_received": _first(collector_summary, "quote_packets_received", 0),
+                "captured_rows": _first(collector_summary, "captured_rows", 0),
+                "ledger_status": _first(ledger_summary, "ledger_status", ""),
+                "clean_observations": _first(ledger_summary, "clean_observations", 0),
+                "remaining_clean_observations_to_min_gate": _first(
+                    ledger_summary, "remaining_clean_observations_to_min_gate", np.nan
+                ),
+                "broker_orders_allowed": False,
+                "automation_status": "completed_no_order",
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T26-AUTO] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb11_options_nifty_option_chain_bhavcopy_archive(
+    output_prefix: str = "tb11_nifty_option_chain_bhavcopy_archive",
+) -> pd.DataFrame:
+    import zipfile
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    manifest_csv = baseline_dir / f"{output_prefix}_manifest.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    daily_summary_csv = baseline_dir / f"{output_prefix}_daily_summary.csv"
+    expiry_summary_csv = baseline_dir / f"{output_prefix}_expiry_summary.csv"
+    liquid_detail_csv = baseline_dir / f"{output_prefix}_liquid_detail.csv"
+    latest_chain_csv = baseline_dir / f"{output_prefix}_latest_chain.csv"
+
+    min_contracts_for_liquid_subset = 1
+    top_liquid_rows_per_day = 300
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    zip_paths = sorted(bhavcopy_root.rglob("*.zip")) if bhavcopy_root.exists() else []
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "bhavcopy_root": str(bhavcopy_root),
+                "zip_files_found": int(len(zip_paths)),
+                "min_contracts_for_liquid_subset": min_contracts_for_liquid_subset,
+                "top_liquid_rows_per_day": top_liquid_rows_per_day,
+                "mode_scope": "tb11_local_nifty_option_chain_bhavcopy_archive",
+                "note": "Local-only NIFTY option-chain archive from NSE F&O bhavcopy. EOD OHLC/OI data, not live bid/ask.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not zip_paths:
+        pd.DataFrame().to_csv(manifest_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(daily_summary_csv, index=False)
+        pd.DataFrame().to_csv(expiry_summary_csv, index=False)
+        pd.DataFrame().to_csv(liquid_detail_csv, index=False)
+        pd.DataFrame().to_csv(latest_chain_csv, index=False)
+        print("[TB11-T27] no local F&O bhavcopy zip files found; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    manifest_rows: List[dict] = []
+    daily_rows: List[dict] = []
+    expiry_rows: List[pd.DataFrame] = []
+    liquid_rows: List[pd.DataFrame] = []
+    latest_chain = pd.DataFrame()
+    latest_trade_date = pd.NaT
+
+    required_cols = {
+        "INSTRUMENT",
+        "SYMBOL",
+        "EXPIRY_DT",
+        "STRIKE_PR",
+        "OPTION_TYP",
+        "OPEN",
+        "HIGH",
+        "LOW",
+        "CLOSE",
+        "SETTLE_PR",
+        "CONTRACTS",
+        "VAL_INLAKH",
+        "OPEN_INT",
+        "CHG_IN_OI",
+        "TIMESTAMP",
+    }
+
+    def _read_bhavcopy_zip(path: Path) -> pd.DataFrame:
+        with zipfile.ZipFile(path) as zf:
+            csv_names = [name for name in zf.namelist() if name.lower().endswith(".csv")]
+            if not csv_names:
+                return pd.DataFrame()
+            return pd.read_csv(zf.open(csv_names[0]))
+
+    for file_idx, zip_path in enumerate(zip_paths, start=1):
+        try:
+            raw = _read_bhavcopy_zip(zip_path)
+        except Exception as exc:
+            manifest_rows.append(
+                {
+                    "zip_path": str(zip_path),
+                    "read_status": "read_failed",
+                    "error": str(exc),
+                    "raw_rows": 0,
+                    "nifty_option_rows": 0,
+                }
+            )
+            continue
+
+        missing = sorted(required_cols - set(raw.columns))
+        if missing:
+            manifest_rows.append(
+                {
+                    "zip_path": str(zip_path),
+                    "read_status": "missing_required_columns",
+                    "error": "|".join(missing),
+                    "raw_rows": int(len(raw)),
+                    "nifty_option_rows": 0,
+                }
+            )
+            continue
+
+        opt = raw.loc[
+            raw["INSTRUMENT"].astype(str).str.upper().eq("OPTIDX")
+            & raw["SYMBOL"].astype(str).str.upper().eq("NIFTY")
+        ].copy()
+        if opt.empty:
+            manifest_rows.append(
+                {
+                    "zip_path": str(zip_path),
+                    "read_status": "ok_no_nifty_options",
+                    "error": "",
+                    "raw_rows": int(len(raw)),
+                    "nifty_option_rows": 0,
+                }
+            )
+            continue
+
+        opt["trade_date"] = pd.to_datetime(opt["TIMESTAMP"], format="%d-%b-%Y", errors="coerce")
+        opt["expiry_date"] = pd.to_datetime(opt["EXPIRY_DT"], format="%d-%b-%Y", errors="coerce")
+        opt["strike"] = pd.to_numeric(opt["STRIKE_PR"], errors="coerce")
+        for col in ["OPEN", "HIGH", "LOW", "CLOSE", "SETTLE_PR", "CONTRACTS", "VAL_INLAKH", "OPEN_INT", "CHG_IN_OI"]:
+            opt[col.lower()] = pd.to_numeric(opt[col], errors="coerce")
+        opt["option_type"] = opt["OPTION_TYP"].astype(str).str.upper()
+        opt["days_to_expiry"] = (opt["expiry_date"] - opt["trade_date"]).dt.days
+        opt["has_traded"] = opt["contracts"].fillna(0) > 0
+        trade_date = opt["trade_date"].dropna().min()
+
+        manifest_rows.append(
+            {
+                "zip_path": str(zip_path),
+                "read_status": "ok",
+                "error": "",
+                "raw_rows": int(len(raw)),
+                "nifty_option_rows": int(len(opt)),
+                "trade_date": trade_date.date().isoformat() if pd.notna(trade_date) else "",
+                "min_expiry": opt["expiry_date"].min().date().isoformat() if opt["expiry_date"].notna().any() else "",
+                "max_expiry": opt["expiry_date"].max().date().isoformat() if opt["expiry_date"].notna().any() else "",
+                "min_strike": float(opt["strike"].min()) if opt["strike"].notna().any() else np.nan,
+                "max_strike": float(opt["strike"].max()) if opt["strike"].notna().any() else np.nan,
+                "traded_rows": int(opt["has_traded"].sum()),
+            }
+        )
+
+        daily_rows.append(
+            {
+                "trade_date": trade_date.date().isoformat() if pd.notna(trade_date) else "",
+                "nifty_option_rows": int(len(opt)),
+                "traded_rows": int(opt["has_traded"].sum()),
+                "unique_expiries": int(opt["expiry_date"].nunique()),
+                "unique_strikes": int(opt["strike"].nunique()),
+                "total_contracts": float(opt["contracts"].sum(skipna=True)),
+                "total_value_lakh": float(opt["val_inlakh"].sum(skipna=True)),
+                "total_open_interest": float(opt["open_int"].sum(skipna=True)),
+                "max_contracts_single_option": float(opt["contracts"].max(skipna=True)),
+                "max_oi_single_option": float(opt["open_int"].max(skipna=True)),
+                "min_strike": float(opt["strike"].min(skipna=True)),
+                "max_strike": float(opt["strike"].max(skipna=True)),
+            }
+        )
+
+        expiry_group = (
+            opt.groupby(["trade_date", "expiry_date", "option_type"], dropna=False)
+            .agg(
+                option_rows=("strike", "size"),
+                traded_rows=("has_traded", "sum"),
+                unique_strikes=("strike", "nunique"),
+                total_contracts=("contracts", "sum"),
+                total_value_lakh=("val_inlakh", "sum"),
+                total_open_interest=("open_int", "sum"),
+                min_strike=("strike", "min"),
+                max_strike=("strike", "max"),
+                median_close=("close", "median"),
+                max_contracts_single_option=("contracts", "max"),
+            )
+            .reset_index()
+        )
+        expiry_group["trade_date"] = expiry_group["trade_date"].dt.date.astype(str)
+        expiry_group["expiry_date"] = expiry_group["expiry_date"].dt.date.astype(str)
+        expiry_rows.append(expiry_group)
+
+        liquid = opt.loc[opt["contracts"].fillna(0) >= min_contracts_for_liquid_subset].copy()
+        if not liquid.empty:
+            liquid = (
+                liquid.sort_values(["contracts", "open_int", "val_inlakh"], ascending=[False, False, False])
+                .head(top_liquid_rows_per_day)
+                .loc[
+                    :,
+                    [
+                        "trade_date",
+                        "expiry_date",
+                        "days_to_expiry",
+                        "strike",
+                        "option_type",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "settle_pr",
+                        "contracts",
+                        "val_inlakh",
+                        "open_int",
+                        "chg_in_oi",
+                    ],
+                ]
+                .copy()
+            )
+            liquid["trade_date"] = liquid["trade_date"].dt.date.astype(str)
+            liquid["expiry_date"] = liquid["expiry_date"].dt.date.astype(str)
+            liquid_rows.append(liquid)
+
+        if pd.notna(trade_date) and (pd.isna(latest_trade_date) or trade_date > latest_trade_date):
+            latest_trade_date = trade_date
+            latest_chain = opt.loc[
+                :,
+                [
+                    "trade_date",
+                    "expiry_date",
+                    "days_to_expiry",
+                    "strike",
+                    "option_type",
+                    "open",
+                    "high",
+                    "low",
+                    "close",
+                    "settle_pr",
+                    "contracts",
+                    "val_inlakh",
+                    "open_int",
+                    "chg_in_oi",
+                    "has_traded",
+                ],
+            ].copy()
+            latest_chain["trade_date"] = latest_chain["trade_date"].dt.date.astype(str)
+            latest_chain["expiry_date"] = latest_chain["expiry_date"].dt.date.astype(str)
+
+        if file_idx % 250 == 0 or file_idx == len(zip_paths):
+            print(
+                f"[TB11-T27] processed {file_idx}/{len(zip_paths)} bhavcopy files; "
+                f"daily_rows={len(daily_rows)}",
+                flush=True,
+            )
+
+    manifest_df = pd.DataFrame(manifest_rows)
+    daily_df = pd.DataFrame(daily_rows)
+    expiry_df = pd.concat(expiry_rows, ignore_index=True, sort=False) if expiry_rows else pd.DataFrame()
+    liquid_df = pd.concat(liquid_rows, ignore_index=True, sort=False) if liquid_rows else pd.DataFrame()
+
+    if not daily_df.empty:
+        daily_df = daily_df.sort_values("trade_date").reset_index(drop=True)
+    if not expiry_df.empty:
+        expiry_df = expiry_df.sort_values(["trade_date", "expiry_date", "option_type"]).reset_index(drop=True)
+    if not liquid_df.empty:
+        liquid_df = liquid_df.sort_values(["trade_date", "contracts"], ascending=[True, False]).reset_index(drop=True)
+    if not latest_chain.empty:
+        latest_chain = latest_chain.sort_values(["expiry_date", "option_type", "strike"]).reset_index(drop=True)
+
+    manifest_df.to_csv(manifest_csv, index=False)
+    daily_df.to_csv(daily_summary_csv, index=False)
+    expiry_df.to_csv(expiry_summary_csv, index=False)
+    liquid_df.to_csv(liquid_detail_csv, index=False)
+    latest_chain.to_csv(latest_chain_csv, index=False)
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "zip_files_found": int(len(zip_paths)),
+                "zip_files_read_ok": int((manifest_df.get("read_status", pd.Series(dtype=str)) == "ok").sum())
+                if not manifest_df.empty
+                else 0,
+                "daily_summary_rows": int(len(daily_df)),
+                "expiry_summary_rows": int(len(expiry_df)),
+                "liquid_detail_rows": int(len(liquid_df)),
+                "latest_chain_rows": int(len(latest_chain)),
+                "first_trade_date": daily_df["trade_date"].min() if not daily_df.empty else "",
+                "last_trade_date": daily_df["trade_date"].max() if not daily_df.empty else "",
+                "latest_chain_trade_date": latest_trade_date.date().isoformat() if pd.notna(latest_trade_date) else "",
+                "latest_chain_traded_rows": int(latest_chain["has_traded"].sum()) if not latest_chain.empty else 0,
+                "archive_status": "local_bhavcopy_archive_ready" if not daily_df.empty else "no_nifty_option_rows_found",
+                "broker_orders_allowed": False,
+                "data_kind": "historical_eod_bhavcopy_not_live_bid_ask",
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    print(f"[TB11-T27] manifest saved: {manifest_csv}", flush=True)
+    print(f"[TB11-T27] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T27] daily summary saved: {daily_summary_csv}", flush=True)
+    print(f"[TB11-T27] expiry summary saved: {expiry_summary_csv}", flush=True)
+    print(f"[TB11-T27] liquid detail saved: {liquid_detail_csv}", flush=True)
+    print(f"[TB11-T27] latest chain saved: {latest_chain_csv}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -18794,6 +20076,11 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_observed_quote_capture_template",
             "signal_baseline_tb11_options_observed_quote_reconciliation_validator",
             "signal_baseline_tb11_options_dry_run_observation_collection_pack",
+            "signal_baseline_tb11_options_zerodha_quote_only_collector",
+            "signal_baseline_tb11_options_current_nfo_leg_resolver",
+            "signal_baseline_tb11_options_phase1_observation_ledger",
+            "signal_baseline_tb11_options_phase1_auto_quote_observation",
+            "signal_baseline_tb11_options_nifty_option_chain_bhavcopy_archive",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -19436,6 +20723,48 @@ if __name__ == "__main__":
             "This prepares the manual no-order Phase 1 collection batch and runbook."
         )
         run_tb11_options_dry_run_observation_collection_pack(output_prefix="tb11_options_dry_run_observation_collection")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_zerodha_quote_only_collector":
+        main_logger.info(
+            "Starting TB11 T24 Zerodha quote-only collector. "
+            "This fetches market-data snapshots only and keeps broker orders blocked."
+        )
+        run_tb11_options_zerodha_quote_only_collector(output_prefix="tb11_options_zerodha_quote_only_collector")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_current_nfo_leg_resolver":
+        main_logger.info(
+            "Starting TB11 T25 current NFO leg resolver. "
+            "This resolves current option symbols for quote-only observation and keeps broker orders blocked."
+        )
+        run_tb11_options_current_nfo_leg_resolver(output_prefix="tb11_options_current_nfo_leg_resolver")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_phase1_observation_ledger":
+        main_logger.info(
+            "Starting TB11 T26 Phase 1 observation ledger. "
+            "This appends quote-only captures into the evidence ledger and keeps broker orders blocked."
+        )
+        run_tb11_options_phase1_observation_ledger(output_prefix="tb11_options_phase1_observation_ledger")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_phase1_auto_quote_observation":
+        main_logger.info(
+            "Starting TB11 Phase 1 automated quote observation. "
+            "This runs T25, T24, and T26 sequentially with broker orders blocked."
+        )
+        run_tb11_options_phase1_auto_quote_observation(output_prefix="tb11_options_phase1_auto_quote_observation")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_nifty_option_chain_bhavcopy_archive":
+        main_logger.info(
+            "Starting TB11 T27 local NIFTY option-chain bhavcopy archive. "
+            "This extracts historical EOD option-chain breadth from local NSE F&O bhavcopy files."
+        )
+        run_tb11_options_nifty_option_chain_bhavcopy_archive(
+            output_prefix="tb11_nifty_option_chain_bhavcopy_archive"
+        )
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

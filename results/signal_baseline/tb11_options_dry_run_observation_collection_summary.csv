@@ -1,2 +1,2 @@
 batch_id,collection_date_ist,collection_pack_ready,rows_prepared,broker_orders_allowed,prior_observed_rows,prior_pending_rows,phase1_min_duration,phase1_required_observed_rows_before_phase2,next_validator_command,status
-TB11_PHASE1_OBS_20260623,2026-06-23,True,50,False,0,50,1-2 months,10-15,python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator,manual_no_order_collection_ready
+TB11_PHASE1_OBS_20260624,2026-06-24,True,50,False,0,50,1-2 months,10-15,python -B ssell1.py --mode signal_baseline_tb11_options_observed_quote_reconciliation_validator,manual_no_order_collection_ready

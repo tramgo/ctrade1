@@ -4,11 +4,11 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB11",
-  "active_thesis": "TB11_T23_DryRunObservationCollection",
-  "active_stage": "dry_run_observation_collection_pack_ready_manual_observations_required",
-  "last_completed_thesis": "TB11_T22_ObservedQuoteReconciliationValidator",
-  "last_completed_verdict": "validator_schema_gate_passed_50_pending_rows_zero_observed_rows_zero_broker_block_violations_t23_collection_pack_ready",
-  "next_thesis": "TB11_T23_DryRunObservationCollection",
+  "active_thesis": "TB11_T27_NiftyOptionChainBhavcopyArchive",
+  "active_stage": "local_historical_option_chain_archive_ready",
+  "last_completed_thesis": "TB11_T27_NiftyOptionChainBhavcopyArchive",
+  "last_completed_verdict": "local_bhavcopy_archive_ready_2346_files_2015_01_01_to_2024_07_05_630897_liquid_rows_orders_blocked",
+  "next_thesis": "TB11_T28_NiftyChainBandQuoteCollector",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -43,5 +43,5 @@
     "Phase 1 and Phase 2 must not place broker orders; they are logging and paper-price validation only.",
     "Tiny live one-lot validation requires explicit future human approval after dry-run and paper-price gates pass."
   ],
-  "last_updated_by": "codex_tb11_dry_run_observation_collection_pack_2026-06-23"
+  "last_updated_by": "codex_tb11_nifty_option_chain_bhavcopy_archive_2026-06-24"
 }

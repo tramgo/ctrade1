@@ -2,9 +2,9 @@
 
 Status: `manual_no_order_collection_ready`
 
-- collection date IST: `2026-06-23`
-- batch id: `TB11_PHASE1_OBS_20260623`
-- collection batch: `tb11_options_dry_run_observation_collection_20260623.csv`
+- collection date IST: `2026-06-24`
+- batch id: `TB11_PHASE1_OBS_20260624`
+- collection batch: `tb11_options_dry_run_observation_collection_20260624.csv`
 - rows prepared: `50`
 - broker orders allowed: `False`
 

@@ -886,3 +886,35 @@ Result:
 Verdict:
 
 `TB11_T23` is prepared for manual Phase 1 collection but remains open. The strategy cannot advance to Phase 2 until real no-order observations are collected for `1-2 months` and the validator shows enough clean rows.
+
+## `TB11_T24 ZerodhaQuoteOnlyCollector`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_zerodha_quote_only_collector
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260624.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_metadata.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260624.csv`
+
+Method:
+
+The collector is quote-only. It accepts current NFO tradingsymbols if present, optionally resolves current/future expiry rows through the NFO instrument dump, fetches bid/ask snapshots through Kite quote APIs, computes observed weighted credit, and keeps `broker_order_allowed=False`. It does not call order endpoints.
+
+Result:
+
+- input rows: `50`
+- quote symbols requested: `0`
+- quote packets received: `0`
+- captured rows: `0`
+- unresolved rows: `50`
+- collector status: `awaiting_resolved_nfo_symbols`
+
+Verdict:
+
+`TB11_T24` passes as a safe quote-only collector implementation, but it has not captured live quotes yet. The current blocker is that the T23 batch is built from historical replay rows and lacks current NFO tradingsymbols. The next gate is `TB11_T25 CurrentNFOLegResolver`.

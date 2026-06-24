@@ -1092,3 +1092,38 @@ Continue current gate:
 - fill observed quote fields only
 - rerun the observed-quote validator after each batch
 - do not advance to Phase 2 until enough observations pass freshness, all-leg, spread-quality, and premium-tolerance checks
+
+### TB11 Zerodha quote-only collector checkpoint
+
+`TB11_T24 ZerodhaQuoteOnlyCollector` is complete as a safe collector implementation.
+
+Evidence:
+
+- command: `python -B ssell1.py --mode signal_baseline_tb11_options_zerodha_quote_only_collector`
+- outputs:
+  - `results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260624.csv`
+  - `results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv`
+  - `results/signal_baseline/tb11_options_zerodha_quote_only_collector_metadata.csv`
+  - `results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260624.csv`
+
+Decision read:
+
+- input rows: `50`
+- quote symbols requested: `0`
+- quote packets received: `0`
+- captured rows: `0`
+- unresolved rows: `50`
+- broker orders allowed: `False`
+- collector status: `awaiting_resolved_nfo_symbols`
+
+Interpretation:
+
+The quote collector is now available, but the current observation batch is still historical-replay based and has no current NFO tradingsymbols. The collector correctly refused to guess contracts or call order routes.
+
+Immediate next gate:
+
+- `TB11_T25_CurrentNFOLegResolver`
+- generate current-day option legs from the frozen TB11 profile
+- resolve those legs to current NFO symbols/tokens
+- feed resolved symbols into the quote-only collector
+- keep broker orders blocked
