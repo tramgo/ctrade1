@@ -1,0 +1,3 @@
+index,variant_id,fold_count,mean_strategy_annualized,mean_rebalanced_benchmark_annualized,mean_excess_vs_rebalanced_benchmark_annualized,min_strategy_annualized,folds_beating_rebalanced_benchmark
+0,tb13_breadth_adv50_core50_active50_costed_core,10,0.1795061634195984,0.14123175295982157,0.03827441045977684,-0.09602745806136048,7
+1,tb14_dynamic_hedge_costed_core,10,0.15770325597400806,0.14123175295982157,0.016471503014186484,-0.13748675927669363,10

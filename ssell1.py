@@ -11742,17 +11742,7 @@ def run_tb13_core_active_tilt_portfolio_rank(
         mean_buyhold_ann = float(candidate_fold_df["buyhold_annualized_return"].mean())
         min_strategy_ann = float(candidate_fold_df["strategy_annualized_return"].min())
         min_buyhold_ann = float(candidate_fold_df["buyhold_annualized_return"].min())
-        promotion_verdict = (
-            "promoted_candidate"
-            if (
-                mean_strategy_ann > mean_buyhold_ann
-                and folds_beating >= 7
-                and min_strategy_ann >= min_buyhold_ann
-                and top_contributor_share <= 0.60
-                and int(candidate_fold_df["rebalance_count"].sum()) >= 80
-            )
-            else "research_only"
-        )
+        promotion_verdict = "research_only"
         summary_rows.append(
             {
                 "candidate_id": candidate_id,
@@ -11942,18 +11932,7 @@ def run_tb14_all_fold_dynamic_hedge_portfolio_rank(
         min_buyhold_ann = float(folds_df["buyhold_annualized_return"].min()) if not folds_df.empty else np.nan
         total_rebalances = int(folds_df["rebalance_count"].sum()) if not folds_df.empty else 0
         hedge_regime_count = int(folds_df["hedge_regime_count"].sum()) if not folds_df.empty else 0
-        promotion_verdict = (
-            "promoted_candidate"
-            if (
-                fold_count >= 10
-                and folds_beating == fold_count
-                and mean_strategy_ann > mean_buyhold_ann
-                and min_strategy_ann >= min_buyhold_ann
-                and top_contributor_share <= 0.60
-                and total_rebalances >= 80
-            )
-            else "research_only"
-        )
+        promotion_verdict = "research_only"
         summary_df = pd.DataFrame(
             [
                 {

@@ -1,0 +1,3 @@
+variant_id,fold_id,strategy_total_return,strategy_annualized_return,rebalanced_benchmark_annualized_return,excess_vs_rebalanced_benchmark_annualized,beats_rebalanced_benchmark
+strict_oos_frozen_folds_9_10,9,0.06347106162653504,0.06453572486878945,0.08063905440297114,-0.0161033295341817,False
+strict_oos_frozen_folds_9_10,10,-0.016363721662969177,-0.016627574067630935,-0.019400204345944472,0.002772630278313537,True

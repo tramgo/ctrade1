@@ -1,0 +1,2 @@
+audit_id,fit_folds,oos_folds,quantile,threshold,normal_active_weight,hedge_active_weight,borrow_annual,short_slippage_bps,oos_folds_beating_rebalanced_benchmark,required_oos_folds,decision
+TB14_step6_strict_oos_replay,1-8,9-10,0.25,0.4074074074074073,0.2,-0.3,0.05,25.0,1,2,kill_switch_oos_replay_failed

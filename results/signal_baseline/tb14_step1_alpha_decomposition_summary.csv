@@ -1,0 +1,4 @@
+variant_id,fold_count,rebalance_count,mean_strategy_annualized,mean_buyhold_annualized,mean_excess_vs_buyhold_annualized,min_strategy_annualized,folds_beating_buyhold
+full_tb14_dynamic_hedge,10,90,0.18818872667241374,0.17117675082778339,0.017011975844630333,-0.10693238095136393,10
+pure_e1006_top10_active_no_hedge,10,90,0.18747125431478215,0.17117675082778339,0.01629450348699878,-0.027234991057193514,6
+core_only_rebalanced_equal_weight,10,90,0.17196744342783554,0.17117675082778339,0.0007906926000521453,-0.1340755889611166,6

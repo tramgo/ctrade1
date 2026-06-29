@@ -68,11 +68,11 @@ Best clean candidate:
 
 | Candidate | Gate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Buy-Hold Worst Fold | Rebalances | Top Contributor Share | Verdict |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
-| `E1006_core0.50_active0.50_top10_r30_breadth_adv_50` | `BreadthAdvFrac_1 >= 0.50` | `20.16%` | `17.12%` | `7 / 10` | `-7.49%` | `-11.44%` | `90` | `6.68%` | `promoted_candidate` |
+| `E1006_core0.50_active0.50_top10_r30_breadth_adv_50` | `BreadthAdvFrac_1 >= 0.50` | `20.16%` | `17.12%` | `7 / 10` | `-7.49%` | `-11.44%` | `90` | `6.68%` | `research_only` |
 
 Decision:
 
-- mark `TB13_CoreActiveTiltPortfolioRank` as the first OHLCV-only equity `promoted_candidate` found by the iterative loop
+- keep `TB13_CoreActiveTiltPortfolioRank` as `research_only`; it passed the raw 7/10 buy-hold screen but remains inside the same selection-sweep and benchmark-asymmetry concerns as TB14
 - do not alter active automation away from `TB11`; this remains an equity research candidate, not a broker/live or RL promotion
 - next required audit is explicit turnover/cost treatment for the equal-weight core sleeve plus a frozen out-of-sample replay of the predeclared breadth gate
 
@@ -98,14 +98,46 @@ Result:
 
 | Candidate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Buy-Hold Worst Fold | Rebalances | Hedge Windows | Top Contributor Share | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` | `-10.69%` | `-11.44%` | `90` | `25` | `7.65%` | `promoted_candidate` |
+| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` raw buy-hold only | `-10.69%` | `-11.44%` | `90` | `25` | `7.65%` | `research_only` |
 
 Decision:
 
-- mark `TB14_AllFoldDynamicHedgePortfolioRank` as the first OHLCV-only equity candidate to beat same-universe buy-hold in all `10 / 10` folds
+- retract the unqualified `10 / 10` promotion claim for `TB14_AllFoldDynamicHedgePortfolioRank`; it remains a raw-buy-hold backtest fact, not a deployable or promoted strategy
 - do not treat it as a long-only successor to `TB13`; it uses a small short active hedge in weak relative breadth regimes
 - do not alter `automation_state.json` away from the active `TB11` options workflow
 - next required audit is borrow/short feasibility, gross exposure and margin treatment, explicit core turnover cost, and a frozen-threshold replay without further parameter search
+
+## 2026-06-29 TB14 Strict Validation Audit
+
+The stricter validation plan was run after the raw TB14 backtest raised overfit and structural-benchmark concerns.
+
+Audit artifacts:
+
+- `results/signal_baseline/tb14_step1_alpha_decomposition_decision.csv`
+- `results/signal_baseline/tb14_step2_rebalanced_benchmark_decision.csv`
+- `results/signal_baseline/tb14_step3_walkforward_threshold_decision.csv`
+- `results/signal_baseline/tb14_step4_random_hedge_null_decision.csv`
+- `results/signal_baseline/tb14_step5_short_feasibility_decision.csv`
+- `results/signal_baseline/tb14_step6_strict_oos_replay_decision.csv`
+
+Read:
+
+| Step | Result | Decision |
+|---|---|---|
+| Step 1 alpha decomposition | core-only rebalance bonus was `4.65%` of full TB14 excess | survives |
+| Step 2 rebalanced benchmark | TB14 beat costed rebalanced benchmark in `10 / 10`; TB13 preferred candidate beat it in `7 / 10` | survives |
+| Step 3 walk-forward threshold | fit folds `1-5` selected q`0.40`; held-out folds `6-10` beat rebalanced benchmark in `4 / 5` | survives |
+| Step 4 random hedge null | actual hedge was about `99.9th` percentile versus 1000 random hedge schedules | survives |
+| Step 5 short feasibility | all 27 hedge names had historical FUTSTK coverage; base short-cost stress kept `7 / 10`, harsh stress fell to `6 / 10` | fragile but not a hard kill |
+| Step 6 strict OOS replay | fit folds `1-8` selected q`0.25`, normal active `0.20`, hedge active `-0.30`; frozen folds `9-10` beat rebalanced benchmark in only `1 / 2` | kill-switch fired |
+
+Decision:
+
+- demote `TB13_CoreActiveTiltPortfolioRank` and `TB14_AllFoldDynamicHedgePortfolioRank` to `research_only`
+- remove unqualified `promoted_candidate` language from thesis summaries and result summary CSV verdict fields
+- keep the TB14 result as useful research evidence only: the raw rule beat raw buy-hold in `10 / 10`, but the strict OOS replay failed the deployment gate
+- do not continue building on TB14 as a promoted strategy without a genuinely external validation path
+- next equity research should require either a non-OHLCV information axis with real coverage or a deliberately different objective than same-universe buy-hold outperformance
 
 ## 2026-05-05 Update
 

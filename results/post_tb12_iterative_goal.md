@@ -57,9 +57,9 @@ Read:
 
 | Candidate | Gate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Verdict |
 |---|---|---:|---:|---:|---:|---|
-| `E1006_core0.50_active0.50_top10_r30_breadth_adv_50` | `BreadthAdvFrac_1 >= 0.50` | `20.16%` | `17.12%` | `7 / 10` | `-7.49%` | `promoted_candidate` |
+| `E1006_core0.50_active0.50_top10_r30_breadth_adv_50` | `BreadthAdvFrac_1 >= 0.50` | `20.16%` | `17.12%` | `7 / 10` | `-7.49%` | `research_only` |
 
-Iteration 02 satisfies the iterative equity objective as a research candidate.
+Iteration 02 satisfied the raw iterative equity objective but was later demoted to `research_only` after the stricter validation audit.
 
 ## Iteration 03 - All-Fold Dynamic Hedge
 
@@ -79,9 +79,26 @@ Read:
 
 | Candidate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Verdict |
 |---|---:|---:|---:|---:|---|
-| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` | `-10.69%` | `promoted_candidate` |
+| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` raw buy-hold only | `-10.69%` | `research_only` |
 
-Iteration 03 satisfies the raised equity objective as a research candidate, with one important caveat: this is no longer long-only because weak relative breadth uses a small short active hedge against the PortfolioRank top-10 basket.
+Iteration 03 satisfied the raw raised equity objective, with one important caveat: this is no longer long-only because weak relative breadth uses a small short active hedge against the PortfolioRank top-10 basket. It was later demoted to `research_only` after strict OOS replay failed.
+
+## Iteration 04 - Strict TB14 Validation Audit
+
+The stricter audit sequence was run because TB13/TB14 had in-sample threshold, selection-sweep, benchmark-asymmetry, and uncharged-short concerns.
+
+Read:
+
+| Step | Result | Decision |
+|---|---|---|
+| Alpha decomposition | core rebalance bonus was `4.65%` of full TB14 excess | survives |
+| Rebalanced benchmark | TB14 beat costed rebalanced benchmark in `10 / 10`; TB13 preferred candidate beat it in `7 / 10` | survives |
+| Walk-forward threshold | held-out folds `6-10` beat rebalanced benchmark in `4 / 5` | survives |
+| Random hedge null | actual hedge was about `99.9th` percentile versus random hedge schedules | survives |
+| Short feasibility | all hedge names had historical FUTSTK coverage; base short stress held `7 / 10`, harsh stress fell to `6 / 10` | fragile |
+| Strict OOS replay | frozen folds `9-10` beat rebalanced benchmark in only `1 / 2` | kill-switch |
+
+Final verdict: demote TB13 and TB14 to `research_only`.
 
 ## Next Allowed Equity Actions
 

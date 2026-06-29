@@ -41,7 +41,7 @@ Rule:
 
 | Candidate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Buy-Hold Worst Fold | Rebalances | Hedge Windows | Top Contributor Share | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` | `-10.69%` | `-11.44%` | `90` | `25` | `7.65%` | `promoted_candidate` |
+| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` raw buy-hold only | `-10.69%` | `-11.44%` | `90` | `25` | `7.65%` | `research_only` |
 
 Fold read:
 
@@ -53,8 +53,21 @@ Fold read:
 
 ## Decision
 
-Advance `TB14_AllFoldDynamicHedgePortfolioRank` as the first OHLCV-only equity candidate to beat same-universe buy-hold in all `10 / 10` folds.
+Do not advance `TB14_AllFoldDynamicHedgePortfolioRank` as a promoted candidate. The raw backtest beat same-universe raw buy-hold in all `10 / 10` folds, but the stricter validation audit fired the final OOS kill-switch.
 
 ## Caveats
 
 This is not a long-only strategy and it is not a live/broker/RL promotion. The hedge regime uses a small short active sleeve against the score-weighted top-10 active basket, so the next audit must address borrow/short feasibility, gross exposure, margin, explicit core turnover cost, and frozen-threshold replay before this can be treated as an executable frontier candidate.
+
+## Strict Audit Update
+
+Audit result:
+
+- Step 1 alpha decomposition survived: core rebalance bonus was only `4.65%` of full TB14 excess.
+- Step 2 rebalanced benchmark survived: TB14 beat the costed rebalanced benchmark in `10 / 10`.
+- Step 3 walk-forward threshold survived: the fit-only threshold beat the held-out rebalanced benchmark in `4 / 5`.
+- Step 4 random hedge null survived: actual hedge timing was about the `99.9th` percentile versus 1000 random schedules.
+- Step 5 short feasibility was fragile but not a hard kill: base stress held `7 / 10`, harsh stress fell to `6 / 10`.
+- Step 6 strict OOS replay failed: folds `1-8` refit selected q`0.25`, normal active `0.20`, hedge active `-0.30`, but frozen folds `9-10` beat the costed rebalanced benchmark in only `1 / 2`.
+
+Final decision: `research_only`. The `10 / 10` raw buy-hold result is retained as research evidence, but it is not a promotion or deployment claim.
