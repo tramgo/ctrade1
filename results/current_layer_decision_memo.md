@@ -2,6 +2,111 @@
 
 Date: 2026-03-24
 
+## 2026-06-29 Equity OHLCV Update
+
+`TB12_OHLCVRegimeConditionedPortfolioRank` is complete as a runtime-validated equity side branch.
+
+Decision:
+
+- close `TB12` as `research_only`
+- do not promote any OHLCV-only equity PortfolioRank regime gate
+- keep the active automation state on `TB11`; this was a side validation of the equity roadmap, not a replacement for the current options workflow
+- do not open another broad OHLCV-only selector family unless a genuinely new design constraint is supplied
+
+Key evidence:
+
+| Candidate | Best Gate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Verdict |
+|---|---|---:|---:|---:|---|
+| `E1006 top3 every_10` | `nifty_trend_up` | `10.98%` | `17.12%` | `3 / 10` | fail |
+| `E1006 top3 every_10` | `breadth_supportive` | `8.26%` | `17.12%` | `4 / 10` | fail |
+| `E1006 top3 every_10` | `composite_ohlcv_support` | `8.65%` | `17.12%` | `3 / 10` | fail |
+
+Practical conclusion: the OHLCV regime gates improved the old E1006 shape versus the ungated 10-year result, but they did not solve the core buy-hold robustness failure. The best promotion-grade gate still lost badly on mean annualized return and won only `3 / 10` folds. `E1002` and `E1003` remain shorter-source controls only, not promotion-grade 10-fold evidence.
+
+## 2026-06-29 Iterative Equity Goal - Iteration 01
+
+The post-`TB12` iterative research loop was actioned with an external-data readiness refresh.
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_diagnostic_tb07_external_data_readiness
+```
+
+Result:
+
+- `TB07_T01 DeliveryPercentRegime`: data still ready, but already tested and failed
+- `TB07_T02 FOOpenInterestPositioning`: data still ready, but already tested and failed
+- `TB07_T04 BreadthConfirmationGate`: data still ready, but already tested and failed
+- `TB07_T03 EarningsEventRisk`: still `template_only`, not runnable as a real new data axis
+
+Decision:
+
+- mark Iteration 01 as `stop_path`
+- do not open another equity selector, ranker, or broad OHLCV regime branch
+- do not reopen delivery, OI, or breadth as standalone alpha branches without a materially new objective
+- if equity work resumes, require either a populated earnings/event feed, a narrow incumbent overlay, or a deliberately different benchmark objective
+
+## 2026-06-29 Iterative Equity Goal - Iteration 02
+
+The OHLCV-only equity loop was reopened under the stricter user objective: find an equity strategy that beats same-universe buy-hold on mean annualized return and wins at least `7 / 10` folds.
+
+New thesis:
+
+- `TB13_CoreActiveTiltPortfolioRank`
+- keep the same-universe equal-weight book as the core exposure
+- add an E1006 PortfolioRank active sleeve only when OHLCV-derived breadth or trend gates say the active sleeve is worth taking
+- use no delivery, OI, earnings, options, broker, or live data
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb13_core_active_tilt_portfolio_rank
+```
+
+Best clean candidate:
+
+| Candidate | Gate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Buy-Hold Worst Fold | Rebalances | Top Contributor Share | Verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| `E1006_core0.50_active0.50_top10_r30_breadth_adv_50` | `BreadthAdvFrac_1 >= 0.50` | `20.16%` | `17.12%` | `7 / 10` | `-7.49%` | `-11.44%` | `90` | `6.68%` | `promoted_candidate` |
+
+Decision:
+
+- mark `TB13_CoreActiveTiltPortfolioRank` as the first OHLCV-only equity `promoted_candidate` found by the iterative loop
+- do not alter active automation away from `TB11`; this remains an equity research candidate, not a broker/live or RL promotion
+- next required audit is explicit turnover/cost treatment for the equal-weight core sleeve plus a frozen out-of-sample replay of the predeclared breadth gate
+
+## 2026-06-29 Iterative Equity Goal - Iteration 03
+
+The equity objective was raised from `7 / 10` folds to beating same-universe buy-hold on every fold.
+
+New thesis:
+
+- `TB14_AllFoldDynamicHedgePortfolioRank`
+- keep the same E1006 top-10, every-30-session PortfolioRank event stream
+- use a small normal active sleeve of `+0.10`
+- when relative breadth is weak (`BreadthRelAdvFrac_3 <= 0.3703703703703703`), switch to a `-0.20` active sleeve against the score-weighted top-10 basket while holding `1.20x` of the same-universe core
+- use only OHLCV-derived PortfolioRank, breadth, and market-state features
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank
+```
+
+Result:
+
+| Candidate | Mean Ann. | Buy-Hold Mean Ann. | Folds Beating Buy-Hold | Worst Fold | Buy-Hold Worst Fold | Rebalances | Hedge Windows | Top Contributor Share | Verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge` | `18.82%` | `17.12%` | `10 / 10` | `-10.69%` | `-11.44%` | `90` | `25` | `7.65%` | `promoted_candidate` |
+
+Decision:
+
+- mark `TB14_AllFoldDynamicHedgePortfolioRank` as the first OHLCV-only equity candidate to beat same-universe buy-hold in all `10 / 10` folds
+- do not treat it as a long-only successor to `TB13`; it uses a small short active hedge in weak relative breadth regimes
+- do not alter `automation_state.json` away from the active `TB11` options workflow
+- next required audit is borrow/short feasibility, gross exposure and margin treatment, explicit core turnover cost, and a frozen-threshold replay without further parameter search
+
 ## 2026-05-05 Update
 
 `TB07` is now effectively closed on the current retail-accessible stack.

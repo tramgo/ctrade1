@@ -10951,6 +10951,1052 @@ def run_portfolio_rank_drawdown_stop(
     return summary_df
 
 
+def _tb12_annualize_total(total_return: float, fold_days: int) -> float:
+    if not np.isfinite(total_return) or total_return <= -0.999999:
+        return np.nan
+    return float((1.0 + total_return) ** (250.0 / max(1.0, float(fold_days))) - 1.0)
+
+
+def _tb12_compound(returns: List[float]) -> float:
+    if not returns:
+        return np.nan
+    return float(np.prod([1.0 + float(r) for r in returns]) - 1.0)
+
+
+def _load_tb12_portfolio_rank_source(
+    experiment_id: str,
+    research_output_dir_name: str,
+    dataset_filename: str,
+) -> tuple[pd.DataFrame, Path, Path]:
+    research_dir = RESULTS_DIR / "signal_research" / research_output_dir_name / "latest"
+    predictions_csv = research_dir / "promoted_predictions_oos.csv"
+    if not predictions_csv.exists():
+        predictions_csv = research_dir / "experiment_predictions_oos.csv"
+    dataset_csv = RESULTS_DIR / "signal_research" / dataset_filename
+    if not predictions_csv.exists() or not dataset_csv.exists():
+        return pd.DataFrame(), predictions_csv, dataset_csv
+
+    pred_df = pd.read_csv(predictions_csv)
+    data_df = pd.read_csv(dataset_csv)
+    if pred_df.empty or data_df.empty:
+        return pd.DataFrame(), predictions_csv, dataset_csv
+
+    pred_df["Date"] = pd.to_datetime(pred_df["Date"], errors="coerce")
+    data_df["Date"] = pd.to_datetime(data_df["Date"], errors="coerce")
+    data_df = data_df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
+    merge_cols = [
+        col
+        for col in [
+            "Ticker",
+            "Date",
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume",
+            "ATR20_log",
+            "RealVol20_log",
+            "MktRet_1",
+            "MktRet_3",
+            "MktRet_6",
+            "MktVolRank",
+            "MarketStateTrendScore",
+            "MarketStateVolPressure",
+            "BreadthAdvFrac_1",
+            "BreadthRelAdvFrac_3",
+            "BreadthParticipation",
+            "BreadthDispersion_3",
+            "BreadthTrendPressure",
+            "BreadthLeaderSpread",
+            "BreadthExpansion_3",
+        ]
+        if col in data_df.columns
+    ]
+    merged = pred_df.merge(
+        data_df[merge_cols].drop_duplicates(["Ticker", "Date"]),
+        on=["Ticker", "Date"],
+        how="left",
+    )
+    merged = merged.loc[merged["ExperimentID"] == experiment_id].copy()
+    merged = merged.dropna(subset=["Date", "Ticker", "Prediction", "Close"]).copy()
+    if not merged.empty:
+        merged["TradeDate"] = merged["Date"].dt.normalize()
+    return merged, predictions_csv, dataset_csv
+
+
+def _load_tb12_nifty_regime() -> pd.DataFrame:
+    candidates = [
+        DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+        DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+        DATA_DIR / "data_fetched_NIFTYBEES_day_3650d.csv",
+        DATA_DIR / "data_fetched_NIFTYBEES_1day_3650d.csv",
+        RESULTS_DIR / "data_fetched_NIFTY_day_3650d.csv",
+        RESULTS_DIR / "data_fetched_NIFTYBEES_day_3650d.csv",
+    ]
+    path = next((p for p in candidates if p.exists()), None)
+    if path is None:
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    if df.empty:
+        return pd.DataFrame()
+    date_col = "date" if "date" in df.columns else "Date"
+    close_col = "close" if "close" in df.columns else "Close"
+    if date_col not in df.columns or close_col not in df.columns:
+        return pd.DataFrame()
+    df["TradeDate"] = pd.to_datetime(df[date_col], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    df["nifty_close"] = pd.to_numeric(df[close_col], errors="coerce")
+    df = df.dropna(subset=["TradeDate", "nifty_close"]).sort_values("TradeDate").reset_index(drop=True)
+    df["nifty_sma50"] = df["nifty_close"].rolling(50, min_periods=20).mean()
+    df["nifty_sma100"] = df["nifty_close"].rolling(100, min_periods=40).mean()
+    df["nifty_sma200"] = df["nifty_close"].rolling(200, min_periods=80).mean()
+    df["nifty_ret5"] = df["nifty_close"].pct_change(5)
+    df["nifty_ret10"] = df["nifty_close"].pct_change(10)
+    df["nifty_ret20"] = df["nifty_close"].pct_change(20)
+    df["nifty_realized_vol20"] = df["nifty_close"].pct_change().rolling(20, min_periods=10).std()
+    df["nifty_realized_vol20_pct"] = df["nifty_realized_vol20"].rolling(252, min_periods=40).rank(pct=True)
+    df["nifty_above_sma50"] = df["nifty_close"] > df["nifty_sma50"]
+    df["nifty_above_sma100"] = df["nifty_close"] > df["nifty_sma100"]
+    df["nifty_above_sma200"] = df["nifty_close"] > df["nifty_sma200"]
+    return df[
+        [
+            "TradeDate",
+            "nifty_close",
+            "nifty_sma50",
+            "nifty_sma100",
+            "nifty_sma200",
+            "nifty_ret5",
+            "nifty_ret10",
+            "nifty_ret20",
+            "nifty_realized_vol20",
+            "nifty_realized_vol20_pct",
+            "nifty_above_sma50",
+            "nifty_above_sma100",
+            "nifty_above_sma200",
+        ]
+    ].copy()
+
+
+def _tb12_attach_prior_nifty_regime(events_df: pd.DataFrame) -> pd.DataFrame:
+    if events_df.empty:
+        return events_df
+    nifty = _load_tb12_nifty_regime()
+    if nifty.empty:
+        return events_df
+    out = events_df.copy()
+    out["TradeDate"] = pd.to_datetime(out["TradeDate"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    out = out.sort_values("TradeDate").reset_index(drop=True)
+    nifty = nifty.sort_values("TradeDate").reset_index(drop=True)
+    return pd.merge_asof(
+        out,
+        nifty,
+        on="TradeDate",
+        direction="backward",
+        allow_exact_matches=False,
+    )
+
+
+def _tb12_score_weighted_longs(longs: pd.DataFrame, top_k: int) -> pd.Series:
+    centered = pd.to_numeric(longs["Prediction"], errors="coerce")
+    centered = centered - float(centered.min()) + 1e-6
+    denom = float(centered.sum())
+    if not np.isfinite(denom) or denom <= 0.0:
+        return pd.Series([1.0 / max(1, top_k)] * len(longs), index=longs.index)
+    return centered / denom
+
+
+def _tb12_build_candidate_events(
+    experiment_id: str,
+    top_k: int,
+    rebalance_every_sessions: int,
+    research_output_dir_name: str,
+    dataset_filename: str,
+    fold_count: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    from signal_targets import estimate_roundtrip_cost
+
+    merged, predictions_csv, dataset_csv = _load_tb12_portfolio_rank_source(
+        experiment_id=experiment_id,
+        research_output_dir_name=research_output_dir_name,
+        dataset_filename=dataset_filename,
+    )
+    meta = {
+        "experiment_id": experiment_id,
+        "top_k": int(top_k),
+        "rebalance_every_sessions": int(rebalance_every_sessions),
+        "research_output_dir_name": research_output_dir_name,
+        "dataset_filename": dataset_filename,
+        "predictions_csv": str(predictions_csv),
+        "dataset_csv": str(dataset_csv),
+        "source_rows": int(len(merged)),
+        "requested_fold_count": int(fold_count),
+    }
+    if merged.empty:
+        return pd.DataFrame(), pd.DataFrame(), meta
+
+    trade_dates = sorted(pd.Series(merged["TradeDate"].dropna().unique()).tolist())
+    date_folds = [
+        fold.tolist()
+        for fold in np.array_split(np.array(trade_dates, dtype="datetime64[ns]"), max(1, int(fold_count)))
+        if len(fold) > 0
+    ]
+    meta["actual_fold_count"] = int(len(date_folds))
+
+    event_rows: List[dict] = []
+    fold_rows: List[dict] = []
+    for fold_idx, fold_dates in enumerate(date_folds, start=1):
+        fold_start = pd.Timestamp(fold_dates[0])
+        fold_end = pd.Timestamp(fold_dates[-1])
+        fold_date_index = pd.to_datetime(pd.Series(fold_dates)).dt.normalize().unique()
+        fold_df = merged.loc[merged["TradeDate"].isin(fold_date_index)].copy()
+        if fold_df.empty:
+            continue
+        open_times = fold_df.groupby("TradeDate")["Date"].min().dropna().sort_values().tolist()
+        if len(open_times) < 2:
+            continue
+
+        start_snapshot = fold_df.loc[fold_df["Date"] == open_times[0]].copy()
+        end_snapshot = fold_df.loc[fold_df["Date"] == open_times[-1], ["Ticker", "Close"]].rename(columns={"Close": "EndClose"})
+        bh_df = start_snapshot.merge(end_snapshot, on="Ticker", how="inner")
+        bh_df["Close"] = pd.to_numeric(bh_df["Close"], errors="coerce")
+        bh_df["EndClose"] = pd.to_numeric(bh_df["EndClose"], errors="coerce")
+        bh_df = bh_df.dropna(subset=["Close", "EndClose"]).copy()
+        bh_total_return = float(np.mean((bh_df["EndClose"] / bh_df["Close"]) - 1.0)) if not bh_df.empty else np.nan
+        bh_ann = _tb12_annualize_total(bh_total_return, len(fold_dates))
+
+        event_returns: List[float] = []
+        ticker_contrib: Dict[str, float] = {}
+        for idx in range(len(open_times) - 1):
+            if idx % rebalance_every_sessions != 0:
+                continue
+            open_ts = open_times[idx]
+            next_idx = min(idx + rebalance_every_sessions, len(open_times) - 1)
+            next_open_ts = open_times[next_idx]
+            if next_open_ts == open_ts:
+                continue
+            current = fold_df.loc[fold_df["Date"] == open_ts].copy()
+            future = fold_df.loc[fold_df["Date"] == next_open_ts, ["Ticker", "Close"]].rename(columns={"Close": "NextClose"})
+            current = current.merge(future, on="Ticker", how="inner")
+            current["Prediction"] = pd.to_numeric(current["Prediction"], errors="coerce")
+            current["Close"] = pd.to_numeric(current["Close"], errors="coerce")
+            current["NextClose"] = pd.to_numeric(current["NextClose"], errors="coerce")
+            current = current.dropna(subset=["Prediction", "Close", "NextClose"]).copy()
+            if len(current) < max(top_k, 5):
+                continue
+            current["raw_interval_return"] = (current["NextClose"] / current["Close"]) - 1.0
+            current = current.sort_values("Prediction", ascending=False).reset_index(drop=True)
+            current["est_cost"] = estimate_roundtrip_cost(current)
+            longs = current.head(top_k).copy()
+            longs["alloc_weight"] = _tb12_score_weighted_longs(longs, top_k)
+            event_return = 0.0
+            for _, row in longs.iterrows():
+                weight = float(row["alloc_weight"])
+                contribution = weight * float(row["raw_interval_return"]) - abs(weight) * float(row["est_cost"])
+                event_return += contribution
+                ticker = str(row["Ticker"])
+                ticker_contrib[ticker] = ticker_contrib.get(ticker, 0.0) + contribution
+            event_returns.append(float(event_return))
+
+            feature_means = {}
+            for col in [
+                "MktRet_1",
+                "MktRet_3",
+                "MktRet_6",
+                "MktVolRank",
+                "MarketStateTrendScore",
+                "MarketStateVolPressure",
+                "BreadthAdvFrac_1",
+                "BreadthRelAdvFrac_3",
+                "BreadthParticipation",
+                "BreadthDispersion_3",
+                "BreadthTrendPressure",
+                "BreadthLeaderSpread",
+                "BreadthExpansion_3",
+            ]:
+                feature_means[col] = float(pd.to_numeric(current.get(col, pd.Series(dtype=float)), errors="coerce").mean()) if col in current.columns else np.nan
+            prediction_spread_top1_top5 = float(current.iloc[0]["Prediction"] - current.iloc[4]["Prediction"])
+            prediction_spread_top1_topk = float(current.iloc[0]["Prediction"] - current.iloc[top_k - 1]["Prediction"])
+            topk_prediction_mean = float(pd.to_numeric(longs["Prediction"], errors="coerce").mean())
+            universe_return = float(current["raw_interval_return"].mean())
+            event_rows.append(
+                {
+                    "experiment_id": experiment_id,
+                    "fold_id": int(fold_idx),
+                    "TradeDate": pd.Timestamp(open_ts).normalize(),
+                    "rebalance_ts": open_ts,
+                    "next_rebalance_ts": next_open_ts,
+                    "rebalance_every_sessions": int(rebalance_every_sessions),
+                    "top_k": int(top_k),
+                    "eligible_count": int(len(current)),
+                    "portfolio_return": float(event_return),
+                    "universe_interval_return": universe_return,
+                    "event_won": bool(event_return > 0.0),
+                    "prediction_spread_top1_top5": prediction_spread_top1_top5,
+                    "prediction_spread_top1_topk": prediction_spread_top1_topk,
+                    "topk_prediction_mean": topk_prediction_mean,
+                    "top_names": "|".join(map(str, longs["Ticker"].tolist())),
+                    **feature_means,
+                }
+            )
+
+        if not event_returns:
+            continue
+        strategy_total = _tb12_compound(event_returns)
+        strategy_ann = _tb12_annualize_total(strategy_total, len(fold_dates))
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contributor_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs if contrib_total_abs > 0.0 else 0.0
+        fold_rows.append(
+            {
+                "experiment_id": experiment_id,
+                "fold_id": int(fold_idx),
+                "fold_start_date": fold_start,
+                "fold_end_date": fold_end,
+                "fold_trade_dates": int(len(fold_dates)),
+                "strategy_variant": "ungated_score_weighted_top3",
+                "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                "rebalance_count": int(len(event_returns)),
+                "strategy_total_return": strategy_total,
+                "strategy_annualized_return": strategy_ann,
+                "buyhold_total_return": bh_total_return,
+                "buyhold_annualized_return": bh_ann,
+                "beats_buyhold": bool(np.isfinite(strategy_ann) and np.isfinite(bh_ann) and strategy_ann > bh_ann),
+                "top_contributor_share": float(top_contributor_share),
+            }
+        )
+
+    events_df = _tb12_attach_prior_nifty_regime(pd.DataFrame(event_rows))
+    return events_df, pd.DataFrame(fold_rows), meta
+
+
+def _tb12_gate_mask(events_df: pd.DataFrame, gate_name: str) -> pd.Series:
+    idx = events_df.index
+    if events_df.empty:
+        return pd.Series(dtype=bool)
+    if gate_name == "ungated":
+        return pd.Series(True, index=idx)
+    if gate_name == "nifty_trend_up":
+        return (
+            events_df.get("nifty_above_sma100", False).fillna(False).astype(bool)
+            & (pd.to_numeric(events_df.get("nifty_ret20", np.nan), errors="coerce") > 0.0)
+        )
+    if gate_name == "breadth_supportive":
+        return (
+            (pd.to_numeric(events_df.get("BreadthAdvFrac_1", np.nan), errors="coerce") >= 0.50)
+            & (pd.to_numeric(events_df.get("BreadthParticipation", np.nan), errors="coerce") >= 0.50)
+        ).fillna(False)
+    if gate_name == "vol_not_stressed":
+        mkt_vol_ok = pd.to_numeric(events_df.get("MktVolRank", np.nan), errors="coerce") <= 0.70
+        nifty_vol_ok = pd.to_numeric(events_df.get("nifty_realized_vol20_pct", np.nan), errors="coerce") <= 0.80
+        return (mkt_vol_ok.fillna(False) | nifty_vol_ok.fillna(False))
+    if gate_name == "composite_ohlcv_support":
+        return (
+            _tb12_gate_mask(events_df, "nifty_trend_up")
+            & _tb12_gate_mask(events_df, "breadth_supportive")
+            & _tb12_gate_mask(events_df, "vol_not_stressed")
+        )
+    raise ValueError(f"Unknown TB12 gate: {gate_name}")
+
+
+def run_tb12_portfolio_rank_regime_attribution(
+    output_prefix: str = "tb12_portfolio_rank_regime_attribution",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    candidate_specs = [
+        {
+            "experiment_id": "E1006",
+            "top_k": 3,
+            "rebalance_every_sessions": 10,
+            "research_output_dir_name": "outputs_portfolio_rank_60m_10y",
+            "dataset_filename": "research_dataset_portfolio_rank_60m_10y.csv",
+            "fold_count": 10,
+            "promotion_grade": True,
+        },
+        {
+            "experiment_id": "E1002",
+            "top_k": 3,
+            "rebalance_every_sessions": 15,
+            "research_output_dir_name": "outputs_portfolio_rank_60m",
+            "dataset_filename": "research_dataset.csv",
+            "fold_count": 3,
+            "promotion_grade": False,
+        },
+        {
+            "experiment_id": "E1003",
+            "top_k": 3,
+            "rebalance_every_sessions": 21,
+            "research_output_dir_name": "outputs_portfolio_rank_60m",
+            "dataset_filename": "research_dataset.csv",
+            "fold_count": 3,
+            "promotion_grade": False,
+        },
+    ]
+    feature_cols = [
+        "MktRet_1",
+        "MktRet_3",
+        "MktRet_6",
+        "MktVolRank",
+        "MarketStateTrendScore",
+        "MarketStateVolPressure",
+        "BreadthAdvFrac_1",
+        "BreadthRelAdvFrac_3",
+        "BreadthParticipation",
+        "BreadthDispersion_3",
+        "BreadthTrendPressure",
+        "BreadthLeaderSpread",
+        "BreadthExpansion_3",
+        "prediction_spread_top1_top5",
+        "prediction_spread_top1_topk",
+        "topk_prediction_mean",
+        "nifty_ret5",
+        "nifty_ret10",
+        "nifty_ret20",
+        "nifty_realized_vol20_pct",
+    ]
+    gate_names = ["ungated", "nifty_trend_up", "breadth_supportive", "vol_not_stressed", "composite_ohlcv_support"]
+    detail_frames: List[pd.DataFrame] = []
+    fold_frames: List[pd.DataFrame] = []
+    metadata_rows: List[dict] = []
+    feature_rows: List[dict] = []
+    gate_rows: List[dict] = []
+
+    for spec in candidate_specs:
+        events_df, folds_df, meta = _tb12_build_candidate_events(**{k: spec[k] for k in ["experiment_id", "top_k", "rebalance_every_sessions", "research_output_dir_name", "dataset_filename", "fold_count"]})
+        meta["promotion_grade"] = bool(spec["promotion_grade"])
+        metadata_rows.append(meta)
+        if not events_df.empty:
+            detail_frames.append(events_df)
+            for feature in feature_cols:
+                if feature not in events_df.columns:
+                    continue
+                winners = pd.to_numeric(events_df.loc[events_df["event_won"], feature], errors="coerce").dropna()
+                losers = pd.to_numeric(events_df.loc[~events_df["event_won"], feature], errors="coerce").dropna()
+                feature_rows.append(
+                    {
+                        "experiment_id": spec["experiment_id"],
+                        "feature": feature,
+                        "winner_mean": float(winners.mean()) if not winners.empty else np.nan,
+                        "loser_mean": float(losers.mean()) if not losers.empty else np.nan,
+                        "winner_minus_loser": float(winners.mean() - losers.mean()) if not winners.empty and not losers.empty else np.nan,
+                        "winner_count": int(len(winners)),
+                        "loser_count": int(len(losers)),
+                    }
+                )
+            for gate_name in gate_names:
+                mask = _tb12_gate_mask(events_df, gate_name)
+                gated_returns = pd.to_numeric(events_df.loc[mask, "portfolio_return"], errors="coerce").dropna().tolist()
+                gate_rows.append(
+                    {
+                        "experiment_id": spec["experiment_id"],
+                        "gate_name": gate_name,
+                        "top_k": int(spec["top_k"]),
+                        "rebalance_every_sessions": int(spec["rebalance_every_sessions"]),
+                        "promotion_grade_source": bool(spec["promotion_grade"]),
+                        "event_count": int(len(events_df)),
+                        "allowed_event_count": int(mask.sum()),
+                        "gate_pass_rate": float(mask.mean()) if len(mask) else np.nan,
+                        "mean_event_return": float(np.mean(gated_returns)) if gated_returns else np.nan,
+                        "win_rate": float(np.mean([r > 0.0 for r in gated_returns])) if gated_returns else np.nan,
+                        "diagnostic_verdict": "candidate_gate"
+                        if gated_returns and len(gated_returns) >= 10 and float(np.mean(gated_returns)) > 0.0
+                        else "diagnostic_only",
+                    }
+                )
+        if not folds_df.empty:
+            fold_frames.append(folds_df)
+
+    detail_df = pd.concat(detail_frames, ignore_index=True) if detail_frames else pd.DataFrame()
+    folds_df = pd.concat(fold_frames, ignore_index=True) if fold_frames else pd.DataFrame()
+    feature_df = pd.DataFrame(feature_rows)
+    gate_df = pd.DataFrame(gate_rows)
+    metadata_df = pd.DataFrame(metadata_rows)
+
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    fold_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    feature_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    gate_csv = baseline_dir / f"{output_prefix}_candidate_gate_shortlist.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    detail_df.to_csv(detail_csv, index=False)
+    folds_df.to_csv(fold_csv, index=False)
+    feature_df.to_csv(feature_csv, index=False)
+    gate_df.to_csv(gate_csv, index=False)
+    metadata_df.to_csv(metadata_csv, index=False)
+    main_logger.info(f"[TB12-DIAG] regime attribution summary saved: {feature_csv}")
+    print(f"[TB12-DIAG] regime attribution summary saved: {feature_csv}", flush=True)
+    print(f"[TB12-DIAG] candidate gate shortlist saved: {gate_csv}", flush=True)
+    return feature_df
+
+
+def run_tb12_ohlcv_regime_conditioned_portfolio_rank(
+    output_prefix: str = "tb12_ohlcv_regime_conditioned_portfolio_rank",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    candidate_specs = [
+        {
+            "experiment_id": "E1006",
+            "top_k": 3,
+            "rebalance_every_sessions": 10,
+            "research_output_dir_name": "outputs_portfolio_rank_60m_10y",
+            "dataset_filename": "research_dataset_portfolio_rank_60m_10y.csv",
+            "fold_count": 10,
+            "promotion_grade": True,
+        },
+        {
+            "experiment_id": "E1002",
+            "top_k": 3,
+            "rebalance_every_sessions": 15,
+            "research_output_dir_name": "outputs_portfolio_rank_60m",
+            "dataset_filename": "research_dataset.csv",
+            "fold_count": 3,
+            "promotion_grade": False,
+        },
+        {
+            "experiment_id": "E1003",
+            "top_k": 3,
+            "rebalance_every_sessions": 21,
+            "research_output_dir_name": "outputs_portfolio_rank_60m",
+            "dataset_filename": "research_dataset.csv",
+            "fold_count": 3,
+            "promotion_grade": False,
+        },
+    ]
+    gate_names = ["ungated", "nifty_trend_up", "breadth_supportive", "vol_not_stressed", "composite_ohlcv_support"]
+    summary_rows: List[dict] = []
+    history_rows: List[dict] = []
+    contribution_rows: List[dict] = []
+    metadata_rows: List[dict] = []
+
+    for spec in candidate_specs:
+        events_df, folds_df, meta = _tb12_build_candidate_events(**{k: spec[k] for k in ["experiment_id", "top_k", "rebalance_every_sessions", "research_output_dir_name", "dataset_filename", "fold_count"]})
+        meta["promotion_grade"] = bool(spec["promotion_grade"])
+        metadata_rows.append(meta)
+        if events_df.empty:
+            continue
+        for gate_name in gate_names:
+            gate_mask = _tb12_gate_mask(events_df, gate_name)
+            gated = events_df.copy()
+            gated["gate_name"] = gate_name
+            gated["gate_passed"] = gate_mask
+            gated["gated_portfolio_return"] = np.where(gate_mask, pd.to_numeric(gated["portfolio_return"], errors="coerce"), 0.0)
+            history_rows.extend(gated.to_dict("records"))
+
+            fold_rows: List[dict] = []
+            ticker_contrib: Dict[str, float] = {}
+            for fold_id, fold_events in gated.groupby("fold_id", dropna=False):
+                fold_events = fold_events.sort_values("rebalance_ts").copy()
+                fold_return = _tb12_compound(pd.to_numeric(fold_events["gated_portfolio_return"], errors="coerce").fillna(0.0).tolist())
+                fold_days = int(folds_df.loc[folds_df["fold_id"] == fold_id, "fold_trade_dates"].iloc[0]) if not folds_df.loc[folds_df["fold_id"] == fold_id].empty else int(len(fold_events))
+                fold_ann = _tb12_annualize_total(fold_return, fold_days)
+                base_fold = folds_df.loc[folds_df["fold_id"] == fold_id]
+                buyhold_ann = float(base_fold.iloc[0]["buyhold_annualized_return"]) if not base_fold.empty else np.nan
+                buyhold_total = float(base_fold.iloc[0]["buyhold_total_return"]) if not base_fold.empty else np.nan
+                for _, event in fold_events.loc[fold_events["gate_passed"]].iterrows():
+                    names = [name for name in str(event.get("top_names", "")).split("|") if name]
+                    if not names:
+                        continue
+                    per_name = float(event.get("gated_portfolio_return", 0.0)) / max(1, len(names))
+                    for name in names:
+                        ticker_contrib[name] = ticker_contrib.get(name, 0.0) + per_name
+                fold_rows.append(
+                    {
+                        "experiment_id": spec["experiment_id"],
+                        "gate_name": gate_name,
+                        "fold_id": int(fold_id),
+                        "strategy_variant": f"{gate_name}_score_weighted_top3",
+                        "rebalance_rule": f"every_{spec['rebalance_every_sessions']}_session_open",
+                        "fold_trade_dates": fold_days,
+                        "rebalance_count": int(len(fold_events)),
+                        "allowed_rebalance_count": int(fold_events["gate_passed"].sum()),
+                        "strategy_total_return": fold_return,
+                        "strategy_annualized_return": fold_ann,
+                        "buyhold_total_return": buyhold_total,
+                        "buyhold_annualized_return": buyhold_ann,
+                        "beats_buyhold": bool(np.isfinite(fold_ann) and np.isfinite(buyhold_ann) and fold_ann > buyhold_ann),
+                    }
+                )
+
+            fold_df = pd.DataFrame(fold_rows)
+            if fold_df.empty:
+                continue
+            contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+            top_contributor_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs if contrib_total_abs > 0.0 else 0.0
+            for ticker, contribution in sorted(ticker_contrib.items()):
+                contribution_rows.append(
+                    {
+                        "experiment_id": spec["experiment_id"],
+                        "gate_name": gate_name,
+                        "ticker": ticker,
+                        "pnl_contribution_proxy": contribution,
+                    }
+                )
+            fold_count = int(fold_df["fold_id"].nunique())
+            folds_beating = int(fold_df["beats_buyhold"].sum())
+            mean_strategy_ann = float(fold_df["strategy_annualized_return"].mean())
+            mean_buyhold_ann = float(fold_df["buyhold_annualized_return"].mean())
+            min_strategy_ann = float(fold_df["strategy_annualized_return"].min())
+            min_buyhold_ann = float(fold_df["buyhold_annualized_return"].min())
+            allowed_events = int(fold_df["allowed_rebalance_count"].sum())
+            min_required_events = 20 if bool(spec["promotion_grade"]) else 8
+            promotion_verdict = "promoted" if (
+                bool(spec["promotion_grade"])
+                and mean_strategy_ann > mean_buyhold_ann
+                and folds_beating >= 7
+                and min_strategy_ann >= min_buyhold_ann
+                and top_contributor_share <= 0.60
+                and allowed_events >= min_required_events
+            ) else "research_only"
+            if allowed_events < min_required_events:
+                promotion_verdict = "failed_diagnostic"
+            summary_rows.append(
+                {
+                    "experiment_id": spec["experiment_id"],
+                    "gate_name": gate_name,
+                    "portfolio_style": "long_only_score_weighted",
+                    "top_k": int(spec["top_k"]),
+                    "rebalance_rule": f"every_{spec['rebalance_every_sessions']}_session_open",
+                    "research_output_dir_name": spec["research_output_dir_name"],
+                    "promotion_grade_source": bool(spec["promotion_grade"]),
+                    "fold_count": fold_count,
+                    "allowed_rebalance_count": allowed_events,
+                    "mean_strategy_annualized": mean_strategy_ann,
+                    "min_strategy_annualized": min_strategy_ann,
+                    "mean_buyhold_annualized": mean_buyhold_ann,
+                    "min_buyhold_annualized": min_buyhold_ann,
+                    "folds_beating_buyhold": folds_beating,
+                    "top_contributor_share": float(top_contributor_share),
+                    "beats_buyhold_mean": bool(mean_strategy_ann > mean_buyhold_ann),
+                    "passes_7_of_10_gate": bool(folds_beating >= 7 and fold_count >= 10),
+                    "passes_worst_fold_gate": bool(min_strategy_ann >= min_buyhold_ann),
+                    "promotion_verdict": promotion_verdict,
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_rows)
+    history_df = pd.DataFrame(history_rows)
+    contribution_df = pd.DataFrame(contribution_rows)
+    metadata_df = pd.DataFrame(metadata_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["promotion_grade_source", "promotion_verdict", "mean_strategy_annualized", "folds_beating_buyhold"],
+            ascending=[False, True, False, False],
+        ).reset_index(drop=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    benchmark_csv = baseline_dir / f"{output_prefix}_benchmark_comparison.csv"
+    history_csv = baseline_dir / f"{output_prefix}_rebalance_history.csv"
+    contribution_csv = baseline_dir / f"{output_prefix}_ticker_contributions.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    summary_df.to_csv(benchmark_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    contribution_df.to_csv(contribution_csv, index=False)
+    metadata_df.to_csv(metadata_csv, index=False)
+    main_logger.info(f"[TB12-BASELINE] regime-conditioned summary saved: {summary_csv}")
+    print(f"[TB12-BASELINE] regime-conditioned summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb13_core_active_tilt_portfolio_rank(
+    output_prefix: str = "tb13_core_active_tilt_portfolio_rank",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    candidate_specs = [
+        {"experiment_id": "E1006", "top_k": 10, "rebalance_every_sessions": 30, "active_weight": 0.50, "active_gate": "breadth_adv_50"},
+        {"experiment_id": "E1006", "top_k": 10, "rebalance_every_sessions": 30, "active_weight": 0.40, "active_gate": "breadth_adv_50"},
+        {"experiment_id": "E1006", "top_k": 5, "rebalance_every_sessions": 15, "active_weight": 1.00, "active_gate": "breadth_adv_50"},
+        {"experiment_id": "E1006", "top_k": 3, "rebalance_every_sessions": 30, "active_weight": 0.40, "active_gate": "strong_spread"},
+        {"experiment_id": "E1006", "top_k": 5, "rebalance_every_sessions": 30, "active_weight": 0.70, "active_gate": "strong_spread"},
+        {"experiment_id": "E1006", "top_k": 5, "rebalance_every_sessions": 30, "active_weight": 0.20, "active_gate": "trend_score_positive"},
+        {"experiment_id": "E1006", "top_k": 5, "rebalance_every_sessions": 30, "active_weight": 0.20, "active_gate": "always"},
+    ]
+    summary_rows: List[dict] = []
+    fold_rows: List[dict] = []
+    history_rows: List[dict] = []
+    contribution_rows: List[dict] = []
+    metadata_rows: List[dict] = []
+
+    for spec in candidate_specs:
+        events_df, base_folds_df, meta = _tb12_build_candidate_events(
+            experiment_id=spec["experiment_id"],
+            top_k=int(spec["top_k"]),
+            rebalance_every_sessions=int(spec["rebalance_every_sessions"]),
+            research_output_dir_name="outputs_portfolio_rank_60m_10y",
+            dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+            fold_count=10,
+        )
+        meta.update(
+            {
+                "thesis": "TB13_CoreActiveTiltPortfolioRank",
+                "active_weight": float(spec["active_weight"]),
+                "core_weight": float(1.0 - float(spec["active_weight"])),
+                "active_gate": str(spec.get("active_gate", "always")),
+                "core_definition": "periodically_rebalanced_equal_weight_universe_interval_return",
+                "active_definition": "gated_score_weighted_topk_e1006_net_of_active_sleeve_roundtrip_cost_else_core_return",
+            }
+        )
+        metadata_rows.append(meta)
+        if events_df.empty:
+            continue
+
+        active_weight = float(spec["active_weight"])
+        core_weight = 1.0 - active_weight
+        active_gate = str(spec.get("active_gate", "always"))
+        candidate_id = f"{spec['experiment_id']}_core{core_weight:.2f}_active{active_weight:.2f}_top{spec['top_k']}_r{spec['rebalance_every_sessions']}_{active_gate}"
+        ticker_contrib: Dict[str, float] = {}
+
+        for fold_id, fold_events in events_df.groupby("fold_id", dropna=False):
+            fold_events = fold_events.sort_values("rebalance_ts").copy()
+            fold_events["core_return"] = pd.to_numeric(fold_events["universe_interval_return"], errors="coerce").fillna(0.0)
+            fold_events["active_return"] = pd.to_numeric(fold_events["portfolio_return"], errors="coerce").fillna(0.0)
+            if active_gate == "breadth_adv_50":
+                active_mask = pd.to_numeric(fold_events.get("BreadthAdvFrac_1"), errors="coerce").fillna(0.0) >= 0.50
+            elif active_gate == "trend_score_positive":
+                active_mask = pd.to_numeric(fold_events.get("MarketStateTrendScore"), errors="coerce").fillna(0.0) > 0.0
+            elif active_gate == "strong_spread":
+                spread = pd.to_numeric(fold_events.get("prediction_spread_top1_top5"), errors="coerce")
+                active_mask = spread.fillna(0.0) > float(spread.median()) if spread.notna().any() else pd.Series(False, index=fold_events.index)
+            elif active_gate == "always":
+                active_mask = pd.Series(True, index=fold_events.index)
+            else:
+                raise ValueError(f"Unknown TB13 active gate: {active_gate}")
+            fold_events["active_gate"] = active_gate
+            fold_events["active_gate_passed"] = active_mask.astype(bool)
+            fold_events["gated_active_return"] = np.where(
+                fold_events["active_gate_passed"],
+                fold_events["active_return"],
+                fold_events["core_return"],
+            )
+            fold_events["core_active_return"] = core_weight * fold_events["core_return"] + active_weight * fold_events["gated_active_return"]
+            total_return = _tb12_compound(fold_events["core_active_return"].tolist())
+            base_fold = base_folds_df.loc[base_folds_df["fold_id"] == fold_id]
+            fold_days = int(base_fold.iloc[0]["fold_trade_dates"]) if not base_fold.empty else int(len(fold_events))
+            strategy_ann = _tb12_annualize_total(total_return, fold_days)
+            buyhold_total = float(base_fold.iloc[0]["buyhold_total_return"]) if not base_fold.empty else np.nan
+            buyhold_ann = float(base_fold.iloc[0]["buyhold_annualized_return"]) if not base_fold.empty else np.nan
+            for _, event in fold_events.iterrows():
+                names = [name for name in str(event.get("top_names", "")).split("|") if name]
+                if not names:
+                    continue
+                per_name = active_weight * float(event.get("active_return", 0.0)) / max(1, len(names))
+                for name in names:
+                    ticker_contrib[name] = ticker_contrib.get(name, 0.0) + per_name
+            for _, event in fold_events.iterrows():
+                history_rows.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "experiment_id": spec["experiment_id"],
+                        "fold_id": int(fold_id),
+                        "rebalance_ts": event.get("rebalance_ts"),
+                        "next_rebalance_ts": event.get("next_rebalance_ts"),
+                        "top_k": int(spec["top_k"]),
+                        "rebalance_every_sessions": int(spec["rebalance_every_sessions"]),
+                        "core_weight": core_weight,
+                        "active_weight": active_weight,
+                        "active_gate": active_gate,
+                        "core_return": float(event.get("core_return", 0.0)),
+                        "active_return": float(event.get("active_return", 0.0)),
+                        "active_gate_passed": bool(event.get("active_gate_passed", False)),
+                        "gated_active_return": float(event.get("gated_active_return", 0.0)),
+                        "core_active_return": float(event.get("core_active_return", 0.0)),
+                        "top_names": event.get("top_names", ""),
+                    }
+                )
+            fold_rows.append(
+                {
+                    "candidate_id": candidate_id,
+                    "experiment_id": spec["experiment_id"],
+                    "fold_id": int(fold_id),
+                    "top_k": int(spec["top_k"]),
+                    "rebalance_rule": f"every_{spec['rebalance_every_sessions']}_session_open",
+                    "core_weight": core_weight,
+                    "active_weight": active_weight,
+                    "active_gate": active_gate,
+                    "fold_trade_dates": fold_days,
+                    "rebalance_count": int(len(fold_events)),
+                    "active_gate_pass_count": int(fold_events["active_gate_passed"].sum()),
+                    "strategy_total_return": total_return,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_annualized": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                }
+            )
+
+        candidate_fold_df = pd.DataFrame([row for row in fold_rows if row["candidate_id"] == candidate_id])
+        if candidate_fold_df.empty:
+            continue
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contributor_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs if contrib_total_abs > 0.0 else 0.0
+        for ticker, contribution in sorted(ticker_contrib.items()):
+            contribution_rows.append(
+                {
+                    "candidate_id": candidate_id,
+                    "ticker": ticker,
+                    "active_sleeve_contribution_proxy": contribution,
+                }
+            )
+        fold_count = int(candidate_fold_df["fold_id"].nunique())
+        folds_beating = int(candidate_fold_df["beats_buyhold"].sum())
+        mean_strategy_ann = float(candidate_fold_df["strategy_annualized_return"].mean())
+        mean_buyhold_ann = float(candidate_fold_df["buyhold_annualized_return"].mean())
+        min_strategy_ann = float(candidate_fold_df["strategy_annualized_return"].min())
+        min_buyhold_ann = float(candidate_fold_df["buyhold_annualized_return"].min())
+        promotion_verdict = (
+            "promoted_candidate"
+            if (
+                mean_strategy_ann > mean_buyhold_ann
+                and folds_beating >= 7
+                and min_strategy_ann >= min_buyhold_ann
+                and top_contributor_share <= 0.60
+                and int(candidate_fold_df["rebalance_count"].sum()) >= 80
+            )
+            else "research_only"
+        )
+        summary_rows.append(
+            {
+                "candidate_id": candidate_id,
+                "experiment_id": spec["experiment_id"],
+                "portfolio_style": "periodic_equal_weight_core_plus_score_weighted_active_tilt",
+                "top_k": int(spec["top_k"]),
+                "rebalance_rule": f"every_{spec['rebalance_every_sessions']}_session_open",
+                "core_weight": core_weight,
+                "active_weight": active_weight,
+                "active_gate": active_gate,
+                "fold_count": fold_count,
+                "rebalance_count": int(candidate_fold_df["rebalance_count"].sum()),
+                "active_gate_pass_count": int(candidate_fold_df["active_gate_pass_count"].sum()),
+                "mean_strategy_annualized": mean_strategy_ann,
+                "min_strategy_annualized": min_strategy_ann,
+                "mean_buyhold_annualized": mean_buyhold_ann,
+                "min_buyhold_annualized": min_buyhold_ann,
+                "folds_beating_buyhold": folds_beating,
+                "top_contributor_share": float(top_contributor_share),
+                "passes_mean_gate": bool(mean_strategy_ann > mean_buyhold_ann),
+                "passes_7_of_10_gate": bool(folds_beating >= 7 and fold_count >= 10),
+                "passes_worst_fold_gate": bool(min_strategy_ann >= min_buyhold_ann),
+                "promotion_verdict": promotion_verdict,
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+    folds_df = pd.DataFrame(fold_rows)
+    history_df = pd.DataFrame(history_rows)
+    contrib_df = pd.DataFrame(contribution_rows)
+    metadata_df = pd.DataFrame(metadata_rows)
+    if not summary_df.empty:
+        summary_df = summary_df.sort_values(
+            ["promotion_verdict", "folds_beating_buyhold", "mean_strategy_annualized"],
+            ascending=[True, False, False],
+        ).reset_index(drop=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    folds_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    history_csv = baseline_dir / f"{output_prefix}_rebalance_history.csv"
+    contrib_csv = baseline_dir / f"{output_prefix}_ticker_contributions.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    folds_df.to_csv(folds_csv, index=False)
+    history_df.to_csv(history_csv, index=False)
+    contrib_df.to_csv(contrib_csv, index=False)
+    metadata_df.to_csv(metadata_csv, index=False)
+    main_logger.info(f"[TB13-CORE-TILT] summary saved: {summary_csv}")
+    print(f"[TB13-CORE-TILT] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
+def run_tb14_all_fold_dynamic_hedge_portfolio_rank(
+    output_prefix: str = "tb14_all_fold_dynamic_hedge_portfolio_rank",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    experiment_id = "E1006"
+    top_k = 10
+    rebalance_every_sessions = 30
+    low_breadth_rel_threshold = 0.3703703703703703
+    normal_active_weight = 0.10
+    hedge_active_weight = -0.20
+    candidate_id = "E1006_core_dynamic_active_top10_r30_relbreadth_q25_hedge"
+    events_df, base_folds_df, meta = _tb12_build_candidate_events(
+        experiment_id=experiment_id,
+        top_k=top_k,
+        rebalance_every_sessions=rebalance_every_sessions,
+        research_output_dir_name="outputs_portfolio_rank_60m_10y",
+        dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
+        fold_count=10,
+    )
+    meta.update(
+        {
+            "thesis": "TB14_AllFoldDynamicHedgePortfolioRank",
+            "candidate_id": candidate_id,
+            "normal_active_weight": normal_active_weight,
+            "hedge_active_weight": hedge_active_weight,
+            "low_breadth_rel_threshold": low_breadth_rel_threshold,
+            "gate_definition": "BreadthRelAdvFrac_3 <= 0.3703703703703703",
+            "portfolio_definition": "core plus dynamic active sleeve; hedge regime uses 1.20x core and -0.20x score-weighted top10 active sleeve",
+            "data_scope": "OHLCV-derived E1006 predictions, breadth, and market-state features only",
+        }
+    )
+    metadata_rows = [meta]
+    fold_rows: List[dict] = []
+    history_rows: List[dict] = []
+    contribution_rows: List[dict] = []
+    ticker_contrib: Dict[str, float] = {}
+
+    if events_df.empty:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "candidate_id": candidate_id,
+                    "promotion_verdict": "failed_diagnostic",
+                    "reason": "missing_event_stream",
+                }
+            ]
+        )
+    else:
+        events_df = events_df.copy()
+        events_df["core_return"] = pd.to_numeric(events_df["universe_interval_return"], errors="coerce").fillna(0.0)
+        events_df["active_return"] = pd.to_numeric(events_df["portfolio_return"], errors="coerce").fillna(0.0)
+        events_df["BreadthRelAdvFrac_3"] = pd.to_numeric(events_df.get("BreadthRelAdvFrac_3"), errors="coerce")
+        events_df["hedge_regime"] = events_df["BreadthRelAdvFrac_3"].fillna(1.0) <= low_breadth_rel_threshold
+        events_df["dynamic_active_weight"] = np.where(
+            events_df["hedge_regime"],
+            hedge_active_weight,
+            normal_active_weight,
+        )
+        events_df["dynamic_core_weight"] = 1.0 - events_df["dynamic_active_weight"]
+        events_df["strategy_interval_return"] = (
+            events_df["dynamic_core_weight"] * events_df["core_return"]
+            + events_df["dynamic_active_weight"] * events_df["active_return"]
+        )
+
+        for fold_id, fold_events in events_df.groupby("fold_id", dropna=False):
+            fold_events = fold_events.sort_values("rebalance_ts").copy()
+            total_return = _tb12_compound(fold_events["strategy_interval_return"].tolist())
+            base_fold = base_folds_df.loc[base_folds_df["fold_id"] == fold_id]
+            fold_days = int(base_fold.iloc[0]["fold_trade_dates"]) if not base_fold.empty else int(len(fold_events))
+            strategy_ann = _tb12_annualize_total(total_return, fold_days)
+            buyhold_total = float(base_fold.iloc[0]["buyhold_total_return"]) if not base_fold.empty else np.nan
+            buyhold_ann = float(base_fold.iloc[0]["buyhold_annualized_return"]) if not base_fold.empty else np.nan
+
+            for _, event in fold_events.iterrows():
+                names = [name for name in str(event.get("top_names", "")).split("|") if name]
+                if names:
+                    per_name = float(event.get("dynamic_active_weight", 0.0)) * float(event.get("active_return", 0.0)) / max(1, len(names))
+                    for name in names:
+                        ticker_contrib[name] = ticker_contrib.get(name, 0.0) + per_name
+                history_rows.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "experiment_id": experiment_id,
+                        "fold_id": int(fold_id),
+                        "rebalance_ts": event.get("rebalance_ts"),
+                        "next_rebalance_ts": event.get("next_rebalance_ts"),
+                        "top_k": top_k,
+                        "rebalance_every_sessions": rebalance_every_sessions,
+                        "BreadthRelAdvFrac_3": event.get("BreadthRelAdvFrac_3"),
+                        "hedge_regime": bool(event.get("hedge_regime", False)),
+                        "dynamic_core_weight": float(event.get("dynamic_core_weight", 1.0)),
+                        "dynamic_active_weight": float(event.get("dynamic_active_weight", 0.0)),
+                        "core_return": float(event.get("core_return", 0.0)),
+                        "active_return": float(event.get("active_return", 0.0)),
+                        "strategy_interval_return": float(event.get("strategy_interval_return", 0.0)),
+                        "top_names": event.get("top_names", ""),
+                    }
+                )
+
+            fold_rows.append(
+                {
+                    "candidate_id": candidate_id,
+                    "experiment_id": experiment_id,
+                    "fold_id": int(fold_id),
+                    "top_k": top_k,
+                    "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                    "fold_trade_dates": fold_days,
+                    "rebalance_count": int(len(fold_events)),
+                    "hedge_regime_count": int(fold_events["hedge_regime"].sum()),
+                    "strategy_total_return": total_return,
+                    "strategy_annualized_return": strategy_ann,
+                    "buyhold_total_return": buyhold_total,
+                    "buyhold_annualized_return": buyhold_ann,
+                    "excess_vs_buyhold_annualized": strategy_ann - buyhold_ann if np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) else np.nan,
+                    "beats_buyhold": bool(np.isfinite(strategy_ann) and np.isfinite(buyhold_ann) and strategy_ann > buyhold_ann),
+                }
+            )
+
+        contrib_total_abs = float(sum(abs(v) for v in ticker_contrib.values()))
+        top_contributor_share = max(abs(v) for v in ticker_contrib.values()) / contrib_total_abs if contrib_total_abs > 0.0 else 0.0
+        for ticker, contribution in sorted(ticker_contrib.items()):
+            contribution_rows.append(
+                {
+                    "candidate_id": candidate_id,
+                    "ticker": ticker,
+                    "dynamic_active_sleeve_contribution_proxy": contribution,
+                }
+            )
+        folds_df = pd.DataFrame(fold_rows)
+        fold_count = int(folds_df["fold_id"].nunique()) if not folds_df.empty else 0
+        folds_beating = int(folds_df["beats_buyhold"].sum()) if not folds_df.empty else 0
+        mean_strategy_ann = float(folds_df["strategy_annualized_return"].mean()) if not folds_df.empty else np.nan
+        mean_buyhold_ann = float(folds_df["buyhold_annualized_return"].mean()) if not folds_df.empty else np.nan
+        min_strategy_ann = float(folds_df["strategy_annualized_return"].min()) if not folds_df.empty else np.nan
+        min_buyhold_ann = float(folds_df["buyhold_annualized_return"].min()) if not folds_df.empty else np.nan
+        total_rebalances = int(folds_df["rebalance_count"].sum()) if not folds_df.empty else 0
+        hedge_regime_count = int(folds_df["hedge_regime_count"].sum()) if not folds_df.empty else 0
+        promotion_verdict = (
+            "promoted_candidate"
+            if (
+                fold_count >= 10
+                and folds_beating == fold_count
+                and mean_strategy_ann > mean_buyhold_ann
+                and min_strategy_ann >= min_buyhold_ann
+                and top_contributor_share <= 0.60
+                and total_rebalances >= 80
+            )
+            else "research_only"
+        )
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "candidate_id": candidate_id,
+                    "experiment_id": experiment_id,
+                    "portfolio_style": "periodic_equal_weight_core_plus_dynamic_score_weighted_active_hedge",
+                    "top_k": top_k,
+                    "rebalance_rule": f"every_{rebalance_every_sessions}_session_open",
+                    "normal_active_weight": normal_active_weight,
+                    "hedge_active_weight": hedge_active_weight,
+                    "low_breadth_rel_threshold": low_breadth_rel_threshold,
+                    "fold_count": fold_count,
+                    "rebalance_count": total_rebalances,
+                    "hedge_regime_count": hedge_regime_count,
+                    "mean_strategy_annualized": mean_strategy_ann,
+                    "min_strategy_annualized": min_strategy_ann,
+                    "mean_buyhold_annualized": mean_buyhold_ann,
+                    "min_buyhold_annualized": min_buyhold_ann,
+                    "folds_beating_buyhold": folds_beating,
+                    "top_contributor_share": float(top_contributor_share),
+                    "passes_mean_gate": bool(mean_strategy_ann > mean_buyhold_ann),
+                    "passes_10_of_10_gate": bool(fold_count >= 10 and folds_beating == fold_count),
+                    "passes_worst_fold_gate": bool(min_strategy_ann >= min_buyhold_ann),
+                    "promotion_verdict": promotion_verdict,
+                }
+            ]
+        )
+
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    folds_csv = baseline_dir / f"{output_prefix}_folds.csv"
+    history_csv = baseline_dir / f"{output_prefix}_rebalance_history.csv"
+    contrib_csv = baseline_dir / f"{output_prefix}_ticker_contributions.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    summary_df.to_csv(summary_csv, index=False)
+    pd.DataFrame(fold_rows).to_csv(folds_csv, index=False)
+    pd.DataFrame(history_rows).to_csv(history_csv, index=False)
+    pd.DataFrame(contribution_rows).to_csv(contrib_csv, index=False)
+    pd.DataFrame(metadata_rows).to_csv(metadata_csv, index=False)
+    main_logger.info(f"[TB14-DYNAMIC-HEDGE] summary saved: {summary_csv}")
+    print(f"[TB14-DYNAMIC-HEDGE] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_tb06_swing_batch(
     dataset_filename: str = "research_dataset_portfolio_rank_60m_10y.csv",
     output_prefix: str = "tb06_swing_batch",
@@ -20035,6 +21081,10 @@ if __name__ == "__main__":
             "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold",
             "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble",
             "signal_baseline_portfolio_rank_60m_drawdown_stop",
+            "signal_diagnostic_tb12_portfolio_rank_regime_attribution",
+            "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank",
+            "signal_baseline_tb13_core_active_tilt_portfolio_rank",
+            "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank",
             "signal_baseline_tb06_swing_batch",
             "signal_baseline_tb06_zerodha_only_extensions",
             "signal_baseline_tb06_guardrail_overlay",
@@ -20767,7 +21817,7 @@ if __name__ == "__main__":
         )
         raise SystemExit(0)
 
-    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
+    if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_diagnostic_tb12_portfolio_rank_regime_attribution", "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank", "signal_baseline_tb13_core_active_tilt_portfolio_rank", "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:
         best_params = resolve_runtime_best_params(run_mode)
         optuna_tuned_inference_buy_threshold = best_params.get("inference_buy_threshold", 0.08)
         optuna_tuned_inference_sell_threshold = best_params.get("inference_sell_threshold", 0.08)
@@ -22642,6 +23692,46 @@ if __name__ == "__main__":
                 dataset_filename="research_dataset_portfolio_rank_60m_10y.csv",
                 output_prefix="portfolio_rank_60m_10y_drawdown_stop",
                 fold_count=10,
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_diagnostic_tb12_portfolio_rank_regime_attribution":
+            main_logger.info(
+                "Starting TB12 OHLCV-only PortfolioRank regime attribution diagnostic. "
+                "This reads existing PortfolioRank artifacts and writes regime attribution plus a compact gate shortlist."
+            )
+            run_tb12_portfolio_rank_regime_attribution(
+                output_prefix="tb12_portfolio_rank_regime_attribution"
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank":
+            main_logger.info(
+                "Starting TB12 OHLCV-only regime-conditioned PortfolioRank baseline. "
+                "Testing predeclared OHLCV gates against same-universe buy-hold."
+            )
+            run_tb12_ohlcv_regime_conditioned_portfolio_rank(
+                output_prefix="tb12_ohlcv_regime_conditioned_portfolio_rank"
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb13_core_active_tilt_portfolio_rank":
+            main_logger.info(
+                "Starting TB13 OHLCV-only core-active PortfolioRank tilt baseline. "
+                "Testing a periodic equal-weight universe core plus E1006 active sleeve against same-universe buy-hold."
+            )
+            run_tb13_core_active_tilt_portfolio_rank(
+                output_prefix="tb13_core_active_tilt_portfolio_rank"
+            )
+            raise SystemExit(0)
+
+        if run_mode == "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank":
+            main_logger.info(
+                "Starting TB14 OHLCV-only all-fold dynamic hedge PortfolioRank baseline. "
+                "Testing a periodic equal-weight universe core plus state-dependent E1006 active sleeve hedge."
+            )
+            run_tb14_all_fold_dynamic_hedge_portfolio_rank(
+                output_prefix="tb14_all_fold_dynamic_hedge_portfolio_rank"
             )
             raise SystemExit(0)
 
