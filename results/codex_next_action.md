@@ -1470,6 +1470,9 @@ Current read:
 - forbidden order calls/imports/wrapper refs: `0 / 0 / 0`
 - scheduler readiness audit passed: `True`
 - scheduler tasks present/enabled/command/time/last-result-zero: `4 / 4 / 4 / 4 / 4`
+- runbook template contract audit passed: `True`
+- runbook template contracts present: `28 / 28`
+- runbook exists before transition: `False`
 - T28/readiness Phase 2 gate: `False`
 - transition passed: `False`
 - runbook written: `False`
@@ -1562,3 +1565,47 @@ Composite integration:
 Verdict:
 
 The scheduled Branch A path is ready for the next market-hours observation. The remaining blocker is not automation coverage; it is fresh market evidence: Phase 1 still needs `>=15` clean observations across `>=5` unique dates and T28/readiness must be fresh.
+
+## `TB11 Phase2RunbookTemplateContractAudit`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_phase2_runbook_template_contract_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_phase2_runbook_template_contract_audit_summary.csv`
+- `results/signal_baseline/tb11_phase2_runbook_template_contract_audit_detail.csv`
+- `results/signal_baseline/tb11_phase2_runbook_template_contract_audit_metadata.csv`
+- `results/signal_baseline/tb11_phase2_runbook_template_contract_audit_memo.md`
+
+Current read:
+
+- audit status: `passed_runbook_template_contract`
+- audit passed: `True`
+- required contracts present: `28 / 28`
+- missing contracts: `none`
+- runbook exists before transition: `False`
+- early runbook guard passed: `True`
+- runbook written by this audit: `False`
+- automation state advanced by this audit: `False`
+
+Contract coverage:
+
+- Phase 2 source of truth: present
+- mid-quote versus model-credit tolerances: present
+- divergence escalation thresholds: present
+- hold-times per leg: present
+- daily artifact list: present
+- no-order reaffirmation for `place_order`, `modify_order`, and `cancel_order`: present
+
+Composite integration:
+
+- `signal_baseline_composite_plan_gate_audit` now auto-runs the runbook template contract audit if its summary is missing.
+- Branch A now records runbook template contract counts and fails if the runbook template loses required content or if the real runbook appears before transition.
+
+Verdict:
+
+The transition-day Phase 2 runbook content is pre-validated without prematurely opening Phase 2. The real runbook should still only be written by the transition controller after the clean-observation, unique-date, readiness, and broker-block gates pass.

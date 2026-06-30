@@ -1,0 +1,2 @@
+generated_at_ist,audit_status,audit_passed,contract_passed,required_contract_count,present_contract_count,missing_contracts,runbook_exists_before_transition,early_runbook_guard_passed,runbook_written,automation_state_advanced,blockers
+2026-07-01T04:21:11.871889+05:30,passed_runbook_template_contract,True,True,28,28,none,False,True,False,False,none

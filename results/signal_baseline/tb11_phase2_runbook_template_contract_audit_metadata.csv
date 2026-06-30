@@ -1,0 +1,2 @@
+output_prefix,generated_at_ist,runbook_target,mode_scope,note
+tb11_phase2_runbook_template_contract_audit,2026-07-01T04:21:11.871889+05:30,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_paper_price_reconciliation_runbook.md,tb11_phase2_runbook_template_contract_audit_no_state_advance,Validates the Phase 2 runbook template content without writing the transition-day runbook or advancing state.

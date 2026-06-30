@@ -20636,6 +20636,74 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
     return summary_df
 
 
+def _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
+    generated_at_ist: str,
+    clean_observations: int,
+    target_clean_observations: int,
+    unique_observation_dates: int,
+    phase1_evidence_gate_passed: bool,
+    broker_block_violations: int,
+    selected_leg_hits: int,
+    selected_legs_total: int,
+    modeled_credit_available: bool,
+) -> list[str]:
+    return [
+        "# TB11 Phase 2 Paper-Price Reconciliation Runbook",
+        "",
+        f"Generated at IST: `{generated_at_ist}`",
+        "",
+        "## Gate Evidence",
+        "",
+        f"- Phase 1 clean observations: `{clean_observations}` / `{target_clean_observations}`",
+        f"- unique observation dates: `{unique_observation_dates}`",
+        f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",
+        f"- broker-block violations: `{broker_block_violations}`",
+        f"- T28 selected-leg coverage: `{selected_leg_hits}` / `{selected_legs_total}`",
+        f"- modeled credit available for live row: `{modeled_credit_available}`",
+        "",
+        "## Source Of Truth",
+        "",
+        "- Paper prices use broker quote snapshots captured by quote-only collectors.",
+        "- No Phase 2 artifact may use broker order endpoints or inferred fills as execution evidence.",
+        "- The current selected-leg resolver defines the leg symbols; T28 chain-band artifacts verify current bid/ask availability.",
+        "",
+        "## Reconciliation Tolerances",
+        "",
+        "- Compare observed weighted credit against live mid-quote modeled credit recorded by the Phase 1 row.",
+        "- Maintain the existing 10% and 15% adverse tolerance flags.",
+        "- Treat any row outside 15% adverse tolerance as review-required, not as a paper pass.",
+        "",
+        "## Divergence Escalation",
+        "",
+        "- Escalate if modeled credit is missing, selected-leg coverage is below 4/4, quote freshness fails, or broker-block violations are non-zero.",
+        "- Escalate if observed-vs-modeled credit drift repeatedly fails the 15% adverse tolerance.",
+        "- Escalation means no paper promotion and a root-cause memo before further advancement.",
+        "",
+        "## Hold Times Per Leg",
+        "",
+        "- Short call and short put: track through the selected paper horizon with daily quote reconciliation.",
+        "- Long call and long put: track as hard-risk wings; do not omit them even when outside spot +/-5% chain bands.",
+        "- Record leg-level bid, ask, mid, age, and spread quality for every observation.",
+        "",
+        "## Daily Artifact List",
+        "",
+        "- `tb11_options_current_nfo_leg_resolver_template.csv`",
+        "- `tb11_options_zerodha_quote_only_collector_summary.csv`",
+        "- `tb11_options_phase1_observation_ledger_summary.csv`",
+        "- `tb11_nifty_chain_band_quote_collector_summary.csv`",
+        "- `tb11_t28_freshness_gate_summary.csv`",
+        "- `tb11_phase2_paper_price_reconciliation_readiness_summary.csv`",
+        "- `tb11_phase2_paper_price_reconciliation_runbook.md`",
+        "",
+        "## Broker-Block Reaffirmation",
+        "",
+        "- Phase 2 remains no-order and paper-price only.",
+        "- `place_order`, `modify_order`, and `cancel_order` must not be imported or called.",
+        "- Broker execution, live trading, and one-lot validation require explicit future human approval.",
+        "",
+    ]
+
+
 def run_tb11_options_phase2_transition_controller(
     output_prefix: str = "tb11_phase2_transition_controller",
 ) -> pd.DataFrame:
@@ -20735,61 +20803,17 @@ def run_tb11_options_phase2_transition_controller(
         next_action = (
             "Phase 2 runbook is written. Next execute only no-order paper-price reconciliation logic under the runbook."
         )
-        runbook_lines = [
-            "# TB11 Phase 2 Paper-Price Reconciliation Runbook",
-            "",
-            f"Generated at IST: `{generated_at_ist}`",
-            "",
-            "## Gate Evidence",
-            "",
-            f"- Phase 1 clean observations: `{clean_observations}` / `{target_clean_observations}`",
-            f"- unique observation dates: `{unique_observation_dates}`",
-            f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",
-            f"- broker-block violations: `{ledger_broker_block_violations + readiness_broker_block_violations}`",
-            f"- T28 selected-leg coverage: `{readiness_t28_selected_leg_hits}` / `{readiness_t28_selected_legs_total}`",
-            f"- modeled credit available for live row: `{readiness_model_credit_available}`",
-            "",
-            "## Source Of Truth",
-            "",
-            "- Paper prices use broker quote snapshots captured by quote-only collectors.",
-            "- No Phase 2 artifact may use broker order endpoints or inferred fills as execution evidence.",
-            "- The current selected-leg resolver defines the leg symbols; T28 chain-band artifacts verify current bid/ask availability.",
-            "",
-            "## Reconciliation Tolerances",
-            "",
-            "- Compare observed weighted credit against live mid-quote modeled credit recorded by the Phase 1 row.",
-            "- Maintain the existing 10% and 15% adverse tolerance flags.",
-            "- Treat any row outside 15% adverse tolerance as review-required, not as a paper pass.",
-            "",
-            "## Divergence Escalation",
-            "",
-            "- Escalate if modeled credit is missing, selected-leg coverage is below 4/4, quote freshness fails, or broker-block violations are non-zero.",
-            "- Escalate if observed-vs-modeled credit drift repeatedly fails the 15% adverse tolerance.",
-            "- Escalation means no paper promotion and a root-cause memo before further advancement.",
-            "",
-            "## Hold Times Per Leg",
-            "",
-            "- Short call and short put: track through the selected paper horizon with daily quote reconciliation.",
-            "- Long call and long put: track as hard-risk wings; do not omit them even when outside spot +/-5% chain bands.",
-            "- Record leg-level bid, ask, mid, age, and spread quality for every observation.",
-            "",
-            "## Daily Artifact List",
-            "",
-            "- `tb11_options_current_nfo_leg_resolver_template.csv`",
-            "- `tb11_options_zerodha_quote_only_collector_summary.csv`",
-            "- `tb11_options_phase1_observation_ledger_summary.csv`",
-            "- `tb11_nifty_chain_band_quote_collector_summary.csv`",
-            "- `tb11_t28_freshness_gate_summary.csv`",
-            "- `tb11_phase2_paper_price_reconciliation_readiness_summary.csv`",
-            "- `tb11_phase2_paper_price_reconciliation_runbook.md`",
-            "",
-            "## Broker-Block Reaffirmation",
-            "",
-            "- Phase 2 remains no-order and paper-price only.",
-            "- `place_order`, `modify_order`, and `cancel_order` must not be imported or called.",
-            "- Broker execution, live trading, and one-lot validation require explicit future human approval.",
-            "",
-        ]
+        runbook_lines = _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
+            generated_at_ist=generated_at_ist,
+            clean_observations=clean_observations,
+            target_clean_observations=target_clean_observations,
+            unique_observation_dates=unique_observation_dates,
+            phase1_evidence_gate_passed=phase1_evidence_gate_passed,
+            broker_block_violations=ledger_broker_block_violations + readiness_broker_block_violations,
+            selected_leg_hits=readiness_t28_selected_leg_hits,
+            selected_legs_total=readiness_t28_selected_legs_total,
+            modeled_credit_available=readiness_model_credit_available,
+        )
         runbook_md.write_text("\n".join(runbook_lines), encoding="utf-8")
 
         automation_state = _read_json(automation_state_path)
@@ -20897,6 +20921,149 @@ def run_tb11_options_phase2_transition_controller(
     print(f"[TB11-PHASE2-TRANSITION] next action saved: {next_action_md}", flush=True)
     if transition_passed:
         print(f"[TB11-PHASE2-TRANSITION] runbook saved: {runbook_md}", flush=True)
+    return summary_df
+
+
+def run_tb11_phase2_runbook_template_contract_audit(
+    output_prefix: str = "tb11_phase2_runbook_template_contract_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    memo_md = baseline_dir / f"{output_prefix}_memo.md"
+    runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    template_lines = _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
+        generated_at_ist=generated_at_ist,
+        clean_observations=15,
+        target_clean_observations=15,
+        unique_observation_dates=5,
+        phase1_evidence_gate_passed=True,
+        broker_block_violations=0,
+        selected_leg_hits=4,
+        selected_legs_total=4,
+        modeled_credit_available=True,
+    )
+    template_text = "\n".join(template_lines)
+    lower_template = template_text.lower()
+    runbook_exists_before_transition = runbook_md.exists()
+
+    required_contracts = [
+        ("title", "# TB11 Phase 2 Paper-Price Reconciliation Runbook"),
+        ("gate_evidence_section", "## Gate Evidence"),
+        ("source_of_truth_section", "## Source Of Truth"),
+        ("quote_snapshot_source_of_truth", "broker quote snapshots captured by quote-only collectors"),
+        ("no_order_source_of_truth", "No Phase 2 artifact may use broker order endpoints"),
+        ("resolver_chain_source_of_truth", "selected-leg resolver defines the leg symbols"),
+        ("reconciliation_tolerances_section", "## Reconciliation Tolerances"),
+        ("mid_quote_model_credit_compare", "live mid-quote modeled credit"),
+        ("ten_pct_tolerance", "10%"),
+        ("fifteen_pct_tolerance", "15%"),
+        ("divergence_escalation_section", "## Divergence Escalation"),
+        ("missing_model_credit_escalation", "modeled credit is missing"),
+        ("quote_freshness_escalation", "quote freshness fails"),
+        ("broker_block_escalation", "broker-block violations are non-zero"),
+        ("hold_times_section", "## Hold Times Per Leg"),
+        ("short_call_hold", "Short call and short put"),
+        ("long_wing_hold", "Long call and long put"),
+        ("daily_artifact_list_section", "## Daily Artifact List"),
+        ("resolver_artifact", "tb11_options_current_nfo_leg_resolver_template.csv"),
+        ("quote_collector_artifact", "tb11_options_zerodha_quote_only_collector_summary.csv"),
+        ("phase1_ledger_artifact", "tb11_options_phase1_observation_ledger_summary.csv"),
+        ("t28_artifact", "tb11_nifty_chain_band_quote_collector_summary.csv"),
+        ("readiness_artifact", "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"),
+        ("broker_block_reaffirmation_section", "## Broker-Block Reaffirmation"),
+        ("place_order_forbidden", "place_order"),
+        ("modify_order_forbidden", "modify_order"),
+        ("cancel_order_forbidden", "cancel_order"),
+        ("future_human_approval", "explicit future human approval"),
+    ]
+
+    rows = []
+    for contract_name, needle in required_contracts:
+        present = needle.lower() in lower_template
+        rows.append(
+            {
+                "contract_name": contract_name,
+                "required_text": needle,
+                "present": present,
+                "severity": "pass" if present else "fail",
+                "blocker": "" if present else f"missing_{contract_name}",
+            }
+        )
+
+    detail_df = pd.DataFrame(rows)
+    detail_df.to_csv(detail_csv, index=False)
+    missing_contracts = detail_df.loc[~detail_df["present"], "contract_name"].astype(str).tolist()
+    contract_passed = len(missing_contracts) == 0
+    early_runbook_guard_passed = not runbook_exists_before_transition
+    audit_passed = contract_passed and early_runbook_guard_passed
+    audit_status = "passed_runbook_template_contract" if audit_passed else "failed_runbook_template_contract"
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "runbook_target": str(runbook_md),
+                "mode_scope": "tb11_phase2_runbook_template_contract_audit_no_state_advance",
+                "note": "Validates the Phase 2 runbook template content without writing the transition-day runbook or advancing state.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "audit_status": audit_status,
+                "audit_passed": audit_passed,
+                "contract_passed": contract_passed,
+                "required_contract_count": len(required_contracts),
+                "present_contract_count": int(detail_df["present"].sum()),
+                "missing_contracts": "|".join(missing_contracts) if missing_contracts else "none",
+                "runbook_exists_before_transition": runbook_exists_before_transition,
+                "early_runbook_guard_passed": early_runbook_guard_passed,
+                "runbook_written": False,
+                "automation_state_advanced": False,
+                "blockers": (
+                    "|".join(missing_contracts)
+                    if missing_contracts
+                    else ("runbook_exists_before_transition" if runbook_exists_before_transition else "none")
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+
+    memo_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Phase 2 Runbook Template Contract Audit",
+                "",
+                f"Generated at IST: `{generated_at_ist}`",
+                "",
+                f"- audit status: `{audit_status}`",
+                f"- audit passed: `{audit_passed}`",
+                f"- required contracts present: `{summary_df.iloc[0]['present_contract_count']}` / `{len(required_contracts)}`",
+                f"- missing contracts: `{summary_df.iloc[0]['missing_contracts']}`",
+                f"- runbook exists before transition: `{runbook_exists_before_transition}`",
+                f"- early runbook guard passed: `{early_runbook_guard_passed}`",
+                "- runbook written by this audit: `False`",
+                "- automation state advanced by this audit: `False`",
+                "",
+                "Verdict: The transition-day Phase 2 runbook template satisfies the pasted acceptance contract when the audit passes.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-RUNBOOK-TEMPLATE-AUDIT] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-RUNBOOK-TEMPLATE-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-RUNBOOK-TEMPLATE-AUDIT] memo saved: {memo_md}", flush=True)
     return summary_df
 
 
@@ -21464,6 +21631,7 @@ def run_composite_plan_gate_audit(
     phase1_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
     readiness_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
     transition_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
+    runbook_template_audit_csv = baseline_dir / "tb11_phase2_runbook_template_contract_audit_summary.csv"
     no_order_audit_csv = baseline_dir / "tb11_no_order_endpoint_static_audit_summary.csv"
     scheduler_audit_csv = baseline_dir / "tb11_task_scheduler_readiness_audit_summary.csv"
     tb15_base_csv = baseline_dir / "tb15_cash_secured_put_large_caps_summary.csv"
@@ -21475,6 +21643,8 @@ def run_composite_plan_gate_audit(
         run_tb11_no_order_endpoint_static_audit(output_prefix="tb11_no_order_endpoint_static_audit")
     if not scheduler_audit_csv.exists():
         run_tb11_task_scheduler_readiness_audit(output_prefix="tb11_task_scheduler_readiness_audit")
+    if not runbook_template_audit_csv.exists():
+        run_tb11_phase2_runbook_template_contract_audit(output_prefix="tb11_phase2_runbook_template_contract_audit")
 
     pd.DataFrame(
         [
@@ -21486,6 +21656,7 @@ def run_composite_plan_gate_audit(
                 "phase1_summary_source": str(phase1_summary_csv),
                 "readiness_source": str(readiness_csv),
                 "transition_source": str(transition_csv),
+                "runbook_template_audit_source": str(runbook_template_audit_csv),
                 "no_order_audit_source": str(no_order_audit_csv),
                 "scheduler_audit_source": str(scheduler_audit_csv),
                 "tb15_base_source": str(tb15_base_csv),
@@ -21526,6 +21697,7 @@ def run_composite_plan_gate_audit(
     phase1 = _read_csv(phase1_summary_csv)
     readiness = _read_csv(readiness_csv)
     transition = _read_csv(transition_csv)
+    runbook_template_audit = _read_csv(runbook_template_audit_csv)
     no_order_audit = _read_csv(no_order_audit_csv)
     scheduler_audit = _read_csv(scheduler_audit_csv)
     tb15_base = _read_csv(tb15_base_csv)
@@ -21536,6 +21708,7 @@ def run_composite_plan_gate_audit(
     phase1_row = phase1.iloc[0] if not phase1.empty else pd.Series(dtype=object)
     readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
     transition_row = transition.iloc[0] if not transition.empty else pd.Series(dtype=object)
+    runbook_template_row = runbook_template_audit.iloc[0] if not runbook_template_audit.empty else pd.Series(dtype=object)
     no_order_row = no_order_audit.iloc[0] if not no_order_audit.empty else pd.Series(dtype=object)
     scheduler_row = scheduler_audit.iloc[0] if not scheduler_audit.empty else pd.Series(dtype=object)
     tb15_portfolio = (
@@ -21557,6 +21730,10 @@ def run_composite_plan_gate_audit(
     transition_passed = _bool_value(transition_row.get("transition_passed", False))
     runbook_written = _bool_value(transition_row.get("runbook_written", False))
     automation_state_advanced = _bool_value(transition_row.get("automation_state_advanced", False))
+    runbook_template_audit_passed = _bool_value(runbook_template_row.get("audit_passed", False))
+    runbook_template_contract_count = int(_num(runbook_template_row.get("required_contract_count", 0), 0))
+    runbook_template_present_count = int(_num(runbook_template_row.get("present_contract_count", 0), 0))
+    runbook_exists_before_transition = _bool_value(runbook_template_row.get("runbook_exists_before_transition", True))
     no_order_audit_passed = _bool_value(no_order_row.get("audit_passed", False))
     forbidden_order_call_count = int(_num(no_order_row.get("forbidden_order_call_count", 0), 0))
     forbidden_order_import_count = int(_num(no_order_row.get("forbidden_order_import_count", 0), 0))
@@ -21590,6 +21767,10 @@ def run_composite_plan_gate_audit(
         branch_a_blockers.append("no_order_static_audit_source_missing")
     if not scheduler_audit_passed:
         branch_a_blockers.append("scheduler_readiness_audit_not_passed")
+    if not runbook_template_audit_passed:
+        branch_a_blockers.append("runbook_template_contract_audit_not_passed")
+    if runbook_exists_before_transition and not runbook_written:
+        branch_a_blockers.append("phase2_runbook_exists_before_transition")
     if not readiness_gate:
         branch_a_blockers.append("t28_or_readiness_gate_not_passed")
     if not readiness_modeled:
@@ -21673,6 +21854,8 @@ def run_composite_plan_gate_audit(
                 f"forbidden_calls={forbidden_order_call_count}; forbidden_imports={forbidden_order_import_count}; "
                 f"wrapper_refs={forbidden_wrapper_reference_count}; scheduler_audit={scheduler_audit_passed}; "
                 f"scheduler_tasks={scheduler_present_task_count}/{scheduler_expected_task_count}; "
+                f"runbook_template_audit={runbook_template_audit_passed}; "
+                f"runbook_contracts={runbook_template_present_count}/{runbook_template_contract_count}; "
                 f"active={active_thesis}; next={next_thesis}"
             ),
         },
@@ -21737,6 +21920,10 @@ def run_composite_plan_gate_audit(
                 "scheduler_command_match_count": scheduler_command_match_count,
                 "scheduler_time_match_count": scheduler_time_match_count,
                 "scheduler_last_result_zero_count": scheduler_last_result_zero_count,
+                "runbook_template_audit_passed": runbook_template_audit_passed,
+                "runbook_template_required_contract_count": runbook_template_contract_count,
+                "runbook_template_present_contract_count": runbook_template_present_count,
+                "runbook_exists_before_transition": runbook_exists_before_transition,
                 "readiness_phase2_gate_passed": readiness_gate,
                 "transition_passed": transition_passed,
                 "runbook_written": runbook_written,
@@ -21779,6 +21966,9 @@ def run_composite_plan_gate_audit(
         f"- forbidden order calls/imports/wrapper refs: `{forbidden_order_call_count}` / `{forbidden_order_import_count}` / `{forbidden_wrapper_reference_count}`",
         f"- scheduler readiness audit passed: `{scheduler_audit_passed}`",
         f"- scheduler tasks present/enabled/command/time/last-result-zero: `{scheduler_present_task_count}` / `{scheduler_enabled_task_count}` / `{scheduler_command_match_count}` / `{scheduler_time_match_count}` / `{scheduler_last_result_zero_count}`",
+        f"- runbook template contract audit passed: `{runbook_template_audit_passed}`",
+        f"- runbook template contracts present: `{runbook_template_present_count}` / `{runbook_template_contract_count}`",
+        f"- runbook exists before transition: `{runbook_exists_before_transition}`",
         f"- blockers: `{summary_df.iloc[0]['branch_a_blockers']}`",
         "",
         "## Branch B - TB15",
@@ -23662,6 +23852,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_t28_freshness_gate",
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
             "signal_baseline_tb11_options_phase2_transition_controller",
+            "signal_baseline_tb11_phase2_runbook_template_contract_audit",
             "signal_baseline_tb11_no_order_endpoint_static_audit",
             "signal_baseline_tb11_task_scheduler_readiness_audit",
             "signal_baseline_composite_plan_gate_audit",
@@ -24387,6 +24578,16 @@ if __name__ == "__main__":
             "This writes the Phase 2 runbook and advances state only after all no-order gates pass."
         )
         run_tb11_options_phase2_transition_controller(output_prefix="tb11_phase2_transition_controller")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_phase2_runbook_template_contract_audit":
+        main_logger.info(
+            "Starting TB11 Phase 2 runbook template contract audit. "
+            "This validates the transition-day runbook template without writing the live runbook."
+        )
+        run_tb11_phase2_runbook_template_contract_audit(
+            output_prefix="tb11_phase2_runbook_template_contract_audit"
+        )
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb11_no_order_endpoint_static_audit":
