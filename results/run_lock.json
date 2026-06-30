@@ -34,8 +34,15 @@
     "results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv",
     "results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md",
     "results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260630.csv",
-    "results/signal_baseline/tb11_t28_freshness_gate_summary.csv"
+    "results/signal_baseline/tb11_t28_freshness_gate_summary.csv",
+    "results/signal_baseline/tb11_phase2_transition_controller_summary.csv",
+    "results/signal_baseline/tb11_phase2_transition_controller_metadata.csv",
+    "results/signal_baseline/tb11_phase2_transition_controller_next_action.md",
+    "results/signal_baseline/composite_plan_gate_audit_summary.csv",
+    "results/signal_baseline/composite_plan_gate_audit_detail.csv",
+    "results/signal_baseline/composite_plan_gate_audit_metadata.csv",
+    "results/signal_baseline/composite_plan_gate_audit_memo.md"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T29 was implemented and checked on 2026-06-30. The T24 quote-only collector now records live mid-quote modeled credit when no input model credit exists, plus premium tolerance floor/ceiling and observed-vs-modeled fields. The latest live row has observed weighted credit 1.425, modeled credit 1.575 from live_mid_quote_model, within_15pct_adverse_tolerance=True, all legs available=True, and broker_order_allowed=False. The T28 chain-band collector now supplements spot +/-5% coverage with selected profile legs from the current resolver; the latest T28 summary has 98 quote packets, 98 fresh rows, 49 CE and 49 PE rows, selected_profile_symbols_required=4, selected_profile_legs_covered=4, zero unresolved rows, and zero broker-block violations. Phase 2 readiness now has t28_selected_leg_hits=4/4 and modeled_credit_available_for_live_row=True. The only remaining blocker is phase1_target_15_clean_observations_not_yet_reached because Phase 1 is at 14/15 clean observations. Next action is to keep Phase 2 no-order and let scheduled Phase 1 collection reach 15/15, then open TB11_Phase2_PaperPriceReconciliationRunbook."
+  "notes": "TB11_T29 was implemented and checked on 2026-06-30. The T24 quote-only collector now records live mid-quote modeled credit when no input model credit exists, plus premium tolerance floor/ceiling and observed-vs-modeled fields. The T28 chain-band collector supplements spot +/-5% coverage with selected profile legs from the current resolver. Phase 2 readiness has selected-leg coverage and modeled-credit checks wired. The Phase 2 transition controller and composite plan gate audit are now expected receipts. Current audit state remains blocked: Phase 1 has 14/15 clean observations, 4/5 unique observation dates, broker-block violations remain 0, after-hours T28/readiness is not fresh, Branch B TB15 is deferred/research-only, and Branch C lockouts are enforced. Next action is to keep scheduled no-order Phase 1/T28 wrappers running and rerun the audit after the next market-hours observation."
 }

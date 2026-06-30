@@ -1441,3 +1441,41 @@ Current read after safe controller rerun:
 Verdict:
 
 The Phase 1 scheduled jobs now evaluate Phase 2 readiness and the transition controller immediately after every no-order Phase 1 observation. This closes the timing gap where a 12:30 or 14:45 clean observation could otherwise wait until the next 09:45 T28 wrapper before opening the runbook. The gate still blocks today, correctly.
+
+## `CompositePlanGateAudit`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_composite_plan_gate_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/composite_plan_gate_audit_summary.csv`
+- `results/signal_baseline/composite_plan_gate_audit_detail.csv`
+- `results/signal_baseline/composite_plan_gate_audit_metadata.csv`
+- `results/signal_baseline/composite_plan_gate_audit_memo.md`
+
+Current read:
+
+- overall status: `branch_a_waiting_for_market_evidence`
+- Branch A: `blocked_wait_for_phase1_t28_gates`
+- Branch B: `research_only_deferred`
+- Branch C: `lockouts_enforced`
+- clean observations: `14 / 15`
+- unique observation dates: `4 / 5`
+- broker-block violations: `0`
+- T28/readiness Phase 2 gate: `False`
+- transition passed: `False`
+- runbook written: `False`
+- automation state advanced: `False`
+- TB15 base worst expiry return: `-21.41%`
+- TB15 stress-gated worst expiry return: `-21.41%`
+- E1006 lockout documented: `True`
+- TB08 lockout documented: `True`
+- TB06 lockout documented: `True`
+
+Verdict:
+
+The composite plan audit is now the current single receipt for Branch A/B/C gating. It confirms the only valid next action is to keep scheduled no-order Phase 1/T28 wrappers running and rerun the audit after the next market-hours observation. It also confirms Branch B TB15 remains deferred and Branch C lockouts are enforced.

@@ -112,6 +112,28 @@ Next pair-trading action, if reopened:
 - require a materially different design: sector-matched pairs, cointegration/stability prefilter, borrow/cost model, and breadth as a regime veto only
 - otherwise keep pair trading closed as `research_only`
 
+## TB06 ETF Rotation Lockout
+
+Status: `research_only_locked`
+
+TB06 ETF rotation remains excluded from capital allocation under the current composite plan.
+
+Reason:
+
+- TB06 is subordinate to the TB14 cash-equity validation matrix.
+- ETF rotation must not become a third sleeve until TB14 closes out positively.
+- Reopening TB06 before TB14 validation would dilute attention from the primary cash-equity engine and would bypass the canonical promotion discipline.
+
+Reopen criteria:
+
+- TB14 validation matrix closes out positively.
+- Any TB06 restart must use the canonical 10-fold buy-hold promotion gate.
+- No capital allocation is permitted from short-window or ad-hoc favorable evidence.
+
+Verdict:
+
+`TB06` contributes zero capital and remains `research_only_locked`.
+
 ## Immediate Next Thesis
 
 Keep active execution focus on `TB11_Phase1_Target15CleanObservationGate`.

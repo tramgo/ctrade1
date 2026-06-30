@@ -20900,6 +20900,310 @@ def run_tb11_options_phase2_transition_controller(
     return summary_df
 
 
+def run_composite_plan_gate_audit(
+    output_prefix: str = "composite_plan_gate_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    memo_md = baseline_dir / f"{output_prefix}_memo.md"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    automation_state_path = RESULTS_DIR / "automation_state.json"
+    run_lock_path = RESULTS_DIR / "run_lock.json"
+    phase1_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
+    readiness_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
+    transition_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
+    tb15_base_csv = baseline_dir / "tb15_cash_secured_put_large_caps_summary.csv"
+    tb15_stress_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_summary.csv"
+    tb15_sizing_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_kelly_sizing.csv"
+    roadmap_status_md = RESULTS_DIR / "roadmap_status_20260630_equity_csp_pairs.md"
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "automation_state_source": str(automation_state_path),
+                "run_lock_source": str(run_lock_path),
+                "phase1_summary_source": str(phase1_summary_csv),
+                "readiness_source": str(readiness_csv),
+                "transition_source": str(transition_csv),
+                "tb15_base_source": str(tb15_base_csv),
+                "tb15_stress_source": str(tb15_stress_csv),
+                "tb15_sizing_source": str(tb15_sizing_csv),
+                "roadmap_status_source": str(roadmap_status_md),
+                "mode_scope": "composite_plan_gate_audit_no_order_no_broker",
+                "note": "Audits Branch A/B/C gates from current artifacts. Does not call broker APIs and does not advance state.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    def _read_csv(path: Path) -> pd.DataFrame:
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
+
+    def _read_json(path: Path) -> dict:
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def _bool_value(value: object) -> bool:
+        return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+    def _num(value: object, default: float = 0.0) -> float:
+        parsed = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        return float(default if pd.isna(parsed) else parsed)
+
+    automation_state = _read_json(automation_state_path)
+    run_lock = _read_json(run_lock_path)
+    phase1 = _read_csv(phase1_summary_csv)
+    readiness = _read_csv(readiness_csv)
+    transition = _read_csv(transition_csv)
+    tb15_base = _read_csv(tb15_base_csv)
+    tb15_stress = _read_csv(tb15_stress_csv)
+    tb15_sizing = _read_csv(tb15_sizing_csv)
+    roadmap_text = roadmap_status_md.read_text(encoding="utf-8") if roadmap_status_md.exists() else ""
+
+    phase1_row = phase1.iloc[0] if not phase1.empty else pd.Series(dtype=object)
+    readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
+    transition_row = transition.iloc[0] if not transition.empty else pd.Series(dtype=object)
+    tb15_portfolio = (
+        tb15_base.loc[tb15_base.get("symbol", pd.Series(dtype=str)).astype(str).eq("PORTFOLIO_EQUAL_WEIGHT")].head(1)
+        if not tb15_base.empty and "symbol" in tb15_base.columns
+        else pd.DataFrame()
+    )
+    tb15_portfolio_row = tb15_portfolio.iloc[0] if not tb15_portfolio.empty else pd.Series(dtype=object)
+    tb15_stress_best = tb15_stress.head(1).iloc[0] if not tb15_stress.empty else pd.Series(dtype=object)
+
+    clean_observations = int(_num(phase1_row.get("clean_observations", 0), 0))
+    target_clean = int(_num(phase1_row.get("phase1_target_clean_observations", 15), 15))
+    unique_dates = int(_num(phase1_row.get("unique_observation_dates", 0), 0))
+    phase1_gate = _bool_value(phase1_row.get("phase1_evidence_gate_passed", False))
+    phase1_broker_blocks = int(_num(phase1_row.get("broker_block_violations", 0), 0))
+    readiness_gate = _bool_value(readiness_row.get("phase2_gate_passed", False))
+    readiness_modeled = _bool_value(readiness_row.get("modeled_credit_available_for_live_row", False))
+    readiness_leg_coverage = _bool_value(readiness_row.get("t28_full_selected_leg_coverage", False))
+    transition_passed = _bool_value(transition_row.get("transition_passed", False))
+    runbook_written = _bool_value(transition_row.get("runbook_written", False))
+    automation_state_advanced = _bool_value(transition_row.get("automation_state_advanced", False))
+    run_lock_locked = _bool_value(run_lock.get("locked", False))
+    active_thesis = str(automation_state.get("active_thesis", ""))
+    next_thesis = str(automation_state.get("next_thesis", ""))
+
+    branch_a_blockers = []
+    if clean_observations < target_clean:
+        branch_a_blockers.append("phase1_target_clean_observations_below_15")
+    if unique_dates < 5:
+        branch_a_blockers.append("phase1_unique_observation_dates_below_5")
+    if not phase1_gate:
+        branch_a_blockers.append("phase1_evidence_gate_not_passed")
+    if phase1_broker_blocks != 0:
+        branch_a_blockers.append("broker_block_violation")
+    if not readiness_gate:
+        branch_a_blockers.append("t28_or_readiness_gate_not_passed")
+    if not readiness_modeled:
+        branch_a_blockers.append("modeled_credit_not_available")
+    if not readiness_leg_coverage:
+        branch_a_blockers.append("selected_leg_coverage_not_4_of_4")
+    if run_lock_locked:
+        branch_a_blockers.append("run_lock_locked")
+    if transition_passed and (not runbook_written or not automation_state_advanced):
+        branch_a_blockers.append("transition_passed_without_atomic_runbook_state")
+
+    branch_a_status = "ready_for_phase2_runbook" if not branch_a_blockers else "blocked_wait_for_phase1_t28_gates"
+    branch_a_allowed_next = (
+        "Run transition controller; it may write the Phase 2 runbook and advance state."
+        if branch_a_status == "ready_for_phase2_runbook"
+        else "Continue scheduled no-order Phase 1/T28 wrappers; do not execute Phase 2 reconciliation yet."
+    )
+
+    tb15_mean = _num(tb15_portfolio_row.get("mean_return_on_cash", np.nan), np.nan)
+    tb15_worst = _num(tb15_portfolio_row.get("worst_return_on_cash", np.nan), np.nan)
+    tb15_assignment = _num(tb15_portfolio_row.get("assignment_rate", np.nan), np.nan)
+    tb15_stress_variant = str(tb15_stress_best.get("variant", ""))
+    tb15_stress_worst = _num(tb15_stress_best.get("portfolio_worst_return_on_cash", np.nan), np.nan)
+    tb15_stress_tail_reduction = _num(tb15_stress_best.get("tail_loss_reduction_vs_ungated", np.nan), np.nan)
+    tb15_positive_sized = (
+        int((pd.to_numeric(tb15_sizing.get("recommended_cash_fraction", pd.Series(dtype=float)), errors="coerce").fillna(0) > 0).sum())
+        if not tb15_sizing.empty
+        else 0
+    )
+    branch_b_deferred_by_a = branch_a_status != "ready_for_phase2_runbook" or not runbook_written
+    branch_b_research_only = bool(
+        branch_b_deferred_by_a
+        or not np.isfinite(tb15_mean)
+        or tb15_mean < 0.004
+        or not np.isfinite(tb15_worst)
+        or tb15_worst < -0.08
+        or tb15_positive_sized < 4
+    )
+    branch_b_blockers = []
+    if branch_b_deferred_by_a:
+        branch_b_blockers.append("branch_a_phase2_runbook_not_committed")
+    if np.isfinite(tb15_mean) and tb15_mean < 0.004:
+        branch_b_blockers.append("tb15_base_mean_return_below_0_4pct")
+    if np.isfinite(tb15_worst) and tb15_worst < -0.08:
+        branch_b_blockers.append("tb15_worst_expiry_worse_than_minus_8pct")
+    if np.isfinite(tb15_stress_worst) and tb15_stress_worst < -0.08:
+        branch_b_blockers.append("tb15_stress_worst_expiry_worse_than_minus_8pct")
+    if tb15_positive_sized < 4:
+        branch_b_blockers.append("tb15_positive_kelly_symbols_below_4")
+    branch_b_status = "research_only_deferred" if branch_b_research_only else "eligible_for_tb15_t03_t04_research"
+    branch_b_allowed_next = (
+        "Do not start TB15_T03/T04 until Branch A runbook commit exists."
+        if branch_b_deferred_by_a
+        else "Only run TB15_T03/T04 redesign research; no paper allocation."
+    )
+
+    e1006_locked = "E1006" in roadmap_text and "not_promoted" in roadmap_text
+    tb08_locked = "TB08" in roadmap_text and "do_not_reopen_broad_scan" in roadmap_text
+    tb06_locked = "TB06" in roadmap_text and "research_only" in roadmap_text
+    branch_c_blockers = []
+    if not e1006_locked:
+        branch_c_blockers.append("e1006_lockout_not_documented")
+    if not tb08_locked:
+        branch_c_blockers.append("tb08_lockout_not_documented")
+    if not tb06_locked:
+        branch_c_blockers.append("tb06_lockout_not_documented")
+    branch_c_status = "lockouts_enforced" if not branch_c_blockers else "lockout_evidence_incomplete"
+
+    detail_rows = [
+        {
+            "branch": "A_TB11",
+            "status": branch_a_status,
+            "allowed_next": branch_a_allowed_next,
+            "blockers": "|".join(branch_a_blockers) if branch_a_blockers else "none",
+            "capital_contribution_allowed": False,
+            "evidence": (
+                f"clean={clean_observations}/{target_clean}; unique_dates={unique_dates}/5; "
+                f"phase1_gate={phase1_gate}; readiness_gate={readiness_gate}; "
+                f"modeled_credit={readiness_modeled}; leg_coverage={readiness_leg_coverage}; "
+                f"broker_blocks={phase1_broker_blocks}; active={active_thesis}; next={next_thesis}"
+            ),
+        },
+        {
+            "branch": "B_TB15",
+            "status": branch_b_status,
+            "allowed_next": branch_b_allowed_next,
+            "blockers": "|".join(branch_b_blockers) if branch_b_blockers else "none",
+            "capital_contribution_allowed": False,
+            "evidence": (
+                f"base_mean={tb15_mean}; base_worst={tb15_worst}; assignment={tb15_assignment}; "
+                f"stress_variant={tb15_stress_variant}; stress_worst={tb15_stress_worst}; "
+                f"stress_tail_reduction={tb15_stress_tail_reduction}; positive_sized={tb15_positive_sized}"
+            ),
+        },
+        {
+            "branch": "C_LOCKOUTS",
+            "status": branch_c_status,
+            "allowed_next": "No capital allocation; only reopen under explicit lockout acceptance criteria.",
+            "blockers": "|".join(branch_c_blockers) if branch_c_blockers else "none",
+            "capital_contribution_allowed": False,
+            "evidence": f"e1006_locked={e1006_locked}; tb08_locked={tb08_locked}; tb06_locked={tb06_locked}",
+        },
+    ]
+    detail_df = pd.DataFrame(detail_rows)
+    detail_df.to_csv(detail_csv, index=False)
+
+    overall_status = (
+        "branch_a_waiting_for_market_evidence"
+        if branch_a_status != "ready_for_phase2_runbook"
+        else "branch_a_ready_for_phase2_runbook"
+    )
+    next_best_action = (
+        "Keep scheduled no-order Phase 1/T28 wrappers running; rerun this audit after the next market-hours observation."
+        if branch_a_status != "ready_for_phase2_runbook"
+        else "Run transition controller and commit the Phase 2 runbook before any reconciliation execution."
+    )
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "overall_status": overall_status,
+                "branch_a_status": branch_a_status,
+                "branch_b_status": branch_b_status,
+                "branch_c_status": branch_c_status,
+                "branch_a_blockers": "|".join(branch_a_blockers) if branch_a_blockers else "none",
+                "branch_b_blockers": "|".join(branch_b_blockers) if branch_b_blockers else "none",
+                "branch_c_blockers": "|".join(branch_c_blockers) if branch_c_blockers else "none",
+                "clean_observations": clean_observations,
+                "target_clean_observations": target_clean,
+                "unique_observation_dates": unique_dates,
+                "broker_block_violations": phase1_broker_blocks,
+                "readiness_phase2_gate_passed": readiness_gate,
+                "transition_passed": transition_passed,
+                "runbook_written": runbook_written,
+                "automation_state_advanced": automation_state_advanced,
+                "tb15_base_mean_return_on_cash": tb15_mean,
+                "tb15_base_worst_return_on_cash": tb15_worst,
+                "tb15_stress_best_variant": tb15_stress_variant,
+                "tb15_stress_worst_return_on_cash": tb15_stress_worst,
+                "tb15_positive_sized_symbols": tb15_positive_sized,
+                "e1006_locked": e1006_locked,
+                "tb08_locked": tb08_locked,
+                "tb06_locked": tb06_locked,
+                "next_best_action": next_best_action,
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+
+    memo_lines = [
+        "# Composite Plan Gate Audit",
+        "",
+        f"Generated at IST: `{generated_at_ist}`",
+        "",
+        f"- overall status: `{overall_status}`",
+        f"- Branch A: `{branch_a_status}`",
+        f"- Branch B: `{branch_b_status}`",
+        f"- Branch C: `{branch_c_status}`",
+        f"- next best action: {next_best_action}",
+        "",
+        "## Branch A - TB11 Phase 1 To Phase 2",
+        "",
+        f"- clean observations: `{clean_observations}` / `{target_clean}`",
+        f"- unique observation dates: `{unique_dates}` / `5`",
+        f"- Phase 1 evidence gate: `{phase1_gate}`",
+        f"- readiness Phase 2 gate: `{readiness_gate}`",
+        f"- modeled credit available: `{readiness_modeled}`",
+        f"- selected-leg coverage: `{readiness_leg_coverage}`",
+        f"- broker-block violations: `{phase1_broker_blocks}`",
+        f"- blockers: `{summary_df.iloc[0]['branch_a_blockers']}`",
+        "",
+        "## Branch B - TB15",
+        "",
+        f"- base mean return on cash: `{tb15_mean}`",
+        f"- base worst expiry return: `{tb15_worst}`",
+        f"- stress best variant: `{tb15_stress_variant}`",
+        f"- stress worst expiry return: `{tb15_stress_worst}`",
+        f"- positive sized symbols: `{tb15_positive_sized}`",
+        f"- blockers: `{summary_df.iloc[0]['branch_b_blockers']}`",
+        "",
+        "## Branch C - Lockouts",
+        "",
+        f"- E1006 lockout documented: `{e1006_locked}`",
+        f"- TB08 lockout documented: `{tb08_locked}`",
+        f"- TB06 lockout documented: `{tb06_locked}`",
+        f"- blockers: `{summary_df.iloc[0]['branch_c_blockers']}`",
+        "",
+    ]
+    memo_md.write_text("\n".join(memo_lines), encoding="utf-8")
+    print(f"[COMPOSITE-AUDIT] detail saved: {detail_csv}", flush=True)
+    print(f"[COMPOSITE-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[COMPOSITE-AUDIT] memo saved: {memo_md}", flush=True)
+    return summary_df
+
+
 def run_tb15_cash_secured_put_large_caps(
     output_prefix: str = "tb15_cash_secured_put_large_caps",
 ) -> pd.DataFrame:
@@ -22757,6 +23061,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_t28_freshness_gate",
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
             "signal_baseline_tb11_options_phase2_transition_controller",
+            "signal_baseline_composite_plan_gate_audit",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_cost_sensitivity",
@@ -23479,6 +23784,14 @@ if __name__ == "__main__":
             "This writes the Phase 2 runbook and advances state only after all no-order gates pass."
         )
         run_tb11_options_phase2_transition_controller(output_prefix="tb11_phase2_transition_controller")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_composite_plan_gate_audit":
+        main_logger.info(
+            "Starting composite plan gate audit. "
+            "This reads Branch A/B/C artifacts and reports allowed next actions without broker calls or state advancement."
+        )
+        run_composite_plan_gate_audit(output_prefix="composite_plan_gate_audit")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb15_cash_secured_put_large_caps":
