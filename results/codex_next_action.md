@@ -1399,3 +1399,45 @@ Current read after the after-hours wrapper run:
 Verdict:
 
 The scheduled/manual wrapper now includes the transition controller and is safe to keep running. It correctly blocks from stale after-hours quotes and incomplete Phase 1 target evidence. The same wrapper can open the Phase 2 runbook only on a future live-market run where T28 freshness is true and the Phase 1 ledger reaches `>=15` clean observations across `>=5` unique dates.
+
+## `TB11 Phase1WrapperTransitionGate`
+
+Wrapper:
+
+```powershell
+cmd /c run_tb11_phase1_auto_quote_observation.bat
+```
+
+Current wrapper order:
+
+- `signal_baseline_tb11_options_phase1_auto_quote_observation`
+- `signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness`
+- `signal_baseline_tb11_options_phase2_transition_controller`
+
+Task Scheduler evidence:
+
+- `TB11_Phase1_QuoteObservation_0940` runs `cmd /c C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\run_tb11_phase1_auto_quote_observation.bat`
+- `TB11_Phase1_QuoteObservation_1230` runs `cmd /c C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\run_tb11_phase1_auto_quote_observation.bat`
+- `TB11_Phase1_QuoteObservation_1445` runs `cmd /c C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\run_tb11_phase1_auto_quote_observation.bat`
+- all three next run on `2026-07-01`
+
+Transition-controller hardening:
+
+- now records Phase 1 collection date and readiness collection date
+- blocks if same-day Phase 1/readiness evidence is not available
+- current dates both read `2026-06-30`
+
+Current read after safe controller rerun:
+
+- transition passed: `False`
+- clean observations: `14 / 15`
+- unique observation dates: `4 / 5`
+- T28/readiness Phase 2 gate: `False`
+- broker-block violations: `0`
+- runbook written: `False`
+- automation state advanced: `False`
+- blockers: `phase1_target_15_clean_observations_not_yet_reached|phase1_unique_observation_dates_below_5|t28_freshness_gate_not_passed`
+
+Verdict:
+
+The Phase 1 scheduled jobs now evaluate Phase 2 readiness and the transition controller immediately after every no-order Phase 1 observation. This closes the timing gap where a 12:30 or 14:45 clean observation could otherwise wait until the next 09:45 T28 wrapper before opening the runbook. The gate still blocks today, correctly.

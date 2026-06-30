@@ -20695,6 +20695,8 @@ def run_tb11_options_phase2_transition_controller(
     phase1_row = phase1_summary.iloc[0] if not phase1_summary.empty else pd.Series(dtype=object)
     readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
 
+    phase1_collection_date = str(phase1_row.get("collection_date_ist", "")).strip()
+    readiness_collection_date = str(readiness_row.get("collection_date_ist", "")).strip()
     clean_observations = int(_num(phase1_row.get("clean_observations", 0), 0))
     target_clean_observations = int(_num(phase1_row.get("phase1_target_clean_observations", 15), 15))
     unique_observation_dates = int(_num(phase1_row.get("unique_observation_dates", 0), 0))
@@ -20724,6 +20726,8 @@ def run_tb11_options_phase2_transition_controller(
         blockers.append("t28_selected_leg_full_coverage_not_passed")
     if not readiness_model_credit_available:
         blockers.append("modeled_credit_not_available_for_live_row")
+    if phase1_collection_date and readiness_collection_date and phase1_collection_date != readiness_collection_date:
+        blockers.append("readiness_collection_date_mismatch")
 
     transition_passed = len(blockers) == 0
     if transition_passed:
@@ -20840,6 +20844,8 @@ def run_tb11_options_phase2_transition_controller(
                 "generated_at_ist": generated_at_ist,
                 "transition_passed": transition_passed,
                 "transition_status": transition_status,
+                "phase1_collection_date_ist": phase1_collection_date,
+                "readiness_collection_date_ist": readiness_collection_date,
                 "clean_observations": clean_observations,
                 "target_clean_observations": target_clean_observations,
                 "unique_observation_dates": unique_observation_dates,
@@ -20868,6 +20874,8 @@ def run_tb11_options_phase2_transition_controller(
                 "",
                 f"- Status: `{transition_status}`",
                 f"- Transition passed: `{transition_passed}`",
+                f"- Phase 1 collection date: `{phase1_collection_date}`",
+                f"- readiness collection date: `{readiness_collection_date}`",
                 f"- clean observations: `{clean_observations}` / `{target_clean_observations}`",
                 f"- unique observation dates: `{unique_observation_dates}` / `5`",
                 f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",

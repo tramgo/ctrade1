@@ -2,6 +2,8 @@
 
 - Status: `blocked_phase1_transition_gate_not_met`
 - Transition passed: `False`
+- Phase 1 collection date: `2026-06-30`
+- readiness collection date: `2026-06-30`
 - clean observations: `14` / `15`
 - unique observation dates: `4` / `5`
 - Phase 1 evidence gate passed: `True`
