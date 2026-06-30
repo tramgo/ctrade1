@@ -1358,3 +1358,44 @@ Current read:
 Verdict:
 
 The transition controller is implemented and correctly blocks Phase 2 today. Do not advance automation state or write the Phase 2 runbook until the ledger reaches `>=15` clean observations, `>=5` unique observation dates, Phase 1 evidence gate remains true, and broker-block violations remain `0`. Branch B remains deferred until Branch A writes the runbook.
+
+## `TB11 T28 WrapperTransitionGate`
+
+Wrapper:
+
+```powershell
+cmd /c run_tb11_t28_chain_band_freshness_gate.bat
+```
+
+Current wrapper order:
+
+- `signal_baseline_tb11_options_nifty_chain_band_quote_collector`
+- `signal_baseline_tb11_options_t28_freshness_gate`
+- `signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness`
+- `signal_baseline_tb11_options_phase2_transition_controller`
+
+Validation evidence:
+
+- latest log: `results/log_runs/tb11_t28_chain_band_freshness_gate_20260630_200240_scheduled.log`
+- collector exit: `0`
+- freshness gate exit: `0`
+- readiness exit: `0`
+- transition controller exit: `0`
+- broker orders allowed: `False`
+
+Current read after the after-hours wrapper run:
+
+- T28 fresh quote rows: `0`
+- selected leg coverage: `4 / 4`
+- modeled credit available for live row: `True`
+- Phase 1 clean observations: `14 / 15`
+- unique observation dates: `4 / 5`
+- broker-block violations: `0`
+- transition passed: `False`
+- runbook written: `False`
+- automation state advanced: `False`
+- blockers: `phase1_target_15_clean_observations_not_yet_reached|phase1_unique_observation_dates_below_5|t28_freshness_gate_not_passed`
+
+Verdict:
+
+The scheduled/manual wrapper now includes the transition controller and is safe to keep running. It correctly blocks from stale after-hours quotes and incomplete Phase 1 target evidence. The same wrapper can open the Phase 2 runbook only on a future live-market run where T28 freshness is true and the Phase 1 ledger reaches `>=15` clean observations across `>=5` unique dates.
