@@ -830,3 +830,498 @@ Required checks:
 - resolve each leg to current NFO tradingsymbols or instrument tokens
 - feed those symbols into the T24 quote-only collector
 - keep broker orders blocked
+
+## 2026-06-29 Phase 1 Gate Reconciliation
+
+The pasted roadmap's first-priority instruction to continue quote-only observation was rechecked against the local ledger.
+
+Current evidence:
+
+- source: `results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv`
+- clean observations: `12`
+- unique observation dates: `3`
+- broker-block violations: `0`
+- required clean observations: `10`
+- target clean observations: `15`
+- Phase 1 evidence gate passed: `True`
+- ledger status: `phase1_min_observation_count_reached`
+
+Latest automated observation summary:
+
+- source: `results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv`
+- resolver status: `resolved_current_nfo_legs`
+- resolved legs: `8`
+- collector status: `captured_quotes`
+- quote packets received: `4`
+- broker orders allowed: `False`
+- automation status: `completed_no_order`
+
+Decision:
+
+- Phase 1 minimum observation count is reached.
+- Continue collecting until the `15` clean-observation target, but the immediate engineering gate is no longer "get to 10".
+- Do not advance to live trading, broker execution, or RL.
+- Do not claim Phase 2 is complete; Phase 2 needs paper-price reconciliation artifacts against live captured premiums and itemized costs.
+
+Next best action:
+
+Open `TB11_T28_NiftyChainBandQuoteCollector`.
+
+Required checks:
+
+- implement a current-expiry NIFTY option-chain band collector around spot
+- capture bid/ask, quote age, spread quality, token resolution, OI/volume if available, and no-order proof
+- use the chain-band evidence to support Phase 2 paper-price reconciliation and IV/chain-conditioned sizing research
+- keep Phase 1 and Phase 2 broker-order placement blocked
+
+Parallel roadmap note:
+
+Do not promote E1006/equity work from the pasted roadmap without reconciling against the newer 2026-06-29 equity decision memo. The latest local equity evidence demotes TB12/TB13/TB14-style OHLCV PortfolioRank work to `research_only`; any equity paper-track needs a fresh, narrower objective or a non-OHLCV information axis.
+
+## `TB11_T28 NiftyChainBandQuoteCollector`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_nifty_chain_band_quote_collector
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260629.csv`
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv`
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_metadata.csv`
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260629.csv`
+
+Result:
+
+- mode implemented and routed
+- compile check passed
+- quote-only Kite run succeeded after network escalation
+- selected expiry: `2026-06-30`
+- spot: `23946.25`
+- band: `spot +/- 5%`, from `22748.9375` to `25143.5625`
+- candidate contracts: `96`
+- quote symbols requested / received: `96 / 96`
+- detail rows: `96`
+- CE / PE rows: `48 / 48`
+- unresolved rows: `0`
+- broker orders allowed: `False`
+- order route: `blocked_no_broker_call`
+- median spread pct: `0.012554676442923181`
+- max spread pct: `0.4000000000000001`
+
+Verdict:
+
+`TB11_T28` passes as an implementation and no-order chain-band capture gate, but it does not pass the fresh intraday quote gate. The run occurred after market close; all rows had quote age around `22439` seconds and `fresh_quote_rows = 0`.
+
+Next action:
+
+Rerun T28 during live market hours:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_nifty_chain_band_quote_collector
+```
+
+Gate for moving toward Phase 2 paper-price reconciliation:
+
+- `collector_status = chain_band_fresh_quotes_captured`
+- `fresh_quote_rows > 0`
+- `quote_packets_received > 0`
+- both CE and PE rows present
+- unresolved rows remain `0` or are explicitly explained
+- `broker_orders_allowed = False`
+- Phase 1 clean observations continue from `12` toward the `15` target
+
+Do not open Phase 2, live trading, broker execution, or RL from the stale after-hours T28 capture.
+
+Research queue after fresh T28:
+
+- first: Phase 2 paper-price reconciliation for TB11 only after fresh T28 and 15 clean Phase 1 observations
+- second: `TB12_CashSecuredPutWritingLargeCaps` as the next new smoothing/frequency thesis
+- do not reopen TB08 pairs unless the design materially changes from the failed z-score relative-value scan
+
+## `TB11_T28 FreshnessGate`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_t28_freshness_gate
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_t28_freshness_gate_summary.csv`
+- `results/signal_baseline/tb11_t28_freshness_gate_metadata.csv`
+- `results/signal_baseline/tb11_t28_freshness_gate_next_action.md`
+
+Result:
+
+- quote packets received: `96`
+- fresh quote rows: `0`
+- detail rows: `96`
+- CE / PE rows: `48 / 48`
+- unresolved rows: `0`
+- broker-block violations: `0`
+- median quote age seconds: `22439.162809`
+- max quote age seconds: `22439.162809`
+- Phase 2 gate passed: `False`
+- gate status: `blocked_needs_fresh_intraday_t28`
+
+Verdict:
+
+The freshness gate correctly blocks Phase 2 from the after-hours T28 capture. The next action remains a live-market-hours T28 rerun, followed by this freshness gate. Only if `fresh_quote_rows > 0` and broker-block violations remain `0` should Phase 2 paper-price reconciliation open.
+
+## `TB11_T28 WrapperValidation`
+
+Wrapper:
+
+```powershell
+cmd /c run_tb11_t28_chain_band_freshness_gate.bat
+```
+
+Purpose:
+
+- run T28 chain-band quote collection
+- immediately run T28 freshness gate
+- log both steps under `results/log_runs`
+- keep broker orders blocked
+
+Validation evidence:
+
+- latest validated log: `results/log_runs/tb11_t28_chain_band_freshness_gate_20260629_234319_scheduled.log`
+- collector exit: `0`
+- gate exit: `0`
+- quote packets received: `96`
+- CE / PE rows: `48 / 48`
+- unresolved rows: `0`
+- broker-block violations: `0`
+- fresh quote rows: `0`
+- Phase 2 gate passed: `False`
+
+Verdict:
+
+The wrapper is ready for a live-market-hours scheduled/manual rerun. It has now been tested end-to-end and correctly leaves Phase 2 blocked from stale after-hours quotes.
+
+Next command during market hours:
+
+```powershell
+cmd /c run_tb11_t28_chain_band_freshness_gate.bat
+```
+
+Only open Phase 2 if the wrapper-generated `tb11_t28_freshness_gate_summary.csv` reports `phase2_gate_passed=True`.
+
+## `TB11_T28 SchedulerRegistration`
+
+Registration command:
+
+```powershell
+cmd /c register_tb11_t28_chain_band_freshness_gate_task.bat
+```
+
+Task Scheduler evidence:
+
+- task name: `TB11_T28_ChainBandFreshness_0945`
+- status: `Ready`
+- schedule type: `Weekly`
+- days: `MON, TUE, WED, THU, FRI`
+- start time: `09:45:00`
+- next run time: `30/06/2026 09:45:00`
+- run as user: `Ramic`
+- task command: `"C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\run_tb11_t28_chain_band_freshness_gate.bat"`
+
+Verdict:
+
+The fresh intraday T28 wrapper rerun is now scheduled. The next required evidence is tomorrow's generated wrapper log plus `tb11_t28_freshness_gate_summary.csv`.
+
+Gate remains:
+
+- do not open Phase 2 unless `phase2_gate_passed=True`
+- keep broker orders blocked
+- continue Phase 1 observations from `12` toward the `15` clean-observation target
+
+## 2026-06-30 Scheduled Job Output Check
+
+Scheduler evidence:
+
+- `TB11_Phase1_QuoteObservation_0940`
+  - last run: `30/06/2026 10:38:52`
+  - last result: `0`
+  - next run: `01/07/2026 09:40:00`
+- `TB11_Phase1_QuoteObservation_1230`
+  - last run: `29/06/2026 12:30:00`
+  - last result: `0`
+  - next run: `30/06/2026 12:30:00`
+- `TB11_Phase1_QuoteObservation_1445`
+  - last run: `29/06/2026 22:35:02`
+  - last result: `0`
+  - next run: `30/06/2026 14:45:00`
+- `TB11_T28_ChainBandFreshness_0945`
+  - last run: `30/06/2026 10:39:52`
+  - last result: `0`
+  - next run: `01/07/2026 09:45:00`
+
+Generated log evidence:
+
+- `results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260630_103923_scheduled.log`
+  - T25 resolver, T24 quote collector, and T26 ledger all exited successfully
+- `results/log_runs/tb11_t28_chain_band_freshness_gate_20260630_103954_scheduled.log`
+  - T28 collector exit: `0`
+  - T28 freshness gate exit: `0`
+
+Current artifact read:
+
+- T28 freshness gate:
+  - collector status: `chain_band_fresh_quotes_captured`
+  - quote packets received: `96`
+  - fresh quote rows: `96`
+  - CE / PE rows: `48` / `48`
+  - unresolved rows: `0`
+  - broker-block violations: `0`
+  - phase2 gate passed: `True`
+- Phase 1 observation ledger:
+  - clean observations: `13`
+  - unique observation dates: `4`
+  - required clean observations: `10`
+  - target clean observations: `15`
+  - broker-block violations: `0`
+  - evidence gate passed: `True`
+
+## `TB11 Phase2PaperPriceReconciliationReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_metadata.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md`
+
+Read:
+
+- T28 freshness gate passed: `True`
+- T28 fresh quote rows: `96`
+- selected profile legs covered by the T28 band: `2 / 4`
+- Phase 1 clean observations: `13 / 15`
+- latest Phase 1 clean observation: `True`
+- latest Phase 1 observed weighted credit: `1.2750000000000004`
+- latest live modeled credit available: `False`
+- broker-block violations: `0`
+- reconciliation status: `phase2_reconciliation_not_yet_complete`
+
+Verdict:
+
+The active thesis is now `TB11_Phase2_PaperPriceReconciliationReadiness`, not another fresh T28 rerun. T28 passed the fresh-data gate, but full paper-price reconciliation remains blocked by three specific issues:
+
+- Phase 1 target is not complete yet: `13 / 15` clean observations.
+- T28 spot `+/-5%` chain-band data covers only the selected short legs; the selected long call and long put are outside the band.
+- The latest live Phase 1 row does not yet store modeled credit, so observed-vs-modeled premium tolerance cannot be scored.
+
+Next active thesis:
+
+Open `TB11_T29_SelectedLegFullWingCoverageAndModeledCredit`.
+
+Required checks:
+
+- widen or supplement the chain capture so all selected profile legs are present, including long wings
+- record the selected-profile modeled credit on the live Phase 1 row
+- compute observed-vs-modeled credit difference and the `10-15%` adverse tolerance flags
+- keep broker orders blocked
+- continue scheduled Phase 1 collection until `15 / 15` clean observations
+
+## `TB11_T29 SelectedLegFullWingCoverageAndModeledCredit`
+
+Commands:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_phase1_auto_quote_observation
+python -B ssell1.py --mode signal_baseline_tb11_options_nifty_chain_band_quote_collector
+python -B ssell1.py --mode signal_baseline_tb11_options_t28_freshness_gate
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+```
+
+Implementation:
+
+- `T24` quote-only collector now computes live mid-quote modeled credit when no input model credit exists.
+- `T24` now writes:
+  - `modeled_defensive_credit_points`
+  - `modeled_growth_credit_points`
+  - `modeled_credit_points`
+  - `modeled_credit_source`
+  - `premium_tolerance_floor_points`
+  - `premium_tolerance_ceiling_points`
+  - observed-vs-modeled diff fields
+  - `within_10pct_adverse_tolerance`
+  - `within_15pct_adverse_tolerance`
+- `T28` chain-band collector now supplements spot `+/-5%` chain coverage with current selected-profile symbols from the resolver, so long wings outside the band are still quoted and carried into the chain artifact.
+
+Artifacts read:
+
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260630.csv`
+- `results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv`
+- `results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv`
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv`
+- `results/signal_baseline/tb11_t28_freshness_gate_summary.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv`
+
+Result:
+
+- T24 quote-only collector:
+  - quote symbols requested / received: `4 / 4`
+  - captured rows: `1`
+  - unresolved rows: `0`
+  - broker orders allowed: `False`
+  - observed weighted credit: `1.4249999999999998`
+  - modeled credit: `1.5749999999999993`
+  - modeled credit source: `live_mid_quote_model`
+  - 15% adverse tolerance passed: `True`
+- T28 chain-band collector:
+  - quote packets received: `98`
+  - fresh quote rows: `98`
+  - CE / PE rows: `49 / 49`
+  - selected profile symbols required / covered: `4 / 4`
+  - selected profile supplement rows: `4`
+  - unresolved rows: `0`
+  - broker orders allowed: `False`
+- Phase 2 readiness:
+  - T28 selected leg hits: `4 / 4`
+  - live modeled credit available: `True`
+  - broker-block violations: `0`
+  - Phase 1 clean observations: `14 / 15`
+  - reconciliation status: `phase2_reconciliation_not_yet_complete`
+  - only blocker: `phase1_target_15_clean_observations_not_yet_reached`
+
+Verdict:
+
+`TB11_T29` passes. The previous engineering blockers are cleared:
+
+- selected long wings are now included in T28 evidence
+- modeled credit is now recorded for the live Phase 1 row
+- observed-vs-modeled adverse tolerance can now be scored
+- broker orders remain blocked
+
+Next active thesis:
+
+`TB11_Phase1_Target15CleanObservationGate`
+
+Required next check:
+
+- let the scheduled Phase 1 collector add one more clean observation, moving from `14 / 15` to `15 / 15`
+- then open `TB11_Phase2_PaperPriceReconciliationRunbook`
+
+## 2026-06-30 Equity / CSP / Pairs Roadmap Status
+
+Status artifact:
+
+- `results/roadmap_status_20260630_equity_csp_pairs.md`
+
+Requested items checked:
+
+- `2. E1006 swing equity paper track`
+  - status: `not_promoted`
+  - newer 10-fold evidence supersedes the older `4 / 6` recent-fold read
+  - standalone E1006 best promotion-grade gate remains `research_only`
+- `3. Kelly / worst-trade-budget sizing`
+  - status: `partially_actioned`
+  - not ported to standalone E1006 because standalone E1006 is not promotable
+  - sizing pattern was applied to the new CSP scan
+- `5. Cash-secured put writing`
+  - status: `implemented_research_only_candidate`
+  - new mode: `signal_baseline_tb15_cash_secured_put_large_caps`
+- `6. Pair trading / market neutral`
+  - status: `do_not_reopen_broad_scan`
+  - TB08 remains a hard fail: best cell still negative, with no positive broad-scan cells
+
+## `TB15 CashSecuredPutLargeCaps`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_cash_secured_put_large_caps
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_cash_secured_put_large_caps_detail.csv`
+- `results/signal_baseline/tb15_cash_secured_put_large_caps_summary.csv`
+- `results/signal_baseline/tb15_cash_secured_put_large_caps_kelly_sizing.csv`
+- `results/signal_baseline/tb15_cash_secured_put_large_caps_metadata.csv`
+- `results/signal_baseline/tb15_cash_secured_put_large_caps_decision.md`
+
+Result:
+
+- symbols tested: `8`
+- detail trades: `522`
+- portfolio equal-weight mean return on cash per expiry bucket: `0.54%`
+- portfolio win rate: `80.61%`
+- assignment rate: `15.71%`
+- worst equal-weight expiry-bucket return: `-21.41%`
+- positive Kelly-sized names: `6`
+- broker orders allowed: `False`
+
+Top reads:
+
+- `ICICIBANK`: annualized cash return `8.50%`, win rate `92.86%`, worst return `-34.46%`
+- `SBIN`: annualized cash return `8.25%`, win rate `85.71%`, worst return `-35.92%`
+- `TCS`: annualized cash return `5.38%`, win rate `86.30%`, worst return `-9.84%`
+- `BHARTIARTL`: annualized cash return `4.98%`, win rate `88.78%`, worst return `-13.74%`
+
+Verdict:
+
+`TB15` is a research-only candidate, not a paper-track approval. The raw CSP return is below the pasted `18-25%` expectation and has large assignment-tail losses. It is still useful as a smoothing/frequency branch because it produces many more events than TB11 options, but it needs a stress skip gate before paper tracking.
+
+Next side-branch thesis:
+
+`TB15_T02_CSPVolBreadthStressGate`
+
+Required checks:
+
+- skip CSP entries during market stress or weak breadth
+- test whether worst CSP assignment losses shrink without destroying trade frequency
+- keep Kelly/worst-trade-budget sizing
+- remain research-only; no broker orders
+
+## `TB15_T02_CSPVolBreadthStressGate`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_csp_vol_breadth_stress_gate
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_csp_vol_breadth_stress_gate_detail.csv`
+- `results/signal_baseline/tb15_csp_vol_breadth_stress_gate_summary.csv`
+- `results/signal_baseline/tb15_csp_vol_breadth_stress_gate_kelly_sizing.csv`
+- `results/signal_baseline/tb15_csp_vol_breadth_stress_gate_metadata.csv`
+- `results/signal_baseline/tb15_csp_vol_breadth_stress_gate_decision.md`
+
+Read:
+
+- context coverage: NIFTY `97.7%`, India VIX `97.1%`
+- best non-baseline variant: `skip_composite_stress`
+- kept trades: `391 / 522`; skipped `131` trades
+- portfolio mean return on cash per expiry bucket fell from `0.54%` to `0.32%`
+- worst equal-weight expiry-bucket return stayed `-21.41%`
+- tail-loss events <= `-5%` fell from `26` to `21`
+- broker orders allowed: `False`
+
+Gated Kelly / worst-trade-budget read:
+
+- `BHARTIARTL`: `25.00%` capped research fraction
+- `INFY`: `25.00%` capped research fraction
+- `TCS`: `25.00%` capped research fraction
+- `ICICIBANK`: `14.51%` capped research fraction
+- `SBIN`: `13.92%` capped research fraction
+- `LT`: `0.00%`, blocked by nonpositive gated edge
+
+Verdict:
+
+`TB15_T02` is still research-only. The composite stress gate usefully removes some tail-loss events, but it does not improve the worst portfolio expiry and it lowers mean return, so this is not a paper-trade approval. The next useful CSP action is a fresh forward sample or a materially different tail hedge/strike-selection design before any live or paper allocation.

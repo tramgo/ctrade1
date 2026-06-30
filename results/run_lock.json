@@ -1,8 +1,8 @@
 {
   "locked": false,
   "locked_by": "Codex",
-  "thesis": "TB11_T28_NiftyChainBandQuoteCollector",
-  "stage": "ready_for_design",
+  "thesis": "TB11_Phase1_Target15CleanObservationGate",
+  "stage": "waiting_for_one_more_clean_no_order_observation_before_phase2_reconciliation",
   "started_at": "2026-06-22T00:00:00+05:30",
   "expected_outputs": [
     "results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv",
@@ -16,8 +16,26 @@
     "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_daily_summary.csv",
     "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_expiry_summary.csv",
     "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_liquid_detail.csv",
-    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_latest_chain.csv"
+    "results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_latest_chain.csv",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260629.csv",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_metadata.csv",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260629.csv",
+    "results/signal_baseline/tb11_t28_freshness_gate_summary.csv",
+    "results/signal_baseline/tb11_t28_freshness_gate_next_action.md",
+    "run_tb11_t28_chain_band_freshness_gate.bat",
+    "register_tb11_t28_chain_band_freshness_gate_task.bat",
+    "results/log_runs/tb11_t28_chain_band_freshness_gate_20260629_234319_scheduled.log",
+    "results/log_runs/tb11_t28_chain_band_freshness_gate_20260630_103954_scheduled.log",
+    "results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260630_103923_scheduled.log",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260630.csv",
+    "results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260630.csv",
+    "results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv",
+    "results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv",
+    "results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md",
+    "results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260630.csv",
+    "results/signal_baseline/tb11_t28_freshness_gate_summary.csv"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T27 built the local NIFTY option-chain bhavcopy archive from 2346/2346 cached F&O zip files. Coverage is 2015-01-01 through 2024-07-05, with 630897 liquid detail rows and latest cached chain 1634 NIFTY option rows. This is historical EOD OHLC/OI breadth, not live bid/ask. TB11_T26 scheduled quote collection remains active with 5 clean no-order observations. Next step is TB11_T28, a live NIFTY chain-band quote collector around spot/current expiry."
+  "notes": "TB11_T29 was implemented and checked on 2026-06-30. The T24 quote-only collector now records live mid-quote modeled credit when no input model credit exists, plus premium tolerance floor/ceiling and observed-vs-modeled fields. The latest live row has observed weighted credit 1.425, modeled credit 1.575 from live_mid_quote_model, within_15pct_adverse_tolerance=True, all legs available=True, and broker_order_allowed=False. The T28 chain-band collector now supplements spot +/-5% coverage with selected profile legs from the current resolver; the latest T28 summary has 98 quote packets, 98 fresh rows, 49 CE and 49 PE rows, selected_profile_symbols_required=4, selected_profile_legs_covered=4, zero unresolved rows, and zero broker-block violations. Phase 2 readiness now has t28_selected_leg_hits=4/4 and modeled_credit_available_for_live_row=True. The only remaining blocker is phase1_target_15_clean_observations_not_yet_reached because Phase 1 is at 14/15 clean observations. Next action is to keep Phase 2 no-order and let scheduled Phase 1 collection reach 15/15, then open TB11_Phase2_PaperPriceReconciliationRunbook."
 }
