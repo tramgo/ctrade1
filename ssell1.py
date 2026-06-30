@@ -34,6 +34,7 @@ import shutil
 import argparse
 import ast
 import re
+import json
 
 from ta.momentum import StochasticOscillator
 from ta.volume import ChaikinMoneyFlowIndicator, OnBalanceVolumeIndicator, ForceIndexIndicator
@@ -20635,6 +20636,262 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
     return summary_df
 
 
+def run_tb11_options_phase2_transition_controller(
+    output_prefix: str = "tb11_phase2_transition_controller",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    next_action_md = baseline_dir / f"{output_prefix}_next_action.md"
+    runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    phase1_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
+    readiness_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
+    automation_state_path = RESULTS_DIR / "automation_state.json"
+    run_lock_path = RESULTS_DIR / "run_lock.json"
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "phase1_summary_source": str(phase1_summary_csv),
+                "readiness_summary_source": str(readiness_csv),
+                "automation_state_source": str(automation_state_path),
+                "run_lock_source": str(run_lock_path),
+                "mode_scope": "tb11_phase2_transition_controller_no_order_state_gate",
+                "note": "Writes the Phase 2 runbook and advances state only after Phase 1 target and readiness gates pass. No broker calls and no orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    def _read_csv(path: Path) -> pd.DataFrame:
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
+
+    def _read_json(path: Path) -> dict:
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+
+    def _bool_value(value: object) -> bool:
+        return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+    def _num(value: object, default: float = 0.0) -> float:
+        parsed = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        return float(default if pd.isna(parsed) else parsed)
+
+    phase1_summary = _read_csv(phase1_summary_csv)
+    readiness = _read_csv(readiness_csv)
+    phase1_row = phase1_summary.iloc[0] if not phase1_summary.empty else pd.Series(dtype=object)
+    readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
+
+    clean_observations = int(_num(phase1_row.get("clean_observations", 0), 0))
+    target_clean_observations = int(_num(phase1_row.get("phase1_target_clean_observations", 15), 15))
+    unique_observation_dates = int(_num(phase1_row.get("unique_observation_dates", 0), 0))
+    phase1_evidence_gate_passed = _bool_value(phase1_row.get("phase1_evidence_gate_passed", False))
+    ledger_broker_block_violations = int(_num(phase1_row.get("broker_block_violations", 0), 0))
+
+    readiness_broker_block_violations = int(_num(readiness_row.get("broker_block_violations", 0), 0))
+    readiness_phase2_gate_passed = _bool_value(readiness_row.get("phase2_gate_passed", False))
+    readiness_selected_full_coverage = _bool_value(readiness_row.get("t28_full_selected_leg_coverage", False))
+    readiness_model_credit_available = _bool_value(readiness_row.get("modeled_credit_available_for_live_row", False))
+    readiness_reconciliation_status = str(readiness_row.get("reconciliation_status", ""))
+    readiness_t28_selected_leg_hits = int(_num(readiness_row.get("t28_selected_leg_hits", 0), 0))
+    readiness_t28_selected_legs_total = int(_num(readiness_row.get("t28_selected_legs_total", 4), 4))
+
+    blockers = []
+    if clean_observations < target_clean_observations:
+        blockers.append("phase1_target_15_clean_observations_not_yet_reached")
+    if unique_observation_dates < 5:
+        blockers.append("phase1_unique_observation_dates_below_5")
+    if not phase1_evidence_gate_passed:
+        blockers.append("phase1_evidence_gate_not_passed")
+    if ledger_broker_block_violations != 0 or readiness_broker_block_violations != 0:
+        blockers.append("broker_block_violation")
+    if not readiness_phase2_gate_passed:
+        blockers.append("t28_freshness_gate_not_passed")
+    if not readiness_selected_full_coverage:
+        blockers.append("t28_selected_leg_full_coverage_not_passed")
+    if not readiness_model_credit_available:
+        blockers.append("modeled_credit_not_available_for_live_row")
+
+    transition_passed = len(blockers) == 0
+    if transition_passed:
+        transition_status = "phase2_runbook_opened_state_advanced"
+        next_action = (
+            "Phase 2 runbook is written. Next execute only no-order paper-price reconciliation logic under the runbook."
+        )
+        runbook_lines = [
+            "# TB11 Phase 2 Paper-Price Reconciliation Runbook",
+            "",
+            f"Generated at IST: `{generated_at_ist}`",
+            "",
+            "## Gate Evidence",
+            "",
+            f"- Phase 1 clean observations: `{clean_observations}` / `{target_clean_observations}`",
+            f"- unique observation dates: `{unique_observation_dates}`",
+            f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",
+            f"- broker-block violations: `{ledger_broker_block_violations + readiness_broker_block_violations}`",
+            f"- T28 selected-leg coverage: `{readiness_t28_selected_leg_hits}` / `{readiness_t28_selected_legs_total}`",
+            f"- modeled credit available for live row: `{readiness_model_credit_available}`",
+            "",
+            "## Source Of Truth",
+            "",
+            "- Paper prices use broker quote snapshots captured by quote-only collectors.",
+            "- No Phase 2 artifact may use broker order endpoints or inferred fills as execution evidence.",
+            "- The current selected-leg resolver defines the leg symbols; T28 chain-band artifacts verify current bid/ask availability.",
+            "",
+            "## Reconciliation Tolerances",
+            "",
+            "- Compare observed weighted credit against live mid-quote modeled credit recorded by the Phase 1 row.",
+            "- Maintain the existing 10% and 15% adverse tolerance flags.",
+            "- Treat any row outside 15% adverse tolerance as review-required, not as a paper pass.",
+            "",
+            "## Divergence Escalation",
+            "",
+            "- Escalate if modeled credit is missing, selected-leg coverage is below 4/4, quote freshness fails, or broker-block violations are non-zero.",
+            "- Escalate if observed-vs-modeled credit drift repeatedly fails the 15% adverse tolerance.",
+            "- Escalation means no paper promotion and a root-cause memo before further advancement.",
+            "",
+            "## Hold Times Per Leg",
+            "",
+            "- Short call and short put: track through the selected paper horizon with daily quote reconciliation.",
+            "- Long call and long put: track as hard-risk wings; do not omit them even when outside spot +/-5% chain bands.",
+            "- Record leg-level bid, ask, mid, age, and spread quality for every observation.",
+            "",
+            "## Daily Artifact List",
+            "",
+            "- `tb11_options_current_nfo_leg_resolver_template.csv`",
+            "- `tb11_options_zerodha_quote_only_collector_summary.csv`",
+            "- `tb11_options_phase1_observation_ledger_summary.csv`",
+            "- `tb11_nifty_chain_band_quote_collector_summary.csv`",
+            "- `tb11_t28_freshness_gate_summary.csv`",
+            "- `tb11_phase2_paper_price_reconciliation_readiness_summary.csv`",
+            "- `tb11_phase2_paper_price_reconciliation_runbook.md`",
+            "",
+            "## Broker-Block Reaffirmation",
+            "",
+            "- Phase 2 remains no-order and paper-price only.",
+            "- `place_order`, `modify_order`, and `cancel_order` must not be imported or called.",
+            "- Broker execution, live trading, and one-lot validation require explicit future human approval.",
+            "",
+        ]
+        runbook_md.write_text("\n".join(runbook_lines), encoding="utf-8")
+
+        automation_state = _read_json(automation_state_path)
+        automation_state.update(
+            {
+                "active_batch": "TB11",
+                "active_thesis": "TB11_Phase2_PaperPriceReconciliationRunbook",
+                "active_stage": "phase2_runbook_opened_no_order_paper_price_reconciliation_next",
+                "last_completed_thesis": "TB11_Phase1_Target15CleanObservationGate",
+                "last_completed_verdict": (
+                    "phase1_target_gate_passed_clean_observations_"
+                    f"{clean_observations}_unique_dates_{unique_observation_dates}_broker_blocks_0"
+                ),
+                "next_thesis": "TB11_Phase2_NoOrderPaperPriceReconciliation",
+                "last_updated_by": "codex_tb11_phase2_transition_controller",
+            }
+        )
+        automation_state_path.write_text(json.dumps(automation_state, indent=2) + "\n", encoding="utf-8")
+
+        run_lock = _read_json(run_lock_path)
+        expected_outputs = list(run_lock.get("expected_outputs", []))
+        for output in [
+            "results/signal_baseline/tb11_phase2_transition_controller_summary.csv",
+            "results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md",
+        ]:
+            if output not in expected_outputs:
+                expected_outputs.append(output)
+        run_lock.update(
+            {
+                "locked": False,
+                "locked_by": "Codex",
+                "thesis": "TB11_Phase2_PaperPriceReconciliationRunbook",
+                "stage": "phase2_runbook_opened_no_order_paper_price_reconciliation_next",
+                "expected_outputs": expected_outputs,
+                "notes": (
+                    "Phase 1 transition controller passed all gates and wrote the Phase 2 runbook before "
+                    "paper-price reconciliation execution. Broker orders remain blocked."
+                ),
+            }
+        )
+        run_lock_path.write_text(json.dumps(run_lock, indent=2) + "\n", encoding="utf-8")
+    else:
+        transition_status = "blocked_phase1_transition_gate_not_met"
+        next_action = (
+            "Do not advance automation state. Continue scheduled no-order Phase 1/T28 collection until "
+            "clean observations >= 15, unique dates >= 5, Phase 1 evidence gate is true, and broker blocks remain 0."
+        )
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "transition_passed": transition_passed,
+                "transition_status": transition_status,
+                "clean_observations": clean_observations,
+                "target_clean_observations": target_clean_observations,
+                "unique_observation_dates": unique_observation_dates,
+                "phase1_evidence_gate_passed": phase1_evidence_gate_passed,
+                "ledger_broker_block_violations": ledger_broker_block_violations,
+                "readiness_broker_block_violations": readiness_broker_block_violations,
+                "readiness_phase2_gate_passed": readiness_phase2_gate_passed,
+                "readiness_selected_full_coverage": readiness_selected_full_coverage,
+                "readiness_t28_selected_leg_hits": readiness_t28_selected_leg_hits,
+                "readiness_t28_selected_legs_total": readiness_t28_selected_legs_total,
+                "readiness_model_credit_available": readiness_model_credit_available,
+                "readiness_reconciliation_status": readiness_reconciliation_status,
+                "runbook_written": transition_passed,
+                "automation_state_advanced": transition_passed,
+                "broker_orders_allowed": False,
+                "blockers": "|".join(blockers) if blockers else "none",
+                "next_action": next_action,
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    next_action_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Phase 2 Transition Controller",
+                "",
+                f"- Status: `{transition_status}`",
+                f"- Transition passed: `{transition_passed}`",
+                f"- clean observations: `{clean_observations}` / `{target_clean_observations}`",
+                f"- unique observation dates: `{unique_observation_dates}` / `5`",
+                f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",
+                f"- readiness Phase 2 gate passed: `{readiness_phase2_gate_passed}`",
+                f"- selected leg coverage: `{readiness_t28_selected_leg_hits}` / `{readiness_t28_selected_legs_total}`",
+                f"- modeled credit available: `{readiness_model_credit_available}`",
+                f"- broker-block violations: `{ledger_broker_block_violations + readiness_broker_block_violations}`",
+                f"- blockers: `{summary_df.iloc[0]['blockers']}`",
+                f"- runbook written: `{transition_passed}`",
+                f"- automation state advanced: `{transition_passed}`",
+                "",
+                f"Next action: {next_action}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-PHASE2-TRANSITION] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-PHASE2-TRANSITION] next action saved: {next_action_md}", flush=True)
+    if transition_passed:
+        print(f"[TB11-PHASE2-TRANSITION] runbook saved: {runbook_md}", flush=True)
+    return summary_df
+
+
 def run_tb15_cash_secured_put_large_caps(
     output_prefix: str = "tb15_cash_secured_put_large_caps",
 ) -> pd.DataFrame:
@@ -22491,6 +22748,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_nifty_chain_band_quote_collector",
             "signal_baseline_tb11_options_t28_freshness_gate",
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
+            "signal_baseline_tb11_options_phase2_transition_controller",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_cost_sensitivity",
@@ -23205,6 +23463,14 @@ if __name__ == "__main__":
         run_tb11_options_phase2_paper_price_reconciliation_readiness(
             output_prefix="tb11_phase2_paper_price_reconciliation_readiness"
         )
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_options_phase2_transition_controller":
+        main_logger.info(
+            "Starting TB11 Phase 2 transition controller. "
+            "This writes the Phase 2 runbook and advances state only after all no-order gates pass."
+        )
+        run_tb11_options_phase2_transition_controller(output_prefix="tb11_phase2_transition_controller")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb15_cash_secured_put_large_caps":

@@ -1325,3 +1325,36 @@ Gated Kelly / worst-trade-budget read:
 Verdict:
 
 `TB15_T02` is still research-only. The composite stress gate usefully removes some tail-loss events, but it does not improve the worst portfolio expiry and it lowers mean return, so this is not a paper-trade approval. The next useful CSP action is a fresh forward sample or a materially different tail hedge/strike-selection design before any live or paper allocation.
+
+## `TB11 Phase2TransitionController`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_transition_controller
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_phase2_transition_controller_summary.csv`
+- `results/signal_baseline/tb11_phase2_transition_controller_metadata.csv`
+- `results/signal_baseline/tb11_phase2_transition_controller_next_action.md`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md` only when the transition gate passes
+
+Current read:
+
+- transition passed: `False`
+- clean observations: `14 / 15`
+- unique observation dates: `4 / 5`
+- Phase 1 evidence gate passed: `True`
+- T28 freshness/readiness gate passed: `True`
+- selected leg coverage: `4 / 4`
+- modeled credit available for live row: `True`
+- broker-block violations: `0`
+- runbook written: `False`
+- automation state advanced: `False`
+- blockers: `phase1_target_15_clean_observations_not_yet_reached|phase1_unique_observation_dates_below_5`
+
+Verdict:
+
+The transition controller is implemented and correctly blocks Phase 2 today. Do not advance automation state or write the Phase 2 runbook until the ledger reaches `>=15` clean observations, `>=5` unique observation dates, Phase 1 evidence gate remains true, and broker-block violations remain `0`. Branch B remains deferred until Branch A writes the runbook.
