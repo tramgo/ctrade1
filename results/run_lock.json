@@ -42,11 +42,16 @@
     "results/signal_baseline/tb11_no_order_endpoint_static_audit_detail.csv",
     "results/signal_baseline/tb11_no_order_endpoint_static_audit_metadata.csv",
     "results/signal_baseline/tb11_no_order_endpoint_static_audit_memo.md",
+    "results/signal_baseline/tb11_task_scheduler_snapshot.txt",
+    "results/signal_baseline/tb11_task_scheduler_readiness_audit_summary.csv",
+    "results/signal_baseline/tb11_task_scheduler_readiness_audit_detail.csv",
+    "results/signal_baseline/tb11_task_scheduler_readiness_audit_metadata.csv",
+    "results/signal_baseline/tb11_task_scheduler_readiness_audit_memo.md",
     "results/signal_baseline/composite_plan_gate_audit_summary.csv",
     "results/signal_baseline/composite_plan_gate_audit_detail.csv",
     "results/signal_baseline/composite_plan_gate_audit_metadata.csv",
     "results/signal_baseline/composite_plan_gate_audit_memo.md"
   ],
   "log_path": "results/log_runs/",
-  "notes": "TB11_T29 was implemented and checked on 2026-06-30. The T24 quote-only collector now records live mid-quote modeled credit when no input model credit exists, plus premium tolerance floor/ceiling and observed-vs-modeled fields. The T28 chain-band collector supplements spot +/-5% coverage with selected profile legs from the current resolver. Phase 2 readiness has selected-leg coverage and modeled-credit checks wired. The Phase 2 transition controller, TB11 no-order endpoint static audit, and composite plan gate audit are now expected receipts. Current audit state remains blocked: Phase 1 has 14/15 clean observations, 4/5 unique observation dates, broker-block violations remain 0, after-hours T28/readiness is not fresh, no-order static audit passes with 0 forbidden calls/imports/wrapper references, Branch B TB15 is deferred/research-only, and Branch C lockouts are enforced. Next action is to keep scheduled no-order Phase 1/T28 wrappers running and rerun the audit after the next market-hours observation."
+  "notes": "TB11_T29 was implemented and checked on 2026-06-30. The T24 quote-only collector now records live mid-quote modeled credit when no input model credit exists, plus premium tolerance floor/ceiling and observed-vs-modeled fields. The T28 chain-band collector supplements spot +/-5% coverage with selected profile legs from the current resolver. Phase 2 readiness has selected-leg coverage and modeled-credit checks wired. The Phase 2 transition controller, TB11 no-order endpoint static audit, TB11 task scheduler readiness audit, and composite plan gate audit are now expected receipts. Current audit state remains blocked: Phase 1 has 14/15 clean observations, 4/5 unique observation dates, broker-block violations remain 0, after-hours T28/readiness is not fresh, no-order static audit passes with 0 forbidden calls/imports/wrapper references, scheduler readiness audit passes with 4/4 expected tasks present/enabled/command-matched/time-matched/last-result-zero for next runs on 2026-07-01, Branch B TB15 is deferred/research-only, and Branch C lockouts are enforced. Next action is to keep scheduled no-order Phase 1/T28 wrappers running and rerun the audit after the next market-hours observation."
 }

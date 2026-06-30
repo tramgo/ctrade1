@@ -1,0 +1,2 @@
+output_prefix,generated_at_ist,scheduler_snapshot_source,expected_tasks,mode_scope,note
+tb11_task_scheduler_readiness_audit,2026-06-30T20:27:30.287616+05:30,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_task_scheduler_snapshot.txt,TB11_Phase1_QuoteObservation_0940|TB11_Phase1_QuoteObservation_1230|TB11_Phase1_QuoteObservation_1445|TB11_T28_ChainBandFreshness_0945,tb11_task_scheduler_readiness_snapshot_audit,Parses a captured schtasks /Query /FO LIST /V snapshot for TB11 task readiness. No scheduler mutation and no broker calls.

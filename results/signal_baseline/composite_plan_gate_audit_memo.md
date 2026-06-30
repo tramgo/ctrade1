@@ -1,6 +1,6 @@
 # Composite Plan Gate Audit
 
-Generated at IST: `2026-06-30T20:21:51.316027+05:30`
+Generated at IST: `2026-06-30T20:27:48.316257+05:30`
 
 - overall status: `branch_a_waiting_for_market_evidence`
 - Branch A: `blocked_wait_for_phase1_t28_gates`
@@ -19,6 +19,8 @@ Generated at IST: `2026-06-30T20:21:51.316027+05:30`
 - broker-block violations: `0`
 - no-order static audit passed: `True`
 - forbidden order calls/imports/wrapper refs: `0` / `0` / `0`
+- scheduler readiness audit passed: `True`
+- scheduler tasks present/enabled/command/time/last-result-zero: `4` / `4` / `4` / `4` / `4`
 - blockers: `phase1_target_clean_observations_below_15|phase1_unique_observation_dates_below_5|t28_or_readiness_gate_not_passed`
 
 ## Branch B - TB15

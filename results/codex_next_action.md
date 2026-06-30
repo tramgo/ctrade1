@@ -1468,6 +1468,8 @@ Current read:
 - broker-block violations: `0`
 - no-order static audit passed: `True`
 - forbidden order calls/imports/wrapper refs: `0 / 0 / 0`
+- scheduler readiness audit passed: `True`
+- scheduler tasks present/enabled/command/time/last-result-zero: `4 / 4 / 4 / 4 / 4`
 - T28/readiness Phase 2 gate: `False`
 - transition passed: `False`
 - runbook written: `False`
@@ -1519,3 +1521,44 @@ Composite integration:
 Verdict:
 
 The broker-block invariant is now artifact-checked for the Phase 1/Phase 2 TB11 code path and wrappers. Current evidence shows no `place_order`, `modify_order`, or `cancel_order` calls/imports/references in scheduled wrappers; only `kite.quote` and `kite.instruments` data access remains in scope.
+
+## `TB11 TaskSchedulerReadinessAudit`
+
+Snapshot command used:
+
+```powershell
+schtasks /Query /TN <TB11 task> /FO LIST /V
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_task_scheduler_snapshot.txt`
+- `results/signal_baseline/tb11_task_scheduler_readiness_audit_summary.csv`
+- `results/signal_baseline/tb11_task_scheduler_readiness_audit_detail.csv`
+- `results/signal_baseline/tb11_task_scheduler_readiness_audit_metadata.csv`
+- `results/signal_baseline/tb11_task_scheduler_readiness_audit_memo.md`
+
+Current read:
+
+- audit status: `passed_scheduler_ready`
+- audit passed: `True`
+- expected tasks present: `4 / 4`
+- enabled tasks: `4 / 4`
+- ready tasks: `4 / 4`
+- command matches: `4 / 4`
+- start-time matches: `4 / 4`
+- weekday matches: `4 / 4`
+- last-result zero: `4 / 4`
+- wrapper noninteractive guards: `4 / 4`
+- wrapper readiness modes: `4 / 4`
+- wrapper transition modes: `4 / 4`
+- next run times: `2026-07-01 09:40`, `2026-07-01 09:45`, `2026-07-01 12:30`, `2026-07-01 14:45`
+
+Composite integration:
+
+- `signal_baseline_composite_plan_gate_audit` now auto-runs the scheduler readiness audit if its summary is missing.
+- Branch A now records scheduler task counts and fails if the expected jobs are missing, disabled, pointed at the wrong wrappers, scheduled at the wrong times, or returning non-zero last results.
+
+Verdict:
+
+The scheduled Branch A path is ready for the next market-hours observation. The remaining blocker is not automation coverage; it is fresh market evidence: Phase 1 still needs `>=15` clean observations across `>=5` unique dates and T28/readiness must be fresh.

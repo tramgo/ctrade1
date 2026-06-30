@@ -21201,6 +21201,253 @@ def run_tb11_no_order_endpoint_static_audit(
     return summary_df
 
 
+def run_tb11_task_scheduler_readiness_audit(
+    output_prefix: str = "tb11_task_scheduler_readiness_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    memo_md = baseline_dir / f"{output_prefix}_memo.md"
+    scheduler_snapshot_txt = baseline_dir / "tb11_task_scheduler_snapshot.txt"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    expected_tasks = {
+        "TB11_Phase1_QuoteObservation_0940": {
+            "expected_start_time": "09:40:00",
+            "expected_wrapper": "run_tb11_phase1_auto_quote_observation.bat",
+        },
+        "TB11_Phase1_QuoteObservation_1230": {
+            "expected_start_time": "12:30:00",
+            "expected_wrapper": "run_tb11_phase1_auto_quote_observation.bat",
+        },
+        "TB11_Phase1_QuoteObservation_1445": {
+            "expected_start_time": "14:45:00",
+            "expected_wrapper": "run_tb11_phase1_auto_quote_observation.bat",
+        },
+        "TB11_T28_ChainBandFreshness_0945": {
+            "expected_start_time": "09:45:00",
+            "expected_wrapper": "run_tb11_t28_chain_band_freshness_gate.bat",
+        },
+    }
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "scheduler_snapshot_source": str(scheduler_snapshot_txt),
+                "expected_tasks": "|".join(expected_tasks.keys()),
+                "mode_scope": "tb11_task_scheduler_readiness_snapshot_audit",
+                "note": "Parses a captured schtasks /Query /FO LIST /V snapshot for TB11 task readiness. No scheduler mutation and no broker calls.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    snapshot_text = ""
+    snapshot_missing = not scheduler_snapshot_txt.exists()
+    if not snapshot_missing:
+        snapshot_text = scheduler_snapshot_txt.read_text(encoding="utf-8", errors="replace")
+
+    def _parse_block(block: str) -> dict:
+        parsed = {}
+        for raw_line in block.splitlines():
+            if ":" not in raw_line:
+                continue
+            key, value = raw_line.split(":", 1)
+            key = key.strip().lower().replace(" ", "_")
+            parsed[key] = value.strip()
+        return parsed
+
+    parsed_by_task = {}
+    if snapshot_text:
+        normalized_snapshot = snapshot_text.replace("\ufeff", "")
+        blocks = re.split(r"(?m)^---TB11_TASK_QUERY\s+[^-]+---\s*$", normalized_snapshot)
+        query_names = re.findall(r"(?m)^---TB11_TASK_QUERY\s+([^-]+?)---\s*$", normalized_snapshot)
+        for query_name, block in zip(query_names, blocks[1:]):
+            parsed = _parse_block(block)
+            task_name = str(parsed.get("taskname", "")).lstrip("\\")
+            parsed_by_task[task_name or query_name.strip()] = parsed
+        for block in re.split(r"(?m)(?=^HostName:)", normalized_snapshot):
+            parsed = _parse_block(block)
+            task_name = str(parsed.get("taskname", "")).lstrip("\\")
+            if task_name.startswith("TB11_"):
+                parsed_by_task[task_name] = parsed
+
+    rows = []
+    required_days = {"MON", "TUE", "WED", "THU", "FRI"}
+    for task_name, expectation in expected_tasks.items():
+        parsed = parsed_by_task.get(task_name, {})
+        task_present = bool(parsed)
+        task_to_run = str(parsed.get("task_to_run", ""))
+        start_time = str(parsed.get("start_time", ""))
+        days = str(parsed.get("days", "")).upper()
+        scheduled_state = str(parsed.get("scheduled_task_state", ""))
+        status = str(parsed.get("status", ""))
+        schedule_type = str(parsed.get("schedule_type", ""))
+        next_run_time = str(parsed.get("next_run_time", ""))
+        last_run_time = str(parsed.get("last_run_time", ""))
+        last_result = str(parsed.get("last_result", ""))
+        expected_wrapper = expectation["expected_wrapper"]
+
+        wrapper_path = BASE_DIR / expected_wrapper
+        wrapper_text = wrapper_path.read_text(encoding="utf-8", errors="replace") if wrapper_path.exists() else ""
+        wrapper_has_noninteractive = "SSELL1_NONINTERACTIVE=1" in wrapper_text
+        wrapper_has_transition = "signal_baseline_tb11_options_phase2_transition_controller" in wrapper_text
+        wrapper_has_readiness = "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness" in wrapper_text
+        command_matches = expected_wrapper.lower() in task_to_run.lower()
+        time_matches = start_time == expectation["expected_start_time"]
+        enabled = scheduled_state.lower() == "enabled"
+        ready_or_running = status.lower() in {"ready", "running"}
+        weekly = "weekly" in schedule_type.lower()
+        weekdays_match = required_days.issubset({part.strip().upper() for part in days.split(",")})
+        next_run_available = bool(next_run_time) and next_run_time.upper() != "N/A"
+        last_result_zero = last_result.strip() in {"0", "0x0"}
+
+        blockers = []
+        if not task_present:
+            blockers.append("task_missing")
+        if task_present and not enabled:
+            blockers.append("task_not_enabled")
+        if task_present and not ready_or_running:
+            blockers.append("task_not_ready_or_running")
+        if task_present and not command_matches:
+            blockers.append("task_command_mismatch")
+        if task_present and not time_matches:
+            blockers.append("task_start_time_mismatch")
+        if task_present and not weekly:
+            blockers.append("task_not_weekly")
+        if task_present and not weekdays_match:
+            blockers.append("task_weekdays_mismatch")
+        if task_present and not next_run_available:
+            blockers.append("task_next_run_missing")
+        if task_present and not last_result_zero:
+            blockers.append("task_last_result_nonzero")
+        if not wrapper_path.exists():
+            blockers.append("wrapper_missing")
+        if wrapper_path.exists() and not wrapper_has_noninteractive:
+            blockers.append("wrapper_missing_noninteractive_guard")
+        if wrapper_path.exists() and not wrapper_has_readiness:
+            blockers.append("wrapper_missing_readiness_mode")
+        if wrapper_path.exists() and not wrapper_has_transition:
+            blockers.append("wrapper_missing_transition_mode")
+
+        rows.append(
+            {
+                "task_name": task_name,
+                "task_present": task_present,
+                "status": status,
+                "scheduled_task_state": scheduled_state,
+                "schedule_type": schedule_type,
+                "start_time": start_time,
+                "expected_start_time": expectation["expected_start_time"],
+                "days": days,
+                "next_run_time": next_run_time,
+                "last_run_time": last_run_time,
+                "last_result": last_result,
+                "task_to_run": task_to_run,
+                "expected_wrapper": expected_wrapper,
+                "command_matches": command_matches,
+                "time_matches": time_matches,
+                "enabled": enabled,
+                "ready_or_running": ready_or_running,
+                "weekly": weekly,
+                "weekdays_match": weekdays_match,
+                "next_run_available": next_run_available,
+                "last_result_zero": last_result_zero,
+                "wrapper_exists": wrapper_path.exists(),
+                "wrapper_has_noninteractive": wrapper_has_noninteractive,
+                "wrapper_has_readiness": wrapper_has_readiness,
+                "wrapper_has_transition": wrapper_has_transition,
+                "task_passed": len(blockers) == 0,
+                "blockers": "|".join(blockers) if blockers else "none",
+            }
+        )
+
+    detail_df = pd.DataFrame(rows)
+    detail_df.to_csv(detail_csv, index=False)
+
+    expected_count = len(expected_tasks)
+    present_count = int(detail_df["task_present"].sum()) if not detail_df.empty else 0
+    enabled_count = int(detail_df["enabled"].sum()) if not detail_df.empty else 0
+    ready_count = int(detail_df["ready_or_running"].sum()) if not detail_df.empty else 0
+    command_match_count = int(detail_df["command_matches"].sum()) if not detail_df.empty else 0
+    time_match_count = int(detail_df["time_matches"].sum()) if not detail_df.empty else 0
+    weekday_match_count = int(detail_df["weekdays_match"].sum()) if not detail_df.empty else 0
+    last_result_zero_count = int(detail_df["last_result_zero"].sum()) if not detail_df.empty else 0
+    wrapper_guard_count = int(detail_df["wrapper_has_noninteractive"].sum()) if not detail_df.empty else 0
+    wrapper_readiness_count = int(detail_df["wrapper_has_readiness"].sum()) if not detail_df.empty else 0
+    wrapper_transition_count = int(detail_df["wrapper_has_transition"].sum()) if not detail_df.empty else 0
+    failed_tasks = detail_df.loc[~detail_df["task_passed"], "task_name"].astype(str).tolist() if not detail_df.empty else []
+    audit_passed = not snapshot_missing and len(failed_tasks) == 0 and present_count == expected_count
+    audit_status = "passed_scheduler_ready" if audit_passed else "failed_scheduler_readiness"
+    next_run_times = (
+        "|".join(f"{row.task_name}={row.next_run_time}" for row in detail_df.itertuples())
+        if not detail_df.empty
+        else ""
+    )
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "audit_status": audit_status,
+                "audit_passed": audit_passed,
+                "snapshot_missing": snapshot_missing,
+                "expected_task_count": expected_count,
+                "present_task_count": present_count,
+                "enabled_task_count": enabled_count,
+                "ready_task_count": ready_count,
+                "command_match_count": command_match_count,
+                "time_match_count": time_match_count,
+                "weekday_match_count": weekday_match_count,
+                "last_result_zero_count": last_result_zero_count,
+                "wrapper_noninteractive_guard_count": wrapper_guard_count,
+                "wrapper_readiness_mode_count": wrapper_readiness_count,
+                "wrapper_transition_mode_count": wrapper_transition_count,
+                "failed_tasks": "|".join(failed_tasks) if failed_tasks else "none",
+                "next_run_times": next_run_times,
+                "blockers": "snapshot_missing" if snapshot_missing else ("|".join(failed_tasks) if failed_tasks else "none"),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+
+    memo_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Task Scheduler Readiness Audit",
+                "",
+                f"Generated at IST: `{generated_at_ist}`",
+                "",
+                f"- audit status: `{audit_status}`",
+                f"- audit passed: `{audit_passed}`",
+                f"- expected tasks present: `{present_count}` / `{expected_count}`",
+                f"- enabled tasks: `{enabled_count}` / `{expected_count}`",
+                f"- ready/running tasks: `{ready_count}` / `{expected_count}`",
+                f"- command matches: `{command_match_count}` / `{expected_count}`",
+                f"- start-time matches: `{time_match_count}` / `{expected_count}`",
+                f"- weekday matches: `{weekday_match_count}` / `{expected_count}`",
+                f"- last-result zero: `{last_result_zero_count}` / `{expected_count}`",
+                f"- wrapper noninteractive guards: `{wrapper_guard_count}` / `{expected_count}`",
+                f"- wrapper readiness modes: `{wrapper_readiness_count}` / `{expected_count}`",
+                f"- wrapper transition modes: `{wrapper_transition_count}` / `{expected_count}`",
+                f"- next run times: `{next_run_times}`",
+                f"- blockers: `{summary_df.iloc[0]['blockers']}`",
+                "",
+                "Verdict: Scheduled Branch A jobs are ready for the next market-hours observation when the audit passes.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-SCHEDULER-AUDIT] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-SCHEDULER-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-SCHEDULER-AUDIT] memo saved: {memo_md}", flush=True)
+    return summary_df
+
+
 def run_composite_plan_gate_audit(
     output_prefix: str = "composite_plan_gate_audit",
 ) -> pd.DataFrame:
@@ -21218,6 +21465,7 @@ def run_composite_plan_gate_audit(
     readiness_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
     transition_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
     no_order_audit_csv = baseline_dir / "tb11_no_order_endpoint_static_audit_summary.csv"
+    scheduler_audit_csv = baseline_dir / "tb11_task_scheduler_readiness_audit_summary.csv"
     tb15_base_csv = baseline_dir / "tb15_cash_secured_put_large_caps_summary.csv"
     tb15_stress_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_summary.csv"
     tb15_sizing_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_kelly_sizing.csv"
@@ -21225,6 +21473,8 @@ def run_composite_plan_gate_audit(
 
     if not no_order_audit_csv.exists():
         run_tb11_no_order_endpoint_static_audit(output_prefix="tb11_no_order_endpoint_static_audit")
+    if not scheduler_audit_csv.exists():
+        run_tb11_task_scheduler_readiness_audit(output_prefix="tb11_task_scheduler_readiness_audit")
 
     pd.DataFrame(
         [
@@ -21237,6 +21487,7 @@ def run_composite_plan_gate_audit(
                 "readiness_source": str(readiness_csv),
                 "transition_source": str(transition_csv),
                 "no_order_audit_source": str(no_order_audit_csv),
+                "scheduler_audit_source": str(scheduler_audit_csv),
                 "tb15_base_source": str(tb15_base_csv),
                 "tb15_stress_source": str(tb15_stress_csv),
                 "tb15_sizing_source": str(tb15_sizing_csv),
@@ -21276,6 +21527,7 @@ def run_composite_plan_gate_audit(
     readiness = _read_csv(readiness_csv)
     transition = _read_csv(transition_csv)
     no_order_audit = _read_csv(no_order_audit_csv)
+    scheduler_audit = _read_csv(scheduler_audit_csv)
     tb15_base = _read_csv(tb15_base_csv)
     tb15_stress = _read_csv(tb15_stress_csv)
     tb15_sizing = _read_csv(tb15_sizing_csv)
@@ -21285,6 +21537,7 @@ def run_composite_plan_gate_audit(
     readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
     transition_row = transition.iloc[0] if not transition.empty else pd.Series(dtype=object)
     no_order_row = no_order_audit.iloc[0] if not no_order_audit.empty else pd.Series(dtype=object)
+    scheduler_row = scheduler_audit.iloc[0] if not scheduler_audit.empty else pd.Series(dtype=object)
     tb15_portfolio = (
         tb15_base.loc[tb15_base.get("symbol", pd.Series(dtype=str)).astype(str).eq("PORTFOLIO_EQUAL_WEIGHT")].head(1)
         if not tb15_base.empty and "symbol" in tb15_base.columns
@@ -21309,6 +21562,13 @@ def run_composite_plan_gate_audit(
     forbidden_order_import_count = int(_num(no_order_row.get("forbidden_order_import_count", 0), 0))
     forbidden_wrapper_reference_count = int(_num(no_order_row.get("forbidden_wrapper_reference_count", 0), 0))
     no_order_missing_source_count = int(_num(no_order_row.get("missing_source_count", 1), 1))
+    scheduler_audit_passed = _bool_value(scheduler_row.get("audit_passed", False))
+    scheduler_expected_task_count = int(_num(scheduler_row.get("expected_task_count", 4), 4))
+    scheduler_present_task_count = int(_num(scheduler_row.get("present_task_count", 0), 0))
+    scheduler_enabled_task_count = int(_num(scheduler_row.get("enabled_task_count", 0), 0))
+    scheduler_command_match_count = int(_num(scheduler_row.get("command_match_count", 0), 0))
+    scheduler_time_match_count = int(_num(scheduler_row.get("time_match_count", 0), 0))
+    scheduler_last_result_zero_count = int(_num(scheduler_row.get("last_result_zero_count", 0), 0))
     run_lock_locked = _bool_value(run_lock.get("locked", False))
     active_thesis = str(automation_state.get("active_thesis", ""))
     next_thesis = str(automation_state.get("next_thesis", ""))
@@ -21328,6 +21588,8 @@ def run_composite_plan_gate_audit(
         branch_a_blockers.append("forbidden_order_endpoint_detected")
     if no_order_missing_source_count != 0:
         branch_a_blockers.append("no_order_static_audit_source_missing")
+    if not scheduler_audit_passed:
+        branch_a_blockers.append("scheduler_readiness_audit_not_passed")
     if not readiness_gate:
         branch_a_blockers.append("t28_or_readiness_gate_not_passed")
     if not readiness_modeled:
@@ -21409,7 +21671,9 @@ def run_composite_plan_gate_audit(
                 f"modeled_credit={readiness_modeled}; leg_coverage={readiness_leg_coverage}; "
                 f"broker_blocks={phase1_broker_blocks}; no_order_audit={no_order_audit_passed}; "
                 f"forbidden_calls={forbidden_order_call_count}; forbidden_imports={forbidden_order_import_count}; "
-                f"wrapper_refs={forbidden_wrapper_reference_count}; active={active_thesis}; next={next_thesis}"
+                f"wrapper_refs={forbidden_wrapper_reference_count}; scheduler_audit={scheduler_audit_passed}; "
+                f"scheduler_tasks={scheduler_present_task_count}/{scheduler_expected_task_count}; "
+                f"active={active_thesis}; next={next_thesis}"
             ),
         },
         {
@@ -21466,6 +21730,13 @@ def run_composite_plan_gate_audit(
                 "forbidden_order_import_count": forbidden_order_import_count,
                 "forbidden_wrapper_reference_count": forbidden_wrapper_reference_count,
                 "no_order_static_audit_missing_source_count": no_order_missing_source_count,
+                "scheduler_readiness_audit_passed": scheduler_audit_passed,
+                "scheduler_expected_task_count": scheduler_expected_task_count,
+                "scheduler_present_task_count": scheduler_present_task_count,
+                "scheduler_enabled_task_count": scheduler_enabled_task_count,
+                "scheduler_command_match_count": scheduler_command_match_count,
+                "scheduler_time_match_count": scheduler_time_match_count,
+                "scheduler_last_result_zero_count": scheduler_last_result_zero_count,
                 "readiness_phase2_gate_passed": readiness_gate,
                 "transition_passed": transition_passed,
                 "runbook_written": runbook_written,
@@ -21506,6 +21777,8 @@ def run_composite_plan_gate_audit(
         f"- broker-block violations: `{phase1_broker_blocks}`",
         f"- no-order static audit passed: `{no_order_audit_passed}`",
         f"- forbidden order calls/imports/wrapper refs: `{forbidden_order_call_count}` / `{forbidden_order_import_count}` / `{forbidden_wrapper_reference_count}`",
+        f"- scheduler readiness audit passed: `{scheduler_audit_passed}`",
+        f"- scheduler tasks present/enabled/command/time/last-result-zero: `{scheduler_present_task_count}` / `{scheduler_enabled_task_count}` / `{scheduler_command_match_count}` / `{scheduler_time_match_count}` / `{scheduler_last_result_zero_count}`",
         f"- blockers: `{summary_df.iloc[0]['branch_a_blockers']}`",
         "",
         "## Branch B - TB15",
@@ -23390,6 +23663,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
             "signal_baseline_tb11_options_phase2_transition_controller",
             "signal_baseline_tb11_no_order_endpoint_static_audit",
+            "signal_baseline_tb11_task_scheduler_readiness_audit",
             "signal_baseline_composite_plan_gate_audit",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
@@ -24121,6 +24395,14 @@ if __name__ == "__main__":
             "This checks Phase 1/Phase 2 code and wrappers for forbidden order endpoint usage."
         )
         run_tb11_no_order_endpoint_static_audit(output_prefix="tb11_no_order_endpoint_static_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_task_scheduler_readiness_audit":
+        main_logger.info(
+            "Starting TB11 task scheduler readiness audit. "
+            "This parses the captured schtasks snapshot for expected no-order TB11 jobs."
+        )
+        run_tb11_task_scheduler_readiness_audit(output_prefix="tb11_task_scheduler_readiness_audit")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_composite_plan_gate_audit":
