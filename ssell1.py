@@ -20900,6 +20900,307 @@ def run_tb11_options_phase2_transition_controller(
     return summary_df
 
 
+def run_tb11_no_order_endpoint_static_audit(
+    output_prefix: str = "tb11_no_order_endpoint_static_audit",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    memo_md = baseline_dir / f"{output_prefix}_memo.md"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    source_path = BASE_DIR / "ssell1.py"
+    wrapper_paths = [
+        BASE_DIR / "run_tb11_phase1_auto_quote_observation.bat",
+        BASE_DIR / "run_tb11_t28_chain_band_freshness_gate.bat",
+        BASE_DIR / "register_tb11_t28_chain_band_freshness_gate_task.bat",
+    ]
+    forbidden_endpoints = {"place_order", "modify_order", "cancel_order"}
+    allowed_data_endpoints = {"quote", "instruments"}
+    phase1_phase2_functions = {
+        "run_tb11_options_zerodha_quote_only_collector",
+        "run_tb11_options_current_nfo_leg_resolver",
+        "run_tb11_options_phase1_observation_ledger",
+        "run_tb11_options_phase1_auto_quote_observation",
+        "run_tb11_options_nifty_option_chain_bhavcopy_archive",
+        "run_tb11_options_nifty_chain_band_quote_collector",
+        "run_tb11_options_t28_freshness_gate",
+        "run_tb11_options_phase2_paper_price_reconciliation_readiness",
+        "run_tb11_options_phase2_transition_controller",
+        "run_composite_plan_gate_audit",
+    }
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "source_path": str(source_path),
+                "wrapper_paths": "|".join(str(path) for path in wrapper_paths),
+                "forbidden_endpoints": "|".join(sorted(forbidden_endpoints)),
+                "allowed_data_endpoints": "|".join(sorted(allowed_data_endpoints)),
+                "mode_scope": "tb11_phase1_phase2_no_order_static_audit",
+                "note": "AST and wrapper-script audit for Phase 1/Phase 2 broker-order endpoint calls/imports. Local files only; no broker calls.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    rows = []
+    missing_sources = []
+    source_text = ""
+    source_lines: list[str] = []
+    if source_path.exists():
+        source_text = source_path.read_text(encoding="utf-8")
+        source_lines = source_text.splitlines()
+    else:
+        missing_sources.append(str(source_path))
+
+    def _line_excerpt(lines: list[str], lineno: int) -> str:
+        if lineno <= 0 or lineno > len(lines):
+            return ""
+        return lines[lineno - 1].strip()[:240]
+
+    if source_text:
+        try:
+            tree = ast.parse(source_text, filename=str(source_path))
+        except SyntaxError as exc:
+            rows.append(
+                {
+                    "source": str(source_path),
+                    "scope": "module_parse",
+                    "line": int(exc.lineno or 0),
+                    "endpoint": "",
+                    "finding_type": "syntax_error",
+                    "severity": "fail",
+                    "fail_flag": True,
+                    "text_excerpt": str(exc),
+                }
+            )
+            tree = None
+
+        if tree is not None:
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if node.name not in phase1_phase2_functions:
+                    continue
+                for child in ast.walk(node):
+                    endpoint = ""
+                    finding_type = ""
+                    if isinstance(child, ast.Call):
+                        func = child.func
+                        if isinstance(func, ast.Attribute) and func.attr in forbidden_endpoints:
+                            endpoint = func.attr
+                            finding_type = "forbidden_call"
+                        elif isinstance(func, ast.Name) and func.id in forbidden_endpoints:
+                            endpoint = func.id
+                            finding_type = "forbidden_call"
+                    elif isinstance(child, ast.ImportFrom):
+                        for alias in child.names:
+                            if alias.name in forbidden_endpoints:
+                                endpoint = alias.name
+                                finding_type = "forbidden_import"
+                                break
+                    elif isinstance(child, ast.Import):
+                        for alias in child.names:
+                            if alias.name.split(".")[-1] in forbidden_endpoints:
+                                endpoint = alias.name.split(".")[-1]
+                                finding_type = "forbidden_import"
+                                break
+                    if endpoint:
+                        rows.append(
+                            {
+                                "source": str(source_path),
+                                "scope": node.name,
+                                "line": int(getattr(child, "lineno", node.lineno)),
+                                "endpoint": endpoint,
+                                "finding_type": finding_type,
+                                "severity": "fail",
+                                "fail_flag": True,
+                                "text_excerpt": _line_excerpt(source_lines, int(getattr(child, "lineno", node.lineno))),
+                            }
+                        )
+
+                start = int(node.lineno)
+                end = int(getattr(node, "end_lineno", node.lineno))
+                for line_no in range(start, end + 1):
+                    text = source_lines[line_no - 1]
+                    for endpoint in sorted(allowed_data_endpoints):
+                        if re.search(rf"\b(?:kite\.)?{re.escape(endpoint)}\b", text):
+                            rows.append(
+                                {
+                                    "source": str(source_path),
+                                    "scope": node.name,
+                                    "line": line_no,
+                                    "endpoint": endpoint,
+                                    "finding_type": "allowed_data_endpoint_reference",
+                                    "severity": "info",
+                                    "fail_flag": False,
+                                    "text_excerpt": text.strip()[:240],
+                                }
+                            )
+                    for endpoint in sorted(forbidden_endpoints):
+                        if re.search(rf"\b{re.escape(endpoint)}\b", text):
+                            already_flagged = any(
+                                row["source"] == str(source_path)
+                                and row["scope"] == node.name
+                                and row["line"] == line_no
+                                and row["endpoint"] == endpoint
+                                and row["fail_flag"]
+                                for row in rows
+                            )
+                            if not already_flagged:
+                                rows.append(
+                                    {
+                                        "source": str(source_path),
+                                        "scope": node.name,
+                                        "line": line_no,
+                                        "endpoint": endpoint,
+                                        "finding_type": "documentation_or_string_reference",
+                                        "severity": "info",
+                                        "fail_flag": False,
+                                        "text_excerpt": text.strip()[:240],
+                                    }
+                                )
+
+    for wrapper_path in wrapper_paths:
+        if not wrapper_path.exists():
+            missing_sources.append(str(wrapper_path))
+            continue
+        wrapper_lines = wrapper_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        noninteractive_seen = False
+        for line_no, text in enumerate(wrapper_lines, start=1):
+            if "SSELL1_NONINTERACTIVE" in text and "1" in text:
+                noninteractive_seen = True
+                rows.append(
+                    {
+                        "source": str(wrapper_path),
+                        "scope": "wrapper_script",
+                        "line": line_no,
+                        "endpoint": "SSELL1_NONINTERACTIVE",
+                        "finding_type": "noninteractive_guard_reference",
+                        "severity": "info",
+                        "fail_flag": False,
+                        "text_excerpt": text.strip()[:240],
+                    }
+                )
+            for endpoint in sorted(forbidden_endpoints):
+                if re.search(rf"\b{re.escape(endpoint)}\b", text, flags=re.IGNORECASE):
+                    rows.append(
+                        {
+                            "source": str(wrapper_path),
+                            "scope": "wrapper_script",
+                            "line": line_no,
+                            "endpoint": endpoint,
+                            "finding_type": "forbidden_wrapper_reference",
+                            "severity": "fail",
+                            "fail_flag": True,
+                            "text_excerpt": text.strip()[:240],
+                        }
+                    )
+        if not noninteractive_seen and wrapper_path.name.startswith("run_tb11_"):
+            rows.append(
+                {
+                    "source": str(wrapper_path),
+                    "scope": "wrapper_script",
+                    "line": 0,
+                    "endpoint": "SSELL1_NONINTERACTIVE",
+                    "finding_type": "missing_noninteractive_guard",
+                    "severity": "fail",
+                    "fail_flag": True,
+                    "text_excerpt": "Expected SSELL1_NONINTERACTIVE=1 in scheduled TB11 wrapper.",
+                }
+            )
+
+    detail_df = pd.DataFrame(rows)
+    if detail_df.empty:
+        detail_df = pd.DataFrame(
+            columns=[
+                "source",
+                "scope",
+                "line",
+                "endpoint",
+                "finding_type",
+                "severity",
+                "fail_flag",
+                "text_excerpt",
+            ]
+        )
+    detail_df.to_csv(detail_csv, index=False)
+
+    forbidden_call_count = int(detail_df["finding_type"].eq("forbidden_call").sum()) if not detail_df.empty else 0
+    forbidden_import_count = int(detail_df["finding_type"].eq("forbidden_import").sum()) if not detail_df.empty else 0
+    forbidden_wrapper_reference_count = (
+        int(detail_df["finding_type"].eq("forbidden_wrapper_reference").sum()) if not detail_df.empty else 0
+    )
+    documentation_mentions = (
+        int(detail_df["finding_type"].eq("documentation_or_string_reference").sum()) if not detail_df.empty else 0
+    )
+    allowed_data_endpoint_references = (
+        int(detail_df["finding_type"].eq("allowed_data_endpoint_reference").sum()) if not detail_df.empty else 0
+    )
+    noninteractive_guard_references = (
+        int(detail_df["finding_type"].eq("noninteractive_guard_reference").sum()) if not detail_df.empty else 0
+    )
+    fail_count = int(detail_df["fail_flag"].astype(str).str.lower().isin(["true", "1"]).sum()) if not detail_df.empty else 0
+    missing_source_count = len(missing_sources)
+    audit_passed = fail_count == 0 and missing_source_count == 0
+    audit_status = "passed_no_order_endpoints_detected" if audit_passed else "failed_no_order_endpoint_or_wrapper_guard"
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "audit_status": audit_status,
+                "audit_passed": audit_passed,
+                "broker_orders_allowed": False,
+                "forbidden_order_call_count": forbidden_call_count,
+                "forbidden_order_import_count": forbidden_import_count,
+                "forbidden_wrapper_reference_count": forbidden_wrapper_reference_count,
+                "documentation_mentions": documentation_mentions,
+                "allowed_data_endpoint_references": allowed_data_endpoint_references,
+                "noninteractive_guard_references": noninteractive_guard_references,
+                "missing_source_count": missing_source_count,
+                "missing_sources": "|".join(missing_sources) if missing_sources else "none",
+                "scoped_functions": "|".join(sorted(phase1_phase2_functions)),
+                "allowed_data_endpoints": "kite.quote|kite.instruments",
+                "forbidden_order_endpoints": "place_order|modify_order|cancel_order",
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+
+    memo_md.write_text(
+        "\n".join(
+            [
+                "# TB11 No-Order Endpoint Static Audit",
+                "",
+                f"Generated at IST: `{generated_at_ist}`",
+                "",
+                f"- audit status: `{audit_status}`",
+                f"- audit passed: `{audit_passed}`",
+                f"- forbidden order calls: `{forbidden_call_count}`",
+                f"- forbidden order imports: `{forbidden_import_count}`",
+                f"- forbidden wrapper references: `{forbidden_wrapper_reference_count}`",
+                f"- documentation/string mentions: `{documentation_mentions}`",
+                f"- allowed data endpoint references: `{allowed_data_endpoint_references}`",
+                f"- noninteractive wrapper guard references: `{noninteractive_guard_references}`",
+                f"- missing sources: `{summary_df.iloc[0]['missing_sources']}`",
+                "",
+                "Verdict: Phase 1/Phase 2 remains broker-order blocked when the audit passes.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-NO-ORDER-AUDIT] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-NO-ORDER-AUDIT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-NO-ORDER-AUDIT] memo saved: {memo_md}", flush=True)
+    return summary_df
+
+
 def run_composite_plan_gate_audit(
     output_prefix: str = "composite_plan_gate_audit",
 ) -> pd.DataFrame:
@@ -20916,10 +21217,14 @@ def run_composite_plan_gate_audit(
     phase1_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
     readiness_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
     transition_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
+    no_order_audit_csv = baseline_dir / "tb11_no_order_endpoint_static_audit_summary.csv"
     tb15_base_csv = baseline_dir / "tb15_cash_secured_put_large_caps_summary.csv"
     tb15_stress_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_summary.csv"
     tb15_sizing_csv = baseline_dir / "tb15_csp_vol_breadth_stress_gate_kelly_sizing.csv"
     roadmap_status_md = RESULTS_DIR / "roadmap_status_20260630_equity_csp_pairs.md"
+
+    if not no_order_audit_csv.exists():
+        run_tb11_no_order_endpoint_static_audit(output_prefix="tb11_no_order_endpoint_static_audit")
 
     pd.DataFrame(
         [
@@ -20931,6 +21236,7 @@ def run_composite_plan_gate_audit(
                 "phase1_summary_source": str(phase1_summary_csv),
                 "readiness_source": str(readiness_csv),
                 "transition_source": str(transition_csv),
+                "no_order_audit_source": str(no_order_audit_csv),
                 "tb15_base_source": str(tb15_base_csv),
                 "tb15_stress_source": str(tb15_stress_csv),
                 "tb15_sizing_source": str(tb15_sizing_csv),
@@ -20969,6 +21275,7 @@ def run_composite_plan_gate_audit(
     phase1 = _read_csv(phase1_summary_csv)
     readiness = _read_csv(readiness_csv)
     transition = _read_csv(transition_csv)
+    no_order_audit = _read_csv(no_order_audit_csv)
     tb15_base = _read_csv(tb15_base_csv)
     tb15_stress = _read_csv(tb15_stress_csv)
     tb15_sizing = _read_csv(tb15_sizing_csv)
@@ -20977,6 +21284,7 @@ def run_composite_plan_gate_audit(
     phase1_row = phase1.iloc[0] if not phase1.empty else pd.Series(dtype=object)
     readiness_row = readiness.iloc[0] if not readiness.empty else pd.Series(dtype=object)
     transition_row = transition.iloc[0] if not transition.empty else pd.Series(dtype=object)
+    no_order_row = no_order_audit.iloc[0] if not no_order_audit.empty else pd.Series(dtype=object)
     tb15_portfolio = (
         tb15_base.loc[tb15_base.get("symbol", pd.Series(dtype=str)).astype(str).eq("PORTFOLIO_EQUAL_WEIGHT")].head(1)
         if not tb15_base.empty and "symbol" in tb15_base.columns
@@ -20996,6 +21304,11 @@ def run_composite_plan_gate_audit(
     transition_passed = _bool_value(transition_row.get("transition_passed", False))
     runbook_written = _bool_value(transition_row.get("runbook_written", False))
     automation_state_advanced = _bool_value(transition_row.get("automation_state_advanced", False))
+    no_order_audit_passed = _bool_value(no_order_row.get("audit_passed", False))
+    forbidden_order_call_count = int(_num(no_order_row.get("forbidden_order_call_count", 0), 0))
+    forbidden_order_import_count = int(_num(no_order_row.get("forbidden_order_import_count", 0), 0))
+    forbidden_wrapper_reference_count = int(_num(no_order_row.get("forbidden_wrapper_reference_count", 0), 0))
+    no_order_missing_source_count = int(_num(no_order_row.get("missing_source_count", 1), 1))
     run_lock_locked = _bool_value(run_lock.get("locked", False))
     active_thesis = str(automation_state.get("active_thesis", ""))
     next_thesis = str(automation_state.get("next_thesis", ""))
@@ -21009,6 +21322,12 @@ def run_composite_plan_gate_audit(
         branch_a_blockers.append("phase1_evidence_gate_not_passed")
     if phase1_broker_blocks != 0:
         branch_a_blockers.append("broker_block_violation")
+    if not no_order_audit_passed:
+        branch_a_blockers.append("no_order_static_audit_not_passed")
+    if forbidden_order_call_count != 0 or forbidden_order_import_count != 0 or forbidden_wrapper_reference_count != 0:
+        branch_a_blockers.append("forbidden_order_endpoint_detected")
+    if no_order_missing_source_count != 0:
+        branch_a_blockers.append("no_order_static_audit_source_missing")
     if not readiness_gate:
         branch_a_blockers.append("t28_or_readiness_gate_not_passed")
     if not readiness_modeled:
@@ -21088,7 +21407,9 @@ def run_composite_plan_gate_audit(
                 f"clean={clean_observations}/{target_clean}; unique_dates={unique_dates}/5; "
                 f"phase1_gate={phase1_gate}; readiness_gate={readiness_gate}; "
                 f"modeled_credit={readiness_modeled}; leg_coverage={readiness_leg_coverage}; "
-                f"broker_blocks={phase1_broker_blocks}; active={active_thesis}; next={next_thesis}"
+                f"broker_blocks={phase1_broker_blocks}; no_order_audit={no_order_audit_passed}; "
+                f"forbidden_calls={forbidden_order_call_count}; forbidden_imports={forbidden_order_import_count}; "
+                f"wrapper_refs={forbidden_wrapper_reference_count}; active={active_thesis}; next={next_thesis}"
             ),
         },
         {
@@ -21140,6 +21461,11 @@ def run_composite_plan_gate_audit(
                 "target_clean_observations": target_clean,
                 "unique_observation_dates": unique_dates,
                 "broker_block_violations": phase1_broker_blocks,
+                "no_order_static_audit_passed": no_order_audit_passed,
+                "forbidden_order_call_count": forbidden_order_call_count,
+                "forbidden_order_import_count": forbidden_order_import_count,
+                "forbidden_wrapper_reference_count": forbidden_wrapper_reference_count,
+                "no_order_static_audit_missing_source_count": no_order_missing_source_count,
                 "readiness_phase2_gate_passed": readiness_gate,
                 "transition_passed": transition_passed,
                 "runbook_written": runbook_written,
@@ -21178,6 +21504,8 @@ def run_composite_plan_gate_audit(
         f"- modeled credit available: `{readiness_modeled}`",
         f"- selected-leg coverage: `{readiness_leg_coverage}`",
         f"- broker-block violations: `{phase1_broker_blocks}`",
+        f"- no-order static audit passed: `{no_order_audit_passed}`",
+        f"- forbidden order calls/imports/wrapper refs: `{forbidden_order_call_count}` / `{forbidden_order_import_count}` / `{forbidden_wrapper_reference_count}`",
         f"- blockers: `{summary_df.iloc[0]['branch_a_blockers']}`",
         "",
         "## Branch B - TB15",
@@ -23061,6 +23389,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_t28_freshness_gate",
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
             "signal_baseline_tb11_options_phase2_transition_controller",
+            "signal_baseline_tb11_no_order_endpoint_static_audit",
             "signal_baseline_composite_plan_gate_audit",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
@@ -23784,6 +24113,14 @@ if __name__ == "__main__":
             "This writes the Phase 2 runbook and advances state only after all no-order gates pass."
         )
         run_tb11_options_phase2_transition_controller(output_prefix="tb11_phase2_transition_controller")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_no_order_endpoint_static_audit":
+        main_logger.info(
+            "Starting TB11 no-order endpoint static audit. "
+            "This checks Phase 1/Phase 2 code and wrappers for forbidden order endpoint usage."
+        )
+        run_tb11_no_order_endpoint_static_audit(output_prefix="tb11_no_order_endpoint_static_audit")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_composite_plan_gate_audit":

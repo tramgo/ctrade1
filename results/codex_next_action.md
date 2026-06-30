@@ -1466,6 +1466,8 @@ Current read:
 - clean observations: `14 / 15`
 - unique observation dates: `4 / 5`
 - broker-block violations: `0`
+- no-order static audit passed: `True`
+- forbidden order calls/imports/wrapper refs: `0 / 0 / 0`
 - T28/readiness Phase 2 gate: `False`
 - transition passed: `False`
 - runbook written: `False`
@@ -1479,3 +1481,41 @@ Current read:
 Verdict:
 
 The composite plan audit is now the current single receipt for Branch A/B/C gating. It confirms the only valid next action is to keep scheduled no-order Phase 1/T28 wrappers running and rerun the audit after the next market-hours observation. It also confirms Branch B TB15 remains deferred and Branch C lockouts are enforced.
+
+## `TB11 NoOrderEndpointStaticAudit`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_no_order_endpoint_static_audit
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_no_order_endpoint_static_audit_summary.csv`
+- `results/signal_baseline/tb11_no_order_endpoint_static_audit_detail.csv`
+- `results/signal_baseline/tb11_no_order_endpoint_static_audit_metadata.csv`
+- `results/signal_baseline/tb11_no_order_endpoint_static_audit_memo.md`
+
+Current read:
+
+- audit status: `passed_no_order_endpoints_detected`
+- audit passed: `True`
+- broker orders allowed: `False`
+- forbidden order calls: `0`
+- forbidden order imports: `0`
+- forbidden wrapper references: `0`
+- missing sources: `0`
+- documentation/string-only mentions: `3`
+- allowed data endpoint references: `31`
+- scheduled wrapper noninteractive guard references: `2`
+
+Composite integration:
+
+- `signal_baseline_composite_plan_gate_audit` now auto-creates the static audit if missing.
+- Branch A now records `no_order_static_audit_passed`, forbidden call/import/wrapper counts, and missing source count.
+- A missing or failed no-order audit becomes an explicit Branch A blocker.
+
+Verdict:
+
+The broker-block invariant is now artifact-checked for the Phase 1/Phase 2 TB11 code path and wrappers. Current evidence shows no `place_order`, `modify_order`, or `cancel_order` calls/imports/references in scheduled wrappers; only `kite.quote` and `kite.instruments` data access remains in scope.
