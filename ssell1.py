@@ -20713,6 +20713,7 @@ def run_tb11_options_phase2_transition_controller(
     metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
     next_action_md = baseline_dir / f"{output_prefix}_next_action.md"
     runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
+    closeout_md = baseline_dir / "tb11_phase1_to_phase2_transition_closeout_memo.md"
     generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
 
     phase1_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
@@ -20815,6 +20816,48 @@ def run_tb11_options_phase2_transition_controller(
             modeled_credit_available=readiness_model_credit_available,
         )
         runbook_md.write_text("\n".join(runbook_lines), encoding="utf-8")
+        closeout_md.write_text(
+            "\n".join(
+                [
+                    "# TB11 Phase 1 To Phase 2 Transition Closeout",
+                    "",
+                    f"Generated at IST: `{generated_at_ist}`",
+                    "",
+                    "## Verdict",
+                    "",
+                    "- Status: `phase1_target_gate_passed_phase2_runbook_opened`",
+                    "- Branch A may proceed only to no-order Phase 2 paper-price reconciliation.",
+                    "- Broker execution, paper trading promotion, and tiny live validation remain blocked pending later gates and explicit human approval.",
+                    "",
+                    "## Gate Evidence",
+                    "",
+                    f"- Phase 1 collection date: `{phase1_collection_date}`",
+                    f"- readiness collection date: `{readiness_collection_date}`",
+                    f"- clean observations: `{clean_observations}` / `{target_clean_observations}`",
+                    f"- unique observation dates: `{unique_observation_dates}` / `5`",
+                    f"- Phase 1 evidence gate passed: `{phase1_evidence_gate_passed}`",
+                    f"- readiness Phase 2 gate passed: `{readiness_phase2_gate_passed}`",
+                    f"- selected-leg coverage: `{readiness_t28_selected_leg_hits}` / `{readiness_t28_selected_legs_total}`",
+                    f"- modeled credit available: `{readiness_model_credit_available}`",
+                    f"- broker-block violations: `{ledger_broker_block_violations + readiness_broker_block_violations}`",
+                    "",
+                    "## Atomic State Update",
+                    "",
+                    "- `results/automation_state.json` active thesis advanced to `TB11_Phase2_PaperPriceReconciliationRunbook`.",
+                    "- `results/run_lock.json` thesis advanced to `TB11_Phase2_PaperPriceReconciliationRunbook`.",
+                    "- `tb11_phase2_paper_price_reconciliation_runbook.md` was written before any reconciliation execution.",
+                    "",
+                    "## Hard Rules",
+                    "",
+                    "- Phase 1 and Phase 2 remain no-order.",
+                    "- `place_order`, `modify_order`, and `cancel_order` must not be imported or called.",
+                    "- Branch B TB15 remains research-only until the Phase 2 runbook commit exists and TB15 tail-risk redesign gates are met.",
+                    "- Branch C E1006, TB08, and TB06 remain locked out under their documented criteria.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
 
         automation_state = _read_json(automation_state_path)
         automation_state.update(
@@ -20838,6 +20881,7 @@ def run_tb11_options_phase2_transition_controller(
         for output in [
             "results/signal_baseline/tb11_phase2_transition_controller_summary.csv",
             "results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md",
+            "results/signal_baseline/tb11_phase1_to_phase2_transition_closeout_memo.md",
         ]:
             if output not in expected_outputs:
                 expected_outputs.append(output)
@@ -20921,6 +20965,7 @@ def run_tb11_options_phase2_transition_controller(
     print(f"[TB11-PHASE2-TRANSITION] next action saved: {next_action_md}", flush=True)
     if transition_passed:
         print(f"[TB11-PHASE2-TRANSITION] runbook saved: {runbook_md}", flush=True)
+        print(f"[TB11-PHASE2-TRANSITION] closeout memo saved: {closeout_md}", flush=True)
     return summary_df
 
 
@@ -20934,6 +20979,7 @@ def run_tb11_phase2_runbook_template_contract_audit(
     metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
     memo_md = baseline_dir / f"{output_prefix}_memo.md"
     runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
+    transition_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
     generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
 
     template_lines = _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
@@ -20948,8 +20994,29 @@ def run_tb11_phase2_runbook_template_contract_audit(
         modeled_credit_available=True,
     )
     template_text = "\n".join(template_lines)
-    lower_template = template_text.lower()
-    runbook_exists_before_transition = runbook_md.exists()
+
+    def _read_csv(path: Path) -> pd.DataFrame:
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame()
+
+    def _bool_value(value: object) -> bool:
+        return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+    transition = _read_csv(transition_csv)
+    transition_row = transition.iloc[0] if not transition.empty else pd.Series(dtype=object)
+    transition_passed = _bool_value(transition_row.get("transition_passed", False))
+    transition_runbook_written = _bool_value(transition_row.get("runbook_written", False))
+    transition_state_advanced = _bool_value(transition_row.get("automation_state_advanced", False))
+    runbook_exists = runbook_md.exists()
+    runbook_legitimately_written = bool(runbook_exists and transition_passed and transition_runbook_written)
+    runbook_exists_before_transition = bool(runbook_exists and not runbook_legitimately_written)
+    audit_text = runbook_md.read_text(encoding="utf-8") if runbook_exists else template_text
+    audit_source = "written_runbook" if runbook_exists else "template_builder"
+    lower_template = audit_text.lower()
 
     required_contracts = [
         ("title", "# TB11 Phase 2 Paper-Price Reconciliation Runbook"),
@@ -21009,8 +21076,10 @@ def run_tb11_phase2_runbook_template_contract_audit(
                 "output_prefix": output_prefix,
                 "generated_at_ist": generated_at_ist,
                 "runbook_target": str(runbook_md),
+                "transition_source": str(transition_csv),
+                "audit_source": audit_source,
                 "mode_scope": "tb11_phase2_runbook_template_contract_audit_no_state_advance",
-                "note": "Validates the Phase 2 runbook template content without writing the transition-day runbook or advancing state.",
+                "note": "Validates the Phase 2 runbook contract without writing the transition-day runbook or advancing state. After transition it validates the written runbook.",
             }
         ]
     ).to_csv(metadata_csv, index=False)
@@ -21025,10 +21094,14 @@ def run_tb11_phase2_runbook_template_contract_audit(
                 "required_contract_count": len(required_contracts),
                 "present_contract_count": int(detail_df["present"].sum()),
                 "missing_contracts": "|".join(missing_contracts) if missing_contracts else "none",
+                "audit_source": audit_source,
+                "runbook_exists": runbook_exists,
+                "transition_passed": transition_passed,
                 "runbook_exists_before_transition": runbook_exists_before_transition,
+                "runbook_legitimately_written": runbook_legitimately_written,
                 "early_runbook_guard_passed": early_runbook_guard_passed,
-                "runbook_written": False,
-                "automation_state_advanced": False,
+                "runbook_written": transition_runbook_written,
+                "automation_state_advanced": transition_state_advanced,
                 "blockers": (
                     "|".join(missing_contracts)
                     if missing_contracts
@@ -21050,12 +21123,18 @@ def run_tb11_phase2_runbook_template_contract_audit(
                 f"- audit passed: `{audit_passed}`",
                 f"- required contracts present: `{summary_df.iloc[0]['present_contract_count']}` / `{len(required_contracts)}`",
                 f"- missing contracts: `{summary_df.iloc[0]['missing_contracts']}`",
+                f"- audit source: `{audit_source}`",
+                f"- runbook exists: `{runbook_exists}`",
+                f"- transition passed: `{transition_passed}`",
                 f"- runbook exists before transition: `{runbook_exists_before_transition}`",
+                f"- runbook legitimately written: `{runbook_legitimately_written}`",
                 f"- early runbook guard passed: `{early_runbook_guard_passed}`",
+                f"- transition runbook written: `{transition_runbook_written}`",
+                f"- transition automation state advanced: `{transition_state_advanced}`",
                 "- runbook written by this audit: `False`",
                 "- automation state advanced by this audit: `False`",
                 "",
-                "Verdict: The transition-day Phase 2 runbook template satisfies the pasted acceptance contract when the audit passes.",
+                "Verdict: The Phase 2 runbook contract satisfies the pasted acceptance requirements when the audit passes.",
                 "",
             ]
         ),
@@ -21782,12 +21861,15 @@ def run_composite_plan_gate_audit(
     if transition_passed and (not runbook_written or not automation_state_advanced):
         branch_a_blockers.append("transition_passed_without_atomic_runbook_state")
 
-    branch_a_status = "ready_for_phase2_runbook" if not branch_a_blockers else "blocked_wait_for_phase1_t28_gates"
-    branch_a_allowed_next = (
-        "Run transition controller; it may write the Phase 2 runbook and advance state."
-        if branch_a_status == "ready_for_phase2_runbook"
-        else "Continue scheduled no-order Phase 1/T28 wrappers; do not execute Phase 2 reconciliation yet."
-    )
+    if branch_a_blockers:
+        branch_a_status = "blocked_wait_for_phase1_t28_gates"
+        branch_a_allowed_next = "Continue scheduled no-order Phase 1/T28 wrappers; do not execute Phase 2 reconciliation yet."
+    elif transition_passed and runbook_written and automation_state_advanced:
+        branch_a_status = "phase2_runbook_opened_pending_commit"
+        branch_a_allowed_next = "Commit the Phase 2 runbook and transition artifacts before any reconciliation execution."
+    else:
+        branch_a_status = "ready_for_phase2_runbook"
+        branch_a_allowed_next = "Run transition controller; it may write the Phase 2 runbook and advance state."
 
     tb15_mean = _num(tb15_portfolio_row.get("mean_return_on_cash", np.nan), np.nan)
     tb15_worst = _num(tb15_portfolio_row.get("worst_return_on_cash", np.nan), np.nan)
@@ -21800,7 +21882,7 @@ def run_composite_plan_gate_audit(
         if not tb15_sizing.empty
         else 0
     )
-    branch_b_deferred_by_a = branch_a_status != "ready_for_phase2_runbook" or not runbook_written
+    branch_b_deferred_by_a = branch_a_status != "phase2_runbook_opened_pending_commit" or not runbook_written
     branch_b_research_only = bool(
         branch_b_deferred_by_a
         or not np.isfinite(tb15_mean)
@@ -21883,16 +21965,15 @@ def run_composite_plan_gate_audit(
     detail_df = pd.DataFrame(detail_rows)
     detail_df.to_csv(detail_csv, index=False)
 
-    overall_status = (
-        "branch_a_waiting_for_market_evidence"
-        if branch_a_status != "ready_for_phase2_runbook"
-        else "branch_a_ready_for_phase2_runbook"
-    )
-    next_best_action = (
-        "Keep scheduled no-order Phase 1/T28 wrappers running; rerun this audit after the next market-hours observation."
-        if branch_a_status != "ready_for_phase2_runbook"
-        else "Run transition controller and commit the Phase 2 runbook before any reconciliation execution."
-    )
+    if branch_a_status == "blocked_wait_for_phase1_t28_gates":
+        overall_status = "branch_a_waiting_for_market_evidence"
+        next_best_action = "Keep scheduled no-order Phase 1/T28 wrappers running; rerun this audit after the next market-hours observation."
+    elif branch_a_status == "ready_for_phase2_runbook":
+        overall_status = "branch_a_ready_for_phase2_runbook"
+        next_best_action = "Run transition controller and commit the Phase 2 runbook before any reconciliation execution."
+    else:
+        overall_status = "branch_a_phase2_runbook_opened_pending_commit"
+        next_best_action = "Commit the Phase 2 runbook and transition artifacts before any reconciliation execution."
     summary_df = pd.DataFrame(
         [
             {

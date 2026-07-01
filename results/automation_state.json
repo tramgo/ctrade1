@@ -4,11 +4,11 @@
   "incumbent": "SIGNAL_E211_BANDED_68",
   "rl_allowed": false,
   "active_batch": "TB11",
-  "active_thesis": "TB11_Phase1_Target15CleanObservationGate",
-  "active_stage": "waiting_for_one_more_clean_no_order_observation_before_phase2_reconciliation",
-  "last_completed_thesis": "TB11_T29_SelectedLegFullWingCoverageAndModeledCredit",
-  "last_completed_verdict": "selected_leg_full_wing_coverage_and_live_mid_modeled_credit_passed_2026_06_30_t28_4_of_4_legs_modeled_credit_available_phase2_only_blocked_by_14_of_15_phase1_target",
-  "next_thesis": "TB11_Phase2_PaperPriceReconciliationRunbook",
+  "active_thesis": "TB11_Phase2_PaperPriceReconciliationRunbook",
+  "active_stage": "phase2_runbook_opened_no_order_paper_price_reconciliation_next",
+  "last_completed_thesis": "TB11_Phase1_Target15CleanObservationGate",
+  "last_completed_verdict": "phase1_target_gate_passed_clean_observations_15_unique_dates_5_broker_blocks_0",
+  "next_thesis": "TB11_Phase2_NoOrderPaperPriceReconciliation",
   "allowed_parallel_theses": 1,
   "stage_order": [
     "state_reconciliation",
@@ -43,5 +43,5 @@
     "Phase 1 and Phase 2 must not place broker orders; they are logging and paper-price validation only.",
     "Tiny live one-lot validation requires explicit future human approval after dry-run and paper-price gates pass."
   ],
-  "last_updated_by": "codex_tb11_t29_selected_leg_model_credit_2026-06-30"
+  "last_updated_by": "codex_tb11_phase2_transition_controller"
 }

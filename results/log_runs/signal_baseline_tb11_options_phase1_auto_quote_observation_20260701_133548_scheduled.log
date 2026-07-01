@@ -1,0 +1,30 @@
+[Scheduler] started at 20260701_133548
+[Scheduler] cwd=C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1
+[Scheduler] mode=signal_baseline_tb11_options_phase1_auto_quote_observation
+[Scheduler] readiness_mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+[Scheduler] transition_mode=signal_baseline_tb11_options_phase2_transition_controller
+[Scheduler] python=C:\Users\Ramic\AppData\Local\Programs\Python\Python313\python.exe
+Python 3.13.2
+[Cached] Token invalid or expired: Failed to call profile after 5 retries: Incorrect `api_key` or `access_token`.. Fetching new token...
+[Attempt 1] Getting access token...
+[Success] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
+[TB11-T25] template saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_current_nfo_leg_resolver_template.csv
+[TB11-T25] unresolved saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_current_nfo_leg_resolver_unresolved_20260701.csv
+[TB11-T25] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_current_nfo_leg_resolver_summary.csv
+[TB11-T24] captured saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_zerodha_quote_only_collector_20260701.csv
+[TB11-T24] unresolved saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_zerodha_quote_only_collector_unresolved_20260701.csv
+[TB11-T24] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_zerodha_quote_only_collector_summary.csv
+[TB11-T26] latest detail saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_phase1_observation_ledger_latest_detail.csv
+[TB11-T26] ledger saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_phase1_observation_ledger.csv
+[TB11-T26] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_phase1_observation_ledger_summary.csv
+[TB11-T26-AUTO] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_phase1_auto_quote_observation_summary.csv
+[Scheduler] phase1_exit=0 
+[Scheduler] running phase2 readiness
+[TB11-PHASE2-READINESS] detail saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_paper_price_reconciliation_readiness_detail.csv
+[TB11-PHASE2-READINESS] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_paper_price_reconciliation_readiness_summary.csv
+[TB11-PHASE2-READINESS] next action saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_paper_price_reconciliation_readiness_next_action.md
+[Scheduler] readiness_exit=0 
+[Scheduler] running transition controller
+[TB11-PHASE2-TRANSITION] summary saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_transition_controller_summary.csv
+[TB11-PHASE2-TRANSITION] next action saved: C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_phase2_transition_controller_next_action.md
+[Scheduler] transition_exit=0 

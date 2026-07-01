@@ -1609,3 +1609,52 @@ Composite integration:
 Verdict:
 
 The transition-day Phase 2 runbook content is pre-validated without prematurely opening Phase 2. The real runbook should still only be written by the transition controller after the clean-observation, unique-date, readiness, and broker-block gates pass.
+
+## `TB11 Phase1ToPhase2TransitionPassed`
+
+Trigger evidence:
+
+- scheduled Phase 1 wrapper: `results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260701_133548_scheduled.log`
+- scheduled T28 wrapper: `results/log_runs/tb11_t28_chain_band_freshness_gate_20260701_133548_scheduled.log`
+- transition closeout memo: `results/signal_baseline/tb11_phase1_to_phase2_transition_closeout_memo.md`
+- Phase 2 runbook: `results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md`
+
+Current read:
+
+- transition passed: `True`
+- transition status: `phase2_runbook_opened_state_advanced`
+- Phase 1 collection date: `2026-07-01`
+- readiness collection date: `2026-07-01`
+- clean observations: `15 / 15`
+- unique observation dates: `5 / 5`
+- Phase 1 evidence gate passed: `True`
+- readiness Phase 2 gate passed: `True`
+- selected-leg coverage: `4 / 4`
+- modeled credit available: `True`
+- broker-block violations: `0`
+- runbook written: `True`
+- automation state advanced: `True`
+- broker orders allowed: `False`
+- blockers: `none`
+
+T28/readiness evidence:
+
+- T28 fresh quote rows: `98`
+- T28 selected-leg hits: `4 / 4`
+- readiness reconciliation status: `phase2_paper_price_reconciliation_ready`
+- latest Phase 1 observed weighted credit: `18.0`
+- latest Phase 1 modeled credit: `18.15`
+- latest Phase 1 within 15% adverse tolerance: `True`
+
+Post-transition audits:
+
+- no-order static audit passed: `True`
+- forbidden order calls/imports/wrapper refs: `0 / 0 / 0`
+- runbook contract audit passed against written runbook: `True`
+- runbook contracts present: `28 / 28`
+- runbook exists before transition: `False`
+- composite Branch A status: `phase2_runbook_opened_pending_commit`
+
+Verdict:
+
+Branch A crossed the Phase 1 Target-15 gate and opened the Phase 2 paper-price reconciliation runbook under the broker-block invariant. The required next action is to commit the runbook and transition artifacts before any Phase 2 reconciliation execution. Branch B TB15 remains research-only because tail risk still breaches the promotion bar; Branch C lockouts remain enforced.

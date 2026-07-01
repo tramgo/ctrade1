@@ -1,6 +1,6 @@
 # TB11 No-Order Endpoint Static Audit
 
-Generated at IST: `2026-06-30T20:21:37.900389+05:30`
+Generated at IST: `2026-07-01T14:42:28.773994+05:30`
 
 - audit status: `passed_no_order_endpoints_detected`
 - audit passed: `True`
@@ -8,7 +8,7 @@ Generated at IST: `2026-06-30T20:21:37.900389+05:30`
 - forbidden order imports: `0`
 - forbidden wrapper references: `0`
 - documentation/string mentions: `3`
-- allowed data endpoint references: `31`
+- allowed data endpoint references: `27`
 - noninteractive wrapper guard references: `2`
 - missing sources: `none`
 
