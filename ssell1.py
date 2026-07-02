@@ -22911,6 +22911,249 @@ def run_tb15_t03_fresh_forward_sample(
     return summary_df
 
 
+def run_tb11_t30_iv_conditioned_sizing_readiness(
+    output_prefix: str = "tb11_t30_iv_conditioned_sizing_readiness",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    latest_csv = baseline_dir / f"{output_prefix}_latest_snapshot.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    source_files = sorted(baseline_dir.glob("tb11_nifty_chain_band_quote_collector_detail_*.csv"))
+    risk_free_rate = 0.06
+    percentile_window_days = 60
+    min_unique_fresh_dates = 20
+
+    def _norm_cdf(x: float) -> float:
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    def _bs_price(spot: float, strike: float, years: float, vol: float, option_type: str) -> float:
+        if spot <= 0 or strike <= 0 or years <= 0 or vol <= 0:
+            return np.nan
+        sqrt_t = math.sqrt(years)
+        d1 = (math.log(spot / strike) + (risk_free_rate + 0.5 * vol * vol) * years) / (vol * sqrt_t)
+        d2 = d1 - vol * sqrt_t
+        discounted_strike = strike * math.exp(-risk_free_rate * years)
+        if option_type.upper() == "CE":
+            return spot * _norm_cdf(d1) - discounted_strike * _norm_cdf(d2)
+        return discounted_strike * _norm_cdf(-d2) - spot * _norm_cdf(-d1)
+
+    def _intrinsic(spot: float, strike: float, option_type: str) -> float:
+        if option_type.upper() == "CE":
+            return max(spot - strike, 0.0)
+        return max(strike - spot, 0.0)
+
+    def _implied_vol(row: pd.Series) -> float:
+        spot = float(row["spot_last_price"])
+        strike = float(row["strike"])
+        price = float(row["mid"])
+        years = float(row["days_to_expiry"]) / 365.25
+        option_type = str(row["option_type"]).upper()
+        if not np.isfinite(price) or price <= 0 or years <= 0:
+            return np.nan
+        if price < _intrinsic(spot, strike, option_type) - 1e-9:
+            return np.nan
+        low = 0.0001
+        high = 5.0
+        low_price = _bs_price(spot, strike, years, low, option_type)
+        high_price = _bs_price(spot, strike, years, high, option_type)
+        if not np.isfinite(low_price) or not np.isfinite(high_price) or price > high_price:
+            return np.nan
+        for _ in range(80):
+            mid_vol = (low + high) / 2.0
+            model_price = _bs_price(spot, strike, years, mid_vol, option_type)
+            if not np.isfinite(model_price):
+                return np.nan
+            if model_price < price:
+                low = mid_vol
+            else:
+                high = mid_vol
+        return (low + high) / 2.0
+
+    frames = []
+    for path in source_files:
+        try:
+            frame = pd.read_csv(path)
+        except Exception:
+            continue
+        if frame.empty:
+            continue
+        frame["source_file"] = path.name
+        frames.append(frame)
+
+    if not frames:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(latest_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "audit_id": "TB11_T30_iv_conditioned_sizing_readiness",
+                    "status": "blocked_missing_chain_band_detail",
+                    "source_file_count": 0,
+                    "modeled_iv_rows": 0,
+                    "broker_orders_allowed": False,
+                    "next_action": "Collect chain-band detail rows before computing IV-conditioned sizing.",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB11 T30 IV-Conditioned Sizing Readiness\n\nStatus: `blocked_missing_chain_band_detail`\n",
+            encoding="utf-8",
+        )
+        return summary_df
+
+    chain = pd.concat(frames, ignore_index=True, sort=False)
+    for col in ["spot_last_price", "strike", "mid", "days_to_expiry", "moneyness_pct", "quote_age_seconds", "spread_pct", "oi", "volume"]:
+        if col in chain.columns:
+            chain[col] = pd.to_numeric(chain[col], errors="coerce")
+    chain["collection_date_ist"] = pd.to_datetime(chain["collection_date_ist"], errors="coerce").dt.normalize()
+    chain["expiry_date"] = pd.to_datetime(chain["expiry_date"], errors="coerce").dt.normalize()
+    chain["quote_freshness_pass"] = chain["quote_freshness_pass"].astype(str).str.lower().isin(["true", "1", "yes"])
+    chain["spread_quality_pass"] = chain["spread_quality_pass"].astype(str).str.lower().isin(["true", "1", "yes"])
+    chain["option_type"] = chain["option_type"].astype(str).str.upper()
+    chain["is_otm"] = (
+        (chain["option_type"].eq("CE") & (chain["strike"] > chain["spot_last_price"]))
+        | (chain["option_type"].eq("PE") & (chain["strike"] < chain["spot_last_price"]))
+    )
+    chain["moneyness_bucket"] = pd.cut(
+        chain["moneyness_pct"].abs(),
+        bins=[0.0, 0.02, 0.04, 0.06, 0.10, np.inf],
+        labels=["0_2pct", "2_4pct", "4_6pct", "6_10pct", "gt_10pct"],
+        include_lowest=True,
+    ).astype(str)
+
+    eligible = chain.loc[
+        chain["quote_freshness_pass"]
+        & chain["spread_quality_pass"]
+        & chain["is_otm"]
+        & chain["spot_last_price"].gt(0)
+        & chain["strike"].gt(0)
+        & chain["mid"].gt(0)
+        & chain["days_to_expiry"].gt(0)
+    ].copy()
+    if not eligible.empty:
+        eligible["modeled_iv"] = eligible.apply(_implied_vol, axis=1)
+        eligible = eligible.dropna(subset=["modeled_iv"]).copy()
+        eligible["modeled_iv_pct"] = eligible["modeled_iv"] * 100.0
+        bucket_history = (
+            eligible.groupby(["collection_date_ist", "option_type", "moneyness_bucket"], dropna=False)
+            .agg(bucket_mean_modeled_iv=("modeled_iv", "mean"))
+            .reset_index()
+        )
+        bucket_history["iv_rank_with_available_history"] = bucket_history.groupby(
+            ["option_type", "moneyness_bucket"], dropna=False
+        )["bucket_mean_modeled_iv"].rank(pct=True)
+        eligible = eligible.merge(
+            bucket_history,
+            on=["collection_date_ist", "option_type", "moneyness_bucket"],
+            how="left",
+        )
+    else:
+        eligible["modeled_iv"] = pd.Series(dtype=float)
+        eligible["modeled_iv_pct"] = pd.Series(dtype=float)
+        eligible["iv_rank_with_available_history"] = pd.Series(dtype=float)
+
+    eligible.to_csv(detail_csv, index=False)
+    latest_date = eligible["collection_date_ist"].max() if not eligible.empty else pd.NaT
+    latest = eligible.loc[eligible["collection_date_ist"].eq(latest_date)].copy() if pd.notna(latest_date) else pd.DataFrame()
+    if not latest.empty:
+        latest = latest.sort_values(["option_type", "moneyness_bucket", "strike"]).reset_index(drop=True)
+    latest.to_csv(latest_csv, index=False)
+
+    unique_fresh_dates = int(eligible["collection_date_ist"].nunique()) if not eligible.empty else 0
+    first_fresh_date = eligible["collection_date_ist"].min() if not eligible.empty else pd.NaT
+    history_span_days = int((latest_date - first_fresh_date).days) if pd.notna(latest_date) and pd.notna(first_fresh_date) else 0
+    latest_median_iv = float(latest["modeled_iv"].median()) if not latest.empty else np.nan
+    latest_median_rank = float(latest["iv_rank_with_available_history"].median()) if not latest.empty else np.nan
+    iv_history_ready = bool(unique_fresh_dates >= min_unique_fresh_dates and history_span_days >= percentile_window_days)
+    t30_status = "iv_percentile_ready" if iv_history_ready else "blocked_insufficient_iv_history"
+    sizing_tier = "no_entry_insufficient_history"
+    if iv_history_ready and np.isfinite(latest_median_rank):
+        if latest_median_rank < 0.40:
+            sizing_tier = "no_entry_low_iv"
+        elif latest_median_rank < 0.70:
+            sizing_tier = "standard_lot_count"
+        else:
+            sizing_tier = "increased_lot_count"
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "audit_id": "TB11_T30_iv_conditioned_sizing_readiness",
+                "status": t30_status,
+                "source_file_count": int(len(source_files)),
+                "raw_chain_rows": int(len(chain)),
+                "eligible_otm_fresh_rows": int(len(eligible)),
+                "modeled_iv_rows": int(eligible["modeled_iv"].notna().sum()) if "modeled_iv" in eligible.columns else 0,
+                "unique_fresh_capture_dates": unique_fresh_dates,
+                "first_fresh_capture_date": first_fresh_date.date().isoformat() if pd.notna(first_fresh_date) else "",
+                "latest_fresh_capture_date": latest_date.date().isoformat() if pd.notna(latest_date) else "",
+                "history_span_days": history_span_days,
+                "percentile_window_target_days": percentile_window_days,
+                "min_unique_fresh_dates": min_unique_fresh_dates,
+                "latest_snapshot_rows": int(len(latest)),
+                "latest_median_modeled_iv": latest_median_iv,
+                "latest_median_iv_rank_with_available_history": latest_median_rank,
+                "provisional_sizing_tier": sizing_tier,
+                "broker_orders_allowed": False,
+                "decision": "research_only_preview" if not iv_history_ready else "eligible_for_t30_backtest_integration",
+                "next_action": (
+                    "Keep collecting fresh chain-band rows until the 60-day IV percentile window is available."
+                    if not iv_history_ready
+                    else "Integrate IV percentile veto into the TB11 backtest and compare against the unconditioned baseline."
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "source_files": "|".join(path.name for path in source_files),
+                "risk_free_rate": risk_free_rate,
+                "percentile_window_days": percentile_window_days,
+                "min_unique_fresh_dates": min_unique_fresh_dates,
+                "mode_scope": "tb11_t30_iv_conditioned_sizing_local_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB11 T30 IV-Conditioned Sizing Readiness",
+                "",
+                f"Status: `{t30_status}`",
+                "",
+                f"- source chain-band detail files: `{len(source_files)}`",
+                f"- raw chain rows: `{len(chain)}`",
+                f"- modeled IV rows: `{summary_df.iloc[0]['modeled_iv_rows']}`",
+                f"- unique fresh capture dates: `{unique_fresh_dates}`",
+                f"- history span days: `{history_span_days}` / `{percentile_window_days}`",
+                f"- latest median modeled IV: `{latest_median_iv}`",
+                f"- latest median available-history IV rank: `{latest_median_rank}`",
+                f"- provisional sizing tier: `{sizing_tier}`",
+                "- broker orders allowed: `False`",
+                "",
+                f"Next action: {summary_df.iloc[0]['next_action']}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-T30] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T30] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T30] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -24187,6 +24430,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_no_order_endpoint_static_audit",
             "signal_baseline_tb11_task_scheduler_readiness_audit",
             "signal_baseline_composite_plan_gate_audit",
+            "signal_baseline_tb11_t30_iv_conditioned_sizing_readiness",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_tb15_t03_fresh_forward_sample",
@@ -24944,6 +25188,14 @@ if __name__ == "__main__":
             "This reads Branch A/B/C artifacts and reports allowed next actions without broker calls or state advancement."
         )
         run_composite_plan_gate_audit(output_prefix="composite_plan_gate_audit")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_t30_iv_conditioned_sizing_readiness":
+        main_logger.info(
+            "Starting TB11 T30 IV-conditioned sizing readiness. "
+            "This computes modeled IV from chain-band mids and remains research-only with no broker orders."
+        )
+        run_tb11_t30_iv_conditioned_sizing_readiness(output_prefix="tb11_t30_iv_conditioned_sizing_readiness")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb15_cash_secured_put_large_caps":

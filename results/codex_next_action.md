@@ -1732,3 +1732,41 @@ The plan's first item is already closed by the existing strict OOS kill-switch, 
 Next action:
 
 Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample, then rerun T03. If a fresh forward slice cannot be obtained now, proceed to TB11_T30 IV-conditioned sizing as the next cheapest high-value research item using already collected chain-band data.
+
+## `TB11_T30_IVConditionedSizingReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_t30_iv_conditioned_sizing_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_detail.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_latest_snapshot.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_summary.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_metadata.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_decision.md`
+
+Current read:
+
+- status: `blocked_insufficient_iv_history`
+- source chain-band detail files: `4`
+- raw chain rows: `388`
+- eligible OTM fresh rows: `50`
+- modeled IV rows: `50`
+- unique fresh capture dates: `1`
+- history span: `0 / 60` days
+- latest median modeled IV: `0.13398187395710384`
+- latest median available-history IV rank: `1.0`
+- provisional sizing tier: `no_entry_insufficient_history`
+- broker orders allowed: `False`
+
+Inference:
+
+T30 can now compute modeled IV from chain-band mid quotes, but the current data is only a one-date fresh preview. It is not a valid 60-day IV percentile input yet and must not drive live/paper sizing.
+
+Next action:
+
+Keep collecting fresh T28 chain-band rows during market hours; rerun T30 after the history spans 60 days or at least 20 fresh capture dates.

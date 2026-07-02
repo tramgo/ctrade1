@@ -62,3 +62,38 @@ Inference: a genuine fresh forward sample is not locally available. The F&O arch
 ## Current Next Action
 
 Do not proceed to TB15_T04 defined-risk bull put spread redesign from this blocked T03 result. Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample, then rerun T03. If refreshing the forward slice is not possible, move to TB11_T30 IV-conditioned sizing as the next cheapest high-value research item that uses already collected chain-band data.
+
+## TB11_T30 IV-Conditioned Sizing Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_t30_iv_conditioned_sizing_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_detail.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_latest_snapshot.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_summary.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_metadata.csv`
+- `results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_decision.md`
+
+Current result:
+
+- status: `blocked_insufficient_iv_history`
+- source chain-band detail files: `4`
+- raw chain rows: `388`
+- eligible OTM fresh rows: `50`
+- modeled IV rows: `50`
+- unique fresh capture dates: `1`
+- first/latest fresh capture date: `2026-07-01` / `2026-07-01`
+- history span: `0 / 60` days
+- latest median modeled IV: `0.13398187395710384`
+- latest median available-history IV rank: `1.0`
+- provisional sizing tier: `no_entry_insufficient_history`
+- broker orders allowed: `False`
+
+Inference: the chain-band data is sufficient to compute modeled implied volatility from mid quotes, spot, strike, option type, and DTE, but it is not yet sufficient to use a 60-day IV percentile. T30 remains a research-only preview until enough fresh market-hour chain-band captures accumulate.
+
+Next action: keep scheduled T28 chain-band collection alive and rerun T30 after the fresh capture history spans 60 days or at least 20 fresh capture dates. Do not use the provisional IV rank for sizing yet.
