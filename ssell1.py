@@ -23154,6 +23154,327 @@ def run_tb11_t30_iv_conditioned_sizing_readiness(
     return summary_df
 
 
+def run_tb11_t31_staggered_multi_expiry_readiness(
+    output_prefix: str = "tb11_t31_staggered_multi_expiry_readiness",
+) -> pd.DataFrame:
+    from signal_options_synth import (
+        _parse_bhavcopy_date,
+        _pick_leg,
+        _read_nifty_options_bhavcopy,
+        load_price_frame,
+    )
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    source_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    scenarios = [
+        ("base", "TB11_T09_low_loss_h15_c1", 0.15, 1.0),
+        ("harsh_stress", "TB11_T09_low_loss_h30_c3", 0.30, 3.0),
+    ]
+    stagger_weights = [
+        ("near_100", 1.00, 0.00),
+        ("stagger_75_25", 0.75, 0.25),
+        ("stagger_50_50", 0.50, 0.50),
+        ("stagger_25_75", 0.25, 0.75),
+    ]
+    min_total_contracts = 60000.0
+    second_expiry_min_gap_days = 3
+    second_expiry_max_dte = 17
+
+    spot_df, spot_path, spot_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+        ],
+        "Spot",
+    )
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    bhavcopy_files = sorted(bhavcopy_root.rglob("fo*bhav.csv.zip")) if bhavcopy_root.exists() else []
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": pd.Timestamp.now(tz="Asia/Kolkata").isoformat(),
+                "source_detail": str(source_csv),
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "bhavcopy_file_count": len(bhavcopy_files),
+                "selected_profile": "def_full_resg0_ovg50",
+                "source_strategy_base": "TB11_T09_low_loss_h15_c1",
+                "source_strategy_harsh": "TB11_T09_low_loss_h30_c3",
+                "second_expiry_max_dte": second_expiry_max_dte,
+                "min_total_contracts": min_total_contracts,
+                "mode_scope": "tb11_t31_staggered_multi_expiry_real_chain_readiness_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not source_csv.exists() or spot_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        decision_md.write_text(
+            "# TB11 T31 Staggered Multi-Expiry Readiness\n\n"
+            "Status: `blocked_missing_local_inputs`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB11-T31] missing source detail, spot input, or bhavcopy root; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    source_all = pd.read_csv(source_csv)
+    spot = spot_df[["Date", "Spot"]].dropna().copy()
+    spot["Date"] = pd.to_datetime(spot["Date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    spot["Spot"] = pd.to_numeric(spot["Spot"], errors="coerce")
+    spot = spot.dropna().sort_values("Date").drop_duplicates("Date", keep="last")
+    spot_by_date = dict(zip(spot["Date"], spot["Spot"]))
+    file_by_date = {date: path for path in bhavcopy_files if (date := _parse_bhavcopy_date(path)) is not None}
+
+    detail_rows = []
+    skipped_rows = []
+
+    def _select_condor_for_expiry(
+        chain: pd.DataFrame,
+        entry_date: pd.Timestamp,
+        expiry_date: pd.Timestamp,
+        spot_entry: float,
+        spot_expiry: float,
+        premium_haircut: float,
+        cost_per_leg_points: float,
+    ) -> dict | None:
+        expiry_chain = chain.loc[chain["EXPIRY_DATE"] == expiry_date].copy()
+        short_call = _pick_leg(expiry_chain, "CE", spot_entry * 1.03, "up", True)
+        short_put = _pick_leg(expiry_chain, "PE", spot_entry * 0.97, "down", True)
+        call_wing = _pick_leg(expiry_chain, "CE", spot_entry * 1.08, "up", True)
+        put_wing = _pick_leg(expiry_chain, "PE", spot_entry * 0.92, "down", True)
+        if any(leg is None for leg in [short_call, short_put, call_wing, put_wing]):
+            return None
+        total_contracts = sum(
+            float(pd.to_numeric(leg.get("CONTRACTS", np.nan), errors="coerce"))
+            for leg in [short_call, short_put, call_wing, put_wing]
+        )
+        if not np.isfinite(total_contracts) or total_contracts < min_total_contracts:
+            return None
+        short_credit_raw = float(short_call["CLOSE"]) + float(short_put["CLOSE"])
+        long_debit_raw = float(call_wing["CLOSE"]) + float(put_wing["CLOSE"])
+        net_credit = short_credit_raw * (1.0 - premium_haircut) - long_debit_raw * (1.0 + premium_haircut)
+        expiry_payoff = max(spot_expiry - float(short_call["STRIKE_PR"]), 0.0) + max(float(short_put["STRIKE_PR"]) - spot_expiry, 0.0)
+        total_cost_points = 4.0 * cost_per_leg_points
+        net_pnl_points = net_credit - expiry_payoff - total_cost_points
+        call_width = float(call_wing["STRIKE_PR"]) - float(short_call["STRIKE_PR"])
+        put_width = float(short_put["STRIKE_PR"]) - float(put_wing["STRIKE_PR"])
+        margin_estimate_points = max(max(call_width, put_width) - net_credit, spot_entry * 0.02, 1.0)
+        return {
+            "entry_date": entry_date,
+            "expiry_date": expiry_date,
+            "days_to_expiry": int((expiry_date - entry_date).days),
+            "spot_entry": spot_entry,
+            "spot_expiry": spot_expiry,
+            "short_call_strike": float(short_call["STRIKE_PR"]),
+            "short_put_strike": float(short_put["STRIKE_PR"]),
+            "call_wing_strike": float(call_wing["STRIKE_PR"]),
+            "put_wing_strike": float(put_wing["STRIKE_PR"]),
+            "net_credit": net_credit,
+            "expiry_payoff": expiry_payoff,
+            "total_cost_points": total_cost_points,
+            "net_pnl_points": net_pnl_points,
+            "margin_estimate_points": margin_estimate_points,
+            "return_on_margin": net_pnl_points / margin_estimate_points,
+            "total_entry_contracts": total_contracts,
+        }
+
+    for scenario, source_strategy, premium_haircut, cost_per_leg_points in scenarios:
+        source = source_all.loc[source_all["strategy"] == source_strategy].copy()
+        if source.empty:
+            skipped_rows.append({"scenario": scenario, "reason": "missing_source_strategy", "source_strategy": source_strategy})
+            continue
+        source["entry_date"] = pd.to_datetime(source["entry_date"], errors="coerce").dt.normalize()
+        source["expiry_date"] = pd.to_datetime(source["expiry_date"], errors="coerce").dt.normalize()
+        for _, row in source.iterrows():
+            entry_date = pd.Timestamp(row["entry_date"]).normalize()
+            near_expiry = pd.Timestamp(row["expiry_date"]).normalize()
+            if entry_date not in file_by_date or entry_date not in spot_by_date:
+                skipped_rows.append({"scenario": scenario, "entry_date": entry_date, "reason": "missing_entry_chain_or_spot"})
+                continue
+            try:
+                options = _read_nifty_options_bhavcopy(file_by_date[entry_date])
+            except Exception as exc:
+                skipped_rows.append({"scenario": scenario, "entry_date": entry_date, "reason": f"read_error:{exc}"})
+                continue
+            expiries = sorted(
+                pd.Timestamp(exp).normalize()
+                for exp in options["EXPIRY_DATE"].dropna().unique()
+                if pd.Timestamp(exp).normalize() > near_expiry
+                and int((pd.Timestamp(exp).normalize() - near_expiry).days) >= second_expiry_min_gap_days
+                and int((pd.Timestamp(exp).normalize() - entry_date).days) <= second_expiry_max_dte
+            )
+            if not expiries:
+                skipped_rows.append({"scenario": scenario, "entry_date": entry_date, "near_expiry": near_expiry, "reason": "no_second_expiry_in_window"})
+                continue
+            second_expiry = expiries[0]
+            if second_expiry not in spot_by_date:
+                skipped_rows.append({"scenario": scenario, "entry_date": entry_date, "near_expiry": near_expiry, "second_expiry": second_expiry, "reason": "missing_second_expiry_spot"})
+                continue
+            second_leg = _select_condor_for_expiry(
+                chain=options,
+                entry_date=entry_date,
+                expiry_date=second_expiry,
+                spot_entry=float(spot_by_date[entry_date]),
+                spot_expiry=float(spot_by_date[second_expiry]),
+                premium_haircut=premium_haircut,
+                cost_per_leg_points=cost_per_leg_points,
+            )
+            if second_leg is None:
+                skipped_rows.append({"scenario": scenario, "entry_date": entry_date, "near_expiry": near_expiry, "second_expiry": second_expiry, "reason": "second_expiry_leg_or_liquidity_missing"})
+                continue
+            near_pnl = float(pd.to_numeric(row["net_pnl_points"], errors="coerce"))
+            near_rom = float(pd.to_numeric(row["return_on_margin"], errors="coerce"))
+            for label, near_weight, second_weight in stagger_weights:
+                weighted_pnl = near_pnl * near_weight + float(second_leg["net_pnl_points"]) * second_weight
+                weighted_rom = near_rom * near_weight + float(second_leg["return_on_margin"]) * second_weight
+                detail_rows.append(
+                    {
+                        "scenario": scenario,
+                        "stagger_variant": label,
+                        "source_strategy": source_strategy,
+                        "entry_date": entry_date,
+                        "near_expiry": near_expiry,
+                        "second_expiry": second_expiry,
+                        "near_weight": near_weight,
+                        "second_weight": second_weight,
+                        "near_pnl_points": near_pnl,
+                        "second_pnl_points": float(second_leg["net_pnl_points"]),
+                        "weighted_pnl_points": weighted_pnl,
+                        "near_return_on_margin": near_rom,
+                        "second_return_on_margin": float(second_leg["return_on_margin"]),
+                        "weighted_return_on_margin": weighted_rom,
+                        "second_days_to_expiry": int(second_leg["days_to_expiry"]),
+                        "second_total_entry_contracts": float(second_leg["total_entry_contracts"]),
+                    }
+                )
+
+    detail_df = pd.DataFrame(detail_rows)
+    skipped_df = pd.DataFrame(skipped_rows)
+    detail_df.to_csv(detail_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+
+    summary_rows = []
+    if not detail_df.empty:
+        for (scenario, variant), group in detail_df.groupby(["scenario", "stagger_variant"], dropna=False):
+            group = group.sort_values(["entry_date", "second_expiry"]).copy()
+            equity = pd.to_numeric(group["weighted_pnl_points"], errors="coerce").fillna(0.0).cumsum()
+            dd = equity - equity.cummax()
+            years = max(
+                (pd.to_datetime(group["second_expiry"]).max() - pd.to_datetime(group["entry_date"]).min()).days / 365.25,
+                len(group) / 52.0,
+                1.0 / 52.0,
+            )
+            total_rom = float(pd.to_numeric(group["weighted_return_on_margin"], errors="coerce").sum())
+            ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+            yearly = group.assign(year=pd.to_datetime(group["entry_date"]).dt.year).groupby("year")["weighted_pnl_points"].sum()
+            source_count = int(len(source_all.loc[source_all["strategy"] == dict((s, st) for s, st, _, _ in scenarios)[scenario]]))
+            coverage_rate = len(group) / max(source_count, 1)
+            summary_rows.append(
+                {
+                    "scenario": scenario,
+                    "stagger_variant": variant,
+                    "source_trade_count": source_count,
+                    "stagger_trade_count": int(len(group)),
+                    "coverage_rate": float(coverage_rate),
+                    "first_entry": pd.to_datetime(group["entry_date"]).min(),
+                    "last_second_expiry": pd.to_datetime(group["second_expiry"]).max(),
+                    "total_weighted_pnl_points": float(pd.to_numeric(group["weighted_pnl_points"], errors="coerce").sum()),
+                    "mean_weighted_pnl_points": float(pd.to_numeric(group["weighted_pnl_points"], errors="coerce").mean()),
+                    "worst_weighted_trade_points": float(pd.to_numeric(group["weighted_pnl_points"], errors="coerce").min()),
+                    "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                    "win_rate": float((pd.to_numeric(group["weighted_pnl_points"], errors="coerce") > 0).mean()),
+                    "total_return_on_margin": total_rom,
+                    "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                    "positive_years": int((yearly > 0).sum()),
+                    "negative_years": int((yearly < 0).sum()),
+                    "year_count": int(len(yearly)),
+                }
+            )
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        base_lookup = {
+            scenario: group.loc[group["stagger_variant"] == "near_100"].iloc[0]
+            for scenario, group in summary_df.groupby("scenario")
+            if not group.loc[group["stagger_variant"] == "near_100"].empty
+        }
+        decisions = []
+        for idx, row in summary_df.iterrows():
+            base_row = base_lookup.get(row["scenario"])
+            if base_row is None:
+                decisions.append("blocked_missing_near_baseline")
+                continue
+            coverage_pass = bool(float(row["coverage_rate"]) >= 0.80)
+            return_pass = bool(float(row["annualized_return_on_margin"]) >= float(base_row["annualized_return_on_margin"]) * 0.90)
+            drawdown_pass = bool(float(row["max_drawdown_points"]) >= float(base_row["max_drawdown_points"]))
+            variant_pass = bool(row["stagger_variant"] != "near_100" and coverage_pass and return_pass and drawdown_pass)
+            decisions.append("candidate_passes_t31_smoothing_gate" if variant_pass else "not_selected")
+            summary_df.loc[idx, "coverage_gate_pass"] = coverage_pass
+            summary_df.loc[idx, "return_retention_gate_pass"] = return_pass
+            summary_df.loc[idx, "drawdown_gate_pass"] = drawdown_pass
+        summary_df["decision"] = decisions
+        summary_df = summary_df.sort_values(
+            ["scenario", "decision", "annualized_return_on_margin", "max_drawdown_points"],
+            ascending=[True, True, False, False],
+        ).reset_index(drop=True)
+    else:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "scenario": "all",
+                    "stagger_variant": "",
+                    "decision": "blocked_no_second_expiry_coverage",
+                    "broker_orders_allowed": False,
+                }
+            ]
+        )
+    summary_df["broker_orders_allowed"] = False
+    summary_df.to_csv(summary_csv, index=False)
+
+    passing = summary_df.loc[summary_df.get("decision", pd.Series(dtype=str)).eq("candidate_passes_t31_smoothing_gate")].copy()
+    status = "candidate_passes_t31_smoothing_gate" if not passing.empty else "research_rejected_or_blocked"
+    best = passing.iloc[0] if not passing.empty else summary_df.iloc[0]
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB11 T31 Staggered Multi-Expiry Readiness",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- best scenario: `{best.get('scenario', '')}`",
+                f"- best stagger variant: `{best.get('stagger_variant', '')}`",
+                f"- source/stagger trades: `{best.get('source_trade_count', '')}` / `{best.get('stagger_trade_count', '')}`",
+                f"- coverage rate: `{best.get('coverage_rate', '')}`",
+                f"- annualized return on margin: `{best.get('annualized_return_on_margin', '')}`",
+                f"- worst trade points: `{best.get('worst_weighted_trade_points', '')}`",
+                f"- max drawdown points: `{best.get('max_drawdown_points', '')}`",
+                f"- decision: `{best.get('decision', '')}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: keep T31 rejected unless a later second-expiry construction improves drawdown while retaining return.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-T31] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-T31] summary saved: {summary_csv}", flush=True)
+    print(f"[TB11-T31] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_tb18_earnings_overlay_readiness(
     output_prefix: str = "tb18_earnings_overlay_readiness",
 ) -> pd.DataFrame:
@@ -24961,6 +25282,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_task_scheduler_readiness_audit",
             "signal_baseline_composite_plan_gate_audit",
             "signal_baseline_tb11_t30_iv_conditioned_sizing_readiness",
+            "signal_baseline_tb11_t31_staggered_multi_expiry_readiness",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_tb15_t03_fresh_forward_sample",
@@ -25728,6 +26050,14 @@ if __name__ == "__main__":
             "This computes modeled IV from chain-band mids and remains research-only with no broker orders."
         )
         run_tb11_t30_iv_conditioned_sizing_readiness(output_prefix="tb11_t30_iv_conditioned_sizing_readiness")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb11_t31_staggered_multi_expiry_readiness":
+        main_logger.info(
+            "Starting TB11 T31 staggered multi-expiry readiness. "
+            "This replays selected TB11 defensive entries into the next available expiry with broker orders blocked."
+        )
+        run_tb11_t31_staggered_multi_expiry_readiness(output_prefix="tb11_t31_staggered_multi_expiry_readiness")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb15_cash_secured_put_large_caps":

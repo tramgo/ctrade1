@@ -1843,3 +1843,37 @@ The first real-chain TB16 bull-put spread is close on return and acceptable on T
 Next action:
 
 Proceed to `TB11_T31` staggered multi-expiry or `TB19` OI positioning as the next plan item that can use current repo data. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers are cleared.
+
+## `TB11_T31_StaggeredMultiExpiryReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_t31_staggered_multi_expiry_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_detail.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_summary.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_skipped.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_metadata.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_decision.md`
+
+Current read:
+
+- status: `research_rejected_or_blocked`
+- source selected trades: `51`
+- usable second-expiry stagger trades: `3`
+- coverage rate: `5.88%`
+- dominant blocker: `second_expiry_leg_or_liquidity_missing`
+- blocked rows from that reason: `44` base and `44` harsh-stress
+- broker orders allowed: `False`
+
+Inference:
+
+T31 is not a promotion candidate. The next-expiry sleeve can be priced for only `3 / 51` selected defensive entries, so the apparent positive covered-row result is not broad enough to prove smoothing.
+
+Next action:
+
+Open `TB19` OI positioning using the local F&O OI artifacts. Keep `TB15_T03`, `TB11_T30`, `TB18`, and `TB11_T31` parked until their respective data-readiness blockers clear.

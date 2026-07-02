@@ -163,3 +163,36 @@ Current result:
 Inference: TB16 has acceptable diversification versus the TB11 balanced overlay, but it misses the 15% annualized return-on-margin gate by a narrow margin and carries materially larger point drawdown than the current TB11 defensive/balanced profiles. Do not promote this first bull-put spread variant.
 
 Next action: keep TB16 as a documented reject unless we intentionally test a narrower follow-up variant with a higher credit floor, lower liquidity threshold sensitivity, or a stronger trend/volatility gate. The plan order can move to TB11_T31 staggered multi-expiry or TB19 OI positioning while TB15_T03, TB11_T30, and TB18 remain blocked by data readiness.
+
+## TB11_T31 Staggered Multi-Expiry Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_t31_staggered_multi_expiry_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_detail.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_summary.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_skipped.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_metadata.csv`
+- `results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_decision.md`
+
+Current result:
+
+- status: `research_rejected_or_blocked`
+- source strategy: `TB11_T09_low_loss_h15_c1` / `TB11_T09_low_loss_h30_c3`
+- source selected trades: `51`
+- second-expiry usable trades: `3`
+- coverage rate: `5.88%`
+- best base stagger variant on covered rows: `stagger_25_75`
+- best base annualized return on covered rows: `3.60%`
+- best base max drawdown on covered rows: `0.0`
+- dominant blocker: `second_expiry_leg_or_liquidity_missing` (`44` base rows and `44` harsh rows)
+- broker orders allowed: `False`
+
+Inference: T31 cannot be promoted from current local real-chain coverage. The few covered rows look benign, but only `3 / 51` selected entries have a tradable next-expiry construction under the current 60k total-contract threshold and local spot-settlement requirement. That is too little evidence for a staggered multi-expiry policy.
+
+Next action: move to `TB19` OI positioning as the next plan item that can use current local `data/nse_fno_bhavcopy_oi.csv` and option-chain/bhavcopy artifacts. Keep T31 closed unless a later liquidity model or refreshed chain archive materially improves second-expiry coverage.
