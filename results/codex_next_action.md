@@ -1770,3 +1770,39 @@ T30 can now compute modeled IV from chain-band mid quotes, but the current data 
 Next action:
 
 Keep collecting fresh T28 chain-band rows during market hours; rerun T30 after the history spans 60 days or at least 20 fresh capture dates.
+
+## `TB18_EarningsOverlayReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb18_earnings_overlay_readiness_summary.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_decision.md`
+
+Current read:
+
+- status: `blocked_missing_earnings_axis_data`
+- earnings calendar: `data/earnings_calendar.csv`
+- earnings status: `template_only`
+- earnings rows: `0`
+- TB15 symbol coverage: `0 / 8`
+- NIFTY weight status: `missing`
+- TB11 overlay ready: `False`
+- TB15 overlay ready: `False`
+- broker orders allowed: `False`
+- blockers: `earnings_calendar_template_only|tb15_symbol_earnings_coverage_incomplete|nifty_index_weight_file_missing`
+
+Inference:
+
+TB18 cannot be backtested yet. The repo has the earnings-calendar schema placeholder, but no announcement rows and no NIFTY constituent/weight file for the TB11 index-heavy-earnings veto.
+
+Next action:
+
+Populate `data/earnings_calendar.csv` from a non-Zerodha source and add `data/nifty50_index_weights.csv` or an equivalent symbol/weight file before running TB18.

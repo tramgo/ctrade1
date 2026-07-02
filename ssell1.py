@@ -23154,6 +23154,207 @@ def run_tb11_t30_iv_conditioned_sizing_readiness(
     return summary_df
 
 
+def run_tb18_earnings_overlay_readiness(
+    output_prefix: str = "tb18_earnings_overlay_readiness",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    earnings_csv = DATA_DIR / "earnings_calendar.csv"
+    tb15_symbols = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "LT", "BHARTIARTL"]
+    required_earnings_columns = ["Date", "Ticker", "EventDate"]
+    optional_weight_paths = [
+        DATA_DIR / "nifty50_index_weights.csv",
+        DATA_DIR / "nifty_index_weights.csv",
+        DATA_DIR / "nifty50_constituents.csv",
+        DATA_DIR / "nifty_constituents.csv",
+    ]
+
+    earnings_exists = earnings_csv.exists()
+    earnings_row_count = 0
+    earnings_columns: list[str] = []
+    earnings_missing_columns = required_earnings_columns.copy()
+    event_min = ""
+    event_max = ""
+    unique_ticker_count = 0
+    tb15_covered_symbols: list[str] = []
+    earnings_status = "missing"
+
+    if earnings_exists:
+        try:
+            earnings = pd.read_csv(earnings_csv)
+            earnings_columns = [str(col) for col in earnings.columns.tolist()]
+            normalized = {str(col).strip().lower(): str(col) for col in earnings_columns}
+            earnings_missing_columns = [
+                col for col in required_earnings_columns if col.strip().lower() not in normalized
+            ]
+            earnings_row_count = int(len(earnings))
+            if earnings_missing_columns:
+                earnings_status = "schema_mismatch"
+            elif earnings.empty:
+                earnings_status = "template_only"
+            else:
+                ticker_col = normalized.get("ticker")
+                event_col = normalized.get("eventdate")
+                earnings["_ticker_norm"] = earnings[ticker_col].astype(str).str.strip().str.upper()
+                earnings["_event_date_norm"] = pd.to_datetime(earnings[event_col], errors="coerce").dt.normalize()
+                earnings = earnings.dropna(subset=["_ticker_norm", "_event_date_norm"]).copy()
+                earnings_row_count = int(len(earnings))
+                if earnings.empty:
+                    earnings_status = "no_valid_event_rows"
+                else:
+                    event_min = earnings["_event_date_norm"].min().date().isoformat()
+                    event_max = earnings["_event_date_norm"].max().date().isoformat()
+                    unique_ticker_count = int(earnings["_ticker_norm"].nunique())
+                    tb15_covered_symbols = sorted(set(tb15_symbols) & set(earnings["_ticker_norm"].unique()))
+                    earnings_status = "ready"
+        except Exception as exc:
+            earnings_status = f"read_error: {exc}"
+
+    weight_rows = []
+    usable_weight_path = ""
+    weight_status = "missing"
+    weight_row_count = 0
+    weight_columns = ""
+    weight_has_symbol = False
+    weight_has_weight = False
+    for path in optional_weight_paths:
+        row = {
+            "path": str(path),
+            "exists": path.exists(),
+            "row_count": 0,
+            "columns": "",
+            "has_symbol_column": False,
+            "has_weight_column": False,
+            "status": "missing",
+        }
+        if path.exists():
+            try:
+                preview = pd.read_csv(path)
+                columns = [str(col) for col in preview.columns.tolist()]
+                normalized_cols = {str(col).strip().lower() for col in columns}
+                has_symbol = bool(normalized_cols & {"symbol", "ticker", "tradingsymbol", "security"})
+                has_weight = bool(normalized_cols & {"weight", "index_weight", "weight_pct", "weightage"})
+                row.update(
+                    {
+                        "row_count": int(len(preview)),
+                        "columns": "|".join(columns),
+                        "has_symbol_column": has_symbol,
+                        "has_weight_column": has_weight,
+                        "status": "ready" if len(preview) > 0 and has_symbol and has_weight else "schema_or_empty_blocked",
+                    }
+                )
+                if row["status"] == "ready" and not usable_weight_path:
+                    usable_weight_path = str(path)
+                    weight_status = "ready"
+                    weight_row_count = int(len(preview))
+                    weight_columns = "|".join(columns)
+                    weight_has_symbol = has_symbol
+                    weight_has_weight = has_weight
+            except Exception as exc:
+                row["status"] = f"read_error: {exc}"
+        weight_rows.append(row)
+
+    if not usable_weight_path and weight_status != "ready":
+        weight_status = "missing"
+
+    tb15_coverage_rate = len(tb15_covered_symbols) / max(len(tb15_symbols), 1)
+    tb15_ready = earnings_status == "ready" and tb15_coverage_rate >= 1.0
+    tb11_ready = earnings_status == "ready" and weight_status == "ready"
+    overall_ready = tb11_ready and tb15_ready
+    blockers = []
+    if earnings_status != "ready":
+        blockers.append(f"earnings_calendar_{earnings_status}")
+    if tb15_coverage_rate < 1.0:
+        blockers.append("tb15_symbol_earnings_coverage_incomplete")
+    if weight_status != "ready":
+        blockers.append("nifty_index_weight_file_missing")
+
+    status = "ready_for_tb18_overlay_backtest" if overall_ready else "blocked_missing_earnings_axis_data"
+    summary_df = pd.DataFrame(
+        [
+            {
+                "audit_id": "TB18_earnings_overlay_readiness",
+                "status": status,
+                "earnings_calendar_path": str(earnings_csv),
+                "earnings_status": earnings_status,
+                "earnings_row_count": earnings_row_count,
+                "earnings_columns": "|".join(earnings_columns),
+                "earnings_missing_columns": "|".join(earnings_missing_columns),
+                "event_min_date": event_min,
+                "event_max_date": event_max,
+                "unique_earnings_ticker_count": unique_ticker_count,
+                "tb15_symbols_required": "|".join(tb15_symbols),
+                "tb15_symbols_covered": "|".join(tb15_covered_symbols),
+                "tb15_symbol_coverage_rate": tb15_coverage_rate,
+                "nifty_weight_status": weight_status,
+                "nifty_weight_path": usable_weight_path,
+                "nifty_weight_row_count": weight_row_count,
+                "nifty_weight_columns": weight_columns,
+                "nifty_weight_has_symbol_column": weight_has_symbol,
+                "nifty_weight_has_weight_column": weight_has_weight,
+                "tb11_overlay_ready": tb11_ready,
+                "tb15_overlay_ready": tb15_ready,
+                "broker_orders_allowed": False,
+                "blockers": "|".join(blockers) if blockers else "none",
+                "next_action": (
+                    "Populate earnings calendar and NIFTY index-weight data before running TB18."
+                    if not overall_ready
+                    else "Run TB18 earnings overlay backtests for TB11 and TB15 under no-order research mode."
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    pd.DataFrame(weight_rows).to_csv(detail_csv, index=False)
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "required_earnings_columns": "|".join(required_earnings_columns),
+                "tb15_symbols": "|".join(tb15_symbols),
+                "nifty_weight_candidate_paths": "|".join(str(path) for path in optional_weight_paths),
+                "mode_scope": "tb18_earnings_overlay_readiness_local_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB18 Earnings Overlay Readiness",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- earnings calendar: `{earnings_csv}`",
+                f"- earnings status: `{earnings_status}`",
+                f"- earnings rows: `{earnings_row_count}`",
+                f"- event date range: `{event_min}` / `{event_max}`",
+                f"- TB15 symbol coverage: `{len(tb15_covered_symbols)}` / `{len(tb15_symbols)}`",
+                f"- NIFTY weight status: `{weight_status}`",
+                f"- NIFTY weight path: `{usable_weight_path}`",
+                f"- TB11 overlay ready: `{tb11_ready}`",
+                f"- TB15 overlay ready: `{tb15_ready}`",
+                "- broker orders allowed: `False`",
+                f"- blockers: `{summary_df.iloc[0]['blockers']}`",
+                "",
+                f"Next action: {summary_df.iloc[0]['next_action']}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB18-EARNINGS] summary saved: {summary_csv}", flush=True)
+    print(f"[TB18-EARNINGS] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -24434,6 +24635,7 @@ if __name__ == "__main__":
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_tb15_t03_fresh_forward_sample",
+            "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -25220,6 +25422,14 @@ if __name__ == "__main__":
             "This requires a non-overlapping local F&O bhavcopy slice and remains research-only with no broker orders."
         )
         run_tb15_t03_fresh_forward_sample(output_prefix="tb15_t03_fresh_forward_sample")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb18_earnings_overlay_readiness":
+        main_logger.info(
+            "Starting TB18 earnings overlay readiness. "
+            "This checks local earnings-calendar and index-weight coverage without broker calls or orders."
+        )
+        run_tb18_earnings_overlay_readiness(output_prefix="tb18_earnings_overlay_readiness")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_diagnostic_tb12_portfolio_rank_regime_attribution", "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank", "signal_baseline_tb13_core_active_tilt_portfolio_rank", "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

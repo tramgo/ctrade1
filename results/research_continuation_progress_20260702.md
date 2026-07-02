@@ -97,3 +97,35 @@ Current result:
 Inference: the chain-band data is sufficient to compute modeled implied volatility from mid quotes, spot, strike, option type, and DTE, but it is not yet sufficient to use a 60-day IV percentile. T30 remains a research-only preview until enough fresh market-hour chain-band captures accumulate.
 
 Next action: keep scheduled T28 chain-band collection alive and rerun T30 after the fresh capture history spans 60 days or at least 20 fresh capture dates. Do not use the provisional IV rank for sizing yet.
+
+## TB18 Earnings-Avoidance Overlay Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb18_earnings_overlay_readiness_summary.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv`
+- `results/signal_baseline/tb18_earnings_overlay_readiness_decision.md`
+
+Current result:
+
+- status: `blocked_missing_earnings_axis_data`
+- earnings calendar path: `data/earnings_calendar.csv`
+- earnings status: `template_only`
+- earnings rows: `0`
+- TB15 symbol coverage: `0 / 8`
+- NIFTY weight status: `missing`
+- TB11 overlay ready: `False`
+- TB15 overlay ready: `False`
+- broker orders allowed: `False`
+- blockers: `earnings_calendar_template_only|tb15_symbol_earnings_coverage_incomplete|nifty_index_weight_file_missing`
+
+Inference: TB18 is not runnable yet. The repo has the schema placeholder for earnings dates, but no actual event rows, and it also lacks the NIFTY index-weight/constituent file required to compute the TB11 "heavy earnings week" veto.
+
+Next action: populate `data/earnings_calendar.csv` with non-Zerodha earnings dates and add a NIFTY constituent/weight file with symbol and weight columns before running any TB18 overlay backtest.
