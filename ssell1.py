@@ -22661,6 +22661,256 @@ def run_tb15_csp_vol_breadth_stress_gate(
     return summary_df
 
 
+def run_tb15_t03_fresh_forward_sample(
+    output_prefix: str = "tb15_t03_fresh_forward_sample",
+) -> pd.DataFrame:
+    import re
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    source_detail_csv = baseline_dir / "tb15_cash_secured_put_large_caps_detail.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    fno_dir = DATA_DIR / "nse_fno_bhavcopy"
+    zip_paths = sorted(fno_dir.rglob("*.zip")) if fno_dir.exists() else []
+
+    def _parse_bhavcopy_date(path: Path) -> pd.Timestamp:
+        match = re.search(r"FO(\d{2}[A-Z]{3}\d{4})BHAV", path.name.upper())
+        if not match:
+            return pd.NaT
+        return pd.to_datetime(match.group(1), format="%d%b%Y", errors="coerce")
+
+    archive_dates = pd.Series([_parse_bhavcopy_date(path) for path in zip_paths], dtype="datetime64[ns]").dropna()
+    archive_min_date = archive_dates.min() if not archive_dates.empty else pd.NaT
+    archive_max_date = archive_dates.max() if not archive_dates.empty else pd.NaT
+
+    if not source_detail_csv.exists():
+        run_tb15_cash_secured_put_large_caps(output_prefix="tb15_cash_secured_put_large_caps")
+
+    if not source_detail_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB15 T03 Fresh Forward Sample\n\nStatus: `blocked_missing_tb15_base_detail`\n",
+            encoding="utf-8",
+        )
+        print(f"[TB15-T03] blocked; missing source detail: {source_detail_csv}", flush=True)
+        return pd.DataFrame()
+
+    source_detail = pd.read_csv(source_detail_csv)
+    if source_detail.empty:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB15 T03 Fresh Forward Sample\n\nStatus: `blocked_empty_tb15_base_detail`\n",
+            encoding="utf-8",
+        )
+        print(f"[TB15-T03] blocked; empty source detail: {source_detail_csv}", flush=True)
+        return pd.DataFrame()
+
+    source_detail["trade_date"] = pd.to_datetime(source_detail["trade_date"], errors="coerce").dt.normalize()
+    source_detail["expiry_date"] = pd.to_datetime(source_detail["expiry_date"], errors="coerce").dt.normalize()
+    source_detail["return_on_cash"] = pd.to_numeric(source_detail["return_on_cash"], errors="coerce")
+    source_detail["assigned"] = source_detail["assigned"].astype(str).str.lower().isin(["true", "1", "yes"])
+    source_detail = source_detail.dropna(subset=["trade_date", "expiry_date", "return_on_cash"]).copy()
+
+    source_first_trade = source_detail["trade_date"].min()
+    source_last_expiry = source_detail["expiry_date"].max()
+    source_trade_count = int(len(source_detail))
+    fresh_archive_available = bool(pd.notna(archive_max_date) and pd.notna(source_last_expiry) and archive_max_date > source_last_expiry)
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "source_detail_csv": str(source_detail_csv),
+                "source_trade_count": source_trade_count,
+                "source_first_trade_date": source_first_trade.date().isoformat() if pd.notna(source_first_trade) else "",
+                "source_last_expiry_date": source_last_expiry.date().isoformat() if pd.notna(source_last_expiry) else "",
+                "fno_zip_count": int(len(zip_paths)),
+                "archive_min_date": archive_min_date.date().isoformat() if pd.notna(archive_min_date) else "",
+                "archive_max_date": archive_max_date.date().isoformat() if pd.notna(archive_max_date) else "",
+                "fresh_archive_after_source_last_expiry": fresh_archive_available,
+                "mode_scope": "tb15_t03_fresh_forward_sample_local_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not fresh_archive_available:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "audit_id": "TB15_T03_fresh_forward_sample",
+                    "status": "blocked_no_non_overlapping_forward_slice",
+                    "source_trade_count": source_trade_count,
+                    "source_first_trade_date": source_first_trade.date().isoformat() if pd.notna(source_first_trade) else "",
+                    "source_last_expiry_date": source_last_expiry.date().isoformat() if pd.notna(source_last_expiry) else "",
+                    "fno_zip_count": int(len(zip_paths)),
+                    "archive_min_date": archive_min_date.date().isoformat() if pd.notna(archive_min_date) else "",
+                    "archive_max_date": archive_max_date.date().isoformat() if pd.notna(archive_max_date) else "",
+                    "heldout_trade_count": 0,
+                    "heldout_mean_return_on_cash": np.nan,
+                    "heldout_assignment_rate": np.nan,
+                    "heldout_worst_expiry_return_on_cash": np.nan,
+                    "promotion_mean_gate_passed": False,
+                    "promotion_assignment_gate_passed": False,
+                    "promotion_worst_expiry_gate_passed": False,
+                    "decision": "blocked_refresh_fno_archive_before_tb15_t04",
+                    "next_action": "Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample before rerunning T03.",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "\n".join(
+                [
+                    "# TB15 T03 Fresh Forward Sample",
+                    "",
+                    "Status: `blocked_no_non_overlapping_forward_slice`",
+                    "",
+                    f"- source detail: `{source_detail_csv}`",
+                    f"- source trades: `{source_trade_count}`",
+                    f"- source first trade date: `{source_first_trade.date().isoformat() if pd.notna(source_first_trade) else ''}`",
+                    f"- source last expiry date: `{source_last_expiry.date().isoformat() if pd.notna(source_last_expiry) else ''}`",
+                    f"- local F&O zip count: `{len(zip_paths)}`",
+                    f"- archive min/max dates: `{archive_min_date.date().isoformat() if pd.notna(archive_min_date) else ''}` / `{archive_max_date.date().isoformat() if pd.notna(archive_max_date) else ''}`",
+                    "- broker orders allowed: `False`",
+                    "",
+                    "Inference: the local archive does not contain an options bhavcopy date after the already-used TB15 base sample. "
+                    "A genuine fresh forward sample is therefore not available yet; reusing the original 522 trades would violate the T03 gate.",
+                    "",
+                    "Next action: refresh local F&O bhavcopy and daily spot data beyond the base sample before rerunning T03. "
+                    "Do not proceed to TB15_T04 defined-risk redesign from this blocked T03 result.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        print(f"[TB15-T03] blocked; summary saved: {summary_csv}", flush=True)
+        return summary_df
+
+    replay_prefix = f"{output_prefix}_full_replay"
+    run_tb15_cash_secured_put_large_caps(output_prefix=replay_prefix)
+    replay_detail_csv = baseline_dir / f"{replay_prefix}_detail.csv"
+    if not replay_detail_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "audit_id": "TB15_T03_fresh_forward_sample",
+                    "status": "blocked_full_replay_detail_missing",
+                    "source_trade_count": source_trade_count,
+                    "heldout_trade_count": 0,
+                    "decision": "blocked_refresh_fno_archive_before_tb15_t04",
+                    "next_action": "Resolve missing full replay detail before evaluating T03.",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        return summary_df
+
+    replay_detail = pd.read_csv(replay_detail_csv)
+    replay_detail["trade_date"] = pd.to_datetime(replay_detail["trade_date"], errors="coerce").dt.normalize()
+    replay_detail["expiry_date"] = pd.to_datetime(replay_detail["expiry_date"], errors="coerce").dt.normalize()
+    replay_detail["return_on_cash"] = pd.to_numeric(replay_detail["return_on_cash"], errors="coerce")
+    replay_detail["assigned"] = replay_detail["assigned"].astype(str).str.lower().isin(["true", "1", "yes"])
+    heldout = replay_detail.loc[replay_detail["trade_date"] > source_last_expiry].dropna(
+        subset=["trade_date", "expiry_date", "return_on_cash"]
+    ).copy()
+    heldout.to_csv(detail_csv, index=False)
+
+    if heldout.empty:
+        portfolio_worst = np.nan
+        portfolio_mean = np.nan
+        win_rate = np.nan
+        assignment_rate = np.nan
+        mean_ret = np.nan
+        decision = "blocked_no_candidate_trades_after_source_window"
+    else:
+        portfolio_by_expiry = (
+            heldout.groupby("expiry_date", dropna=False)
+            .agg(symbols=("symbol", "nunique"), mean_return_on_cash=("return_on_cash", "mean"))
+            .reset_index()
+        )
+        portfolio_returns = pd.to_numeric(portfolio_by_expiry["mean_return_on_cash"], errors="coerce").dropna()
+        returns = pd.to_numeric(heldout["return_on_cash"], errors="coerce").dropna()
+        mean_ret = float(returns.mean()) if not returns.empty else np.nan
+        portfolio_mean = float(portfolio_returns.mean()) if not portfolio_returns.empty else np.nan
+        portfolio_worst = float(portfolio_returns.min()) if not portfolio_returns.empty else np.nan
+        win_rate = float((returns > 0).mean()) if not returns.empty else np.nan
+        assignment_rate = float(heldout["assigned"].astype(bool).mean()) if not heldout.empty else np.nan
+        decision = "t03_forward_sample_evaluated"
+
+    mean_gate = bool(np.isfinite(mean_ret) and mean_ret >= 0.004)
+    assignment_gate = bool(np.isfinite(assignment_rate) and assignment_rate <= 0.18)
+    worst_gate = bool(np.isfinite(portfolio_worst) and portfolio_worst >= -0.15)
+    promotion_ready = bool(mean_gate and assignment_gate and worst_gate)
+    if decision == "t03_forward_sample_evaluated":
+        decision = "t03_passed_unlock_tb15_t04" if promotion_ready else "t03_failed_close_or_refresh_csp"
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "audit_id": "TB15_T03_fresh_forward_sample",
+                "status": decision,
+                "source_trade_count": source_trade_count,
+                "source_first_trade_date": source_first_trade.date().isoformat() if pd.notna(source_first_trade) else "",
+                "source_last_expiry_date": source_last_expiry.date().isoformat() if pd.notna(source_last_expiry) else "",
+                "archive_max_date": archive_max_date.date().isoformat() if pd.notna(archive_max_date) else "",
+                "heldout_trade_count": int(len(heldout)),
+                "heldout_first_trade_date": heldout["trade_date"].min().date().isoformat() if not heldout.empty else "",
+                "heldout_last_expiry_date": heldout["expiry_date"].max().date().isoformat() if not heldout.empty else "",
+                "heldout_mean_return_on_cash": mean_ret,
+                "heldout_portfolio_mean_return_on_cash": portfolio_mean,
+                "heldout_win_rate": win_rate,
+                "heldout_assignment_rate": assignment_rate,
+                "heldout_worst_expiry_return_on_cash": portfolio_worst,
+                "promotion_mean_gate_passed": mean_gate,
+                "promotion_assignment_gate_passed": assignment_gate,
+                "promotion_worst_expiry_gate_passed": worst_gate,
+                "decision": decision,
+                "next_action": (
+                    "Proceed only to TB15_T04 defined-risk redesign research."
+                    if promotion_ready
+                    else "Do not proceed to TB15_T04 until T03 has a passing non-overlapping forward sample."
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB15 T03 Fresh Forward Sample",
+                "",
+                f"Status: `{decision}`",
+                "",
+                f"- held-out trades: `{int(len(heldout))}`",
+                f"- held-out mean return on cash: `{mean_ret}`",
+                f"- held-out assignment rate: `{assignment_rate}`",
+                f"- held-out worst portfolio expiry return: `{portfolio_worst}`",
+                f"- promotion gates mean/assignment/worst: `{mean_gate}` / `{assignment_gate}` / `{worst_gate}`",
+                "- broker orders allowed: `False`",
+                "",
+                f"Next action: {summary_df.iloc[0]['next_action']}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB15-T03] detail saved: {detail_csv}", flush=True)
+    print(f"[TB15-T03] summary saved: {summary_csv}", flush=True)
+    print(f"[TB15-T03] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -23939,6 +24189,7 @@ if __name__ == "__main__":
             "signal_baseline_composite_plan_gate_audit",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
+            "signal_baseline_tb15_t03_fresh_forward_sample",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -24709,6 +24960,14 @@ if __name__ == "__main__":
             "This replays local CSP trades against NIFTY, India VIX, and stock stress filters with no broker orders."
         )
         run_tb15_csp_vol_breadth_stress_gate(output_prefix="tb15_csp_vol_breadth_stress_gate")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb15_t03_fresh_forward_sample":
+        main_logger.info(
+            "Starting TB15 T03 fresh forward sample diagnostic. "
+            "This requires a non-overlapping local F&O bhavcopy slice and remains research-only with no broker orders."
+        )
+        run_tb15_t03_fresh_forward_sample(output_prefix="tb15_t03_fresh_forward_sample")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_diagnostic_tb12_portfolio_rank_regime_attribution", "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank", "signal_baseline_tb13_core_active_tilt_portfolio_rank", "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

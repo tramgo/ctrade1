@@ -1690,3 +1690,45 @@ The scheduled jobs are alive and returning `0`, but the `2026-07-02 20:39` run w
 Next action:
 
 Wait for the next live-market run on `2026-07-03`; require fresh T28 rows, selected-leg coverage `4 / 4`, and Phase 2 readiness pass before any no-order paper-price reconciliation execution. Broker order endpoints remain blocked.
+
+## `ResearchContinuationPlan 2026-07-02`
+
+Source plan:
+
+- `c:\Users\Ramic\Downloads\new golas today jun_07_26.txt`
+
+Progress artifacts:
+
+- `results/research_continuation_progress_20260702.md`
+- `results/signal_baseline/tb15_t03_fresh_forward_sample_summary.csv`
+- `results/signal_baseline/tb15_t03_fresh_forward_sample_metadata.csv`
+- `results/signal_baseline/tb15_t03_fresh_forward_sample_decision.md`
+
+Plan reconciliation:
+
+- Post-TB14 steps 3-6 are already present in repo artifacts.
+- Step 3 survived: held-out folds beating rebalanced benchmark `4 / 4`.
+- Step 4 survived: actual hedge timing percentile versus random null `0.999`.
+- Step 5 survived base short-cost stress: `7` folds beating rebalanced benchmark, with the caveat that historical FUTSTK coverage is not live SLB borrow availability.
+- Step 6 fired the strict OOS kill-switch: folds `9-10` beat the rebalanced benchmark in only `1 / 2`, below required `2 / 2`.
+
+TB15_T03:
+
+- implemented mode: `signal_baseline_tb15_t03_fresh_forward_sample`
+- command: `python -B ssell1.py --mode signal_baseline_tb15_t03_fresh_forward_sample`
+- status: `blocked_no_non_overlapping_forward_slice`
+- TB15 base source trades: `522`
+- source first trade date: `2016-05-09`
+- source last expiry date: `2024-07-25`
+- local F&O zip count: `2346`
+- archive min/max date: `2015-01-01` / `2024-07-05`
+- held-out trade count: `0`
+- broker orders allowed: `False`
+
+Inference:
+
+The plan's first item is already closed by the existing strict OOS kill-switch, so TB14 does not reopen the equity family. The second item, TB15_T03, cannot honestly run yet because no non-overlapping forward slice exists locally; reusing the original 522 trades would violate the T03 gate.
+
+Next action:
+
+Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample, then rerun T03. If a fresh forward slice cannot be obtained now, proceed to TB11_T30 IV-conditioned sizing as the next cheapest high-value research item using already collected chain-band data.
