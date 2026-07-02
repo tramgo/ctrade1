@@ -23475,6 +23475,312 @@ def run_tb11_t31_staggered_multi_expiry_readiness(
     return summary_df
 
 
+def run_tb19_oi_positioning_readiness(
+    output_prefix: str = "tb19_oi_positioning_readiness",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    source_csv = baseline_dir / "tb11_options_low_loss_harsh_cost_detail.csv"
+    option_oi_csv = baseline_dir / "tb11_nifty_option_chain_bhavcopy_archive_liquid_detail.csv"
+    futures_oi_csv = DATA_DIR / "nse_fno_bhavcopy_oi.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    scenarios = [
+        ("base", "TB11_T09_low_loss_h15_c1"),
+        ("harsh_stress", "TB11_T09_low_loss_h30_c3"),
+    ]
+    min_bucket_trades = 20
+    min_coverage_rate = 0.40
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": pd.Timestamp.now(tz="Asia/Kolkata").isoformat(),
+                "tb11_source_detail": str(source_csv),
+                "option_oi_source": str(option_oi_csv),
+                "futures_oi_source": str(futures_oi_csv),
+                "min_bucket_trades": min_bucket_trades,
+                "min_coverage_rate": min_coverage_rate,
+                "mode_scope": "tb19_oi_positioning_overlay_readiness_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if not source_csv.exists() or not option_oi_csv.exists() or not futures_oi_csv.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB19 OI Positioning Readiness\n\n"
+            "Status: `blocked_missing_local_inputs`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB19-OI] missing source, option OI, or futures OI input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    source_all = pd.read_csv(source_csv)
+    source_frames = []
+    for scenario, strategy in scenarios:
+        part = source_all.loc[source_all["strategy"] == strategy].copy()
+        if part.empty:
+            continue
+        part["scenario"] = scenario
+        part["entry_date"] = pd.to_datetime(part["entry_date"], errors="coerce").dt.normalize()
+        part["expiry_date"] = pd.to_datetime(part["expiry_date"], errors="coerce").dt.normalize()
+        part["net_pnl_points"] = pd.to_numeric(part["net_pnl_points"], errors="coerce")
+        part["return_on_margin"] = pd.to_numeric(part["return_on_margin"], errors="coerce")
+        source_frames.append(part)
+    source = pd.concat(source_frames, ignore_index=True) if source_frames else pd.DataFrame()
+    if source.empty:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB19 OI Positioning Readiness\n\n"
+            "Status: `blocked_missing_tb11_selected_source_rows`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB19-OI] missing selected TB11 source rows; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    fut_frames = []
+    for chunk in pd.read_csv(futures_oi_csv, usecols=["date", "instrument", "symbol", "expiry", "oi", "chg_in_oi"], chunksize=250_000):
+        chunk["instrument"] = chunk["instrument"].astype(str).str.upper().str.strip()
+        chunk["symbol"] = chunk["symbol"].astype(str).str.upper().str.strip()
+        chunk = chunk.loc[(chunk["instrument"] == "FUTIDX") & (chunk["symbol"] == "NIFTY")].copy()
+        if chunk.empty:
+            continue
+        chunk["date"] = pd.to_datetime(chunk["date"], errors="coerce").dt.normalize()
+        chunk["expiry"] = pd.to_datetime(chunk["expiry"], errors="coerce").dt.normalize()
+        chunk["oi"] = pd.to_numeric(chunk["oi"], errors="coerce")
+        chunk["chg_in_oi"] = pd.to_numeric(chunk["chg_in_oi"], errors="coerce")
+        chunk = chunk.dropna(subset=["date", "expiry", "oi", "chg_in_oi"]).copy()
+        chunk["days_to_expiry"] = (chunk["expiry"] - chunk["date"]).dt.days
+        chunk = chunk.loc[chunk["days_to_expiry"] >= 0].copy()
+        if not chunk.empty:
+            fut_frames.append(chunk)
+    futures_features = pd.DataFrame()
+    if fut_frames:
+        fut = pd.concat(fut_frames, ignore_index=True).sort_values(["date", "days_to_expiry", "expiry"])
+        fut = fut.groupby("date", as_index=False).first().sort_values("date").reset_index(drop=True)
+        fut["fut_oi_raw"] = fut["oi"]
+        fut["fut_chg_in_oi_raw"] = fut["chg_in_oi"]
+        fut["fut_oi_chg_5d_raw"] = fut["fut_chg_in_oi_raw"].rolling(5, min_periods=3).sum()
+        fut["fut_oi_chg_20d_raw"] = fut["fut_chg_in_oi_raw"].rolling(20, min_periods=10).sum()
+        for raw_col, out_col in [
+            ("fut_oi_raw", "fut_oi"),
+            ("fut_chg_in_oi_raw", "fut_chg_in_oi"),
+            ("fut_oi_chg_5d_raw", "fut_oi_chg_5d"),
+            ("fut_oi_chg_20d_raw", "fut_oi_chg_20d"),
+        ]:
+            fut[out_col] = fut[raw_col].shift(1)
+        fut["fut_oi_rising"] = (fut["fut_oi_chg_5d"] > 0.0).fillna(False)
+        fut["fut_oi_falling"] = (fut["fut_oi_chg_5d"] < 0.0).fillna(False)
+        futures_features = fut[["date", "fut_oi", "fut_chg_in_oi", "fut_oi_chg_5d", "fut_oi_chg_20d", "fut_oi_rising", "fut_oi_falling"]].rename(
+            columns={"date": "entry_date"}
+        )
+
+    option = pd.read_csv(
+        option_oi_csv,
+        usecols=["trade_date", "expiry_date", "days_to_expiry", "option_type", "open_int", "chg_in_oi"],
+    )
+    option["trade_date"] = pd.to_datetime(option["trade_date"], errors="coerce").dt.normalize()
+    option["expiry_date"] = pd.to_datetime(option["expiry_date"], errors="coerce").dt.normalize()
+    option["days_to_expiry"] = pd.to_numeric(option["days_to_expiry"], errors="coerce")
+    option["open_int"] = pd.to_numeric(option["open_int"], errors="coerce")
+    option["chg_in_oi"] = pd.to_numeric(option["chg_in_oi"], errors="coerce")
+    option["option_type"] = option["option_type"].astype(str).str.upper().str.strip()
+    option = option.dropna(subset=["trade_date", "expiry_date", "days_to_expiry", "option_type", "open_int", "chg_in_oi"]).copy()
+    option = option.loc[(option["days_to_expiry"] >= 0) & (option["days_to_expiry"] <= 45)].copy()
+    option_agg = (
+        option.groupby(["trade_date", "option_type"], as_index=False)
+        .agg(open_int=("open_int", "sum"), chg_in_oi=("chg_in_oi", "sum"))
+        .pivot(index="trade_date", columns="option_type", values=["open_int", "chg_in_oi"])
+    )
+    option_agg.columns = [f"{metric}_{otype}".lower() for metric, otype in option_agg.columns]
+    option_agg = option_agg.reset_index().rename(columns={"trade_date": "entry_date"}).sort_values("entry_date")
+    for col in ["open_int_ce", "open_int_pe", "chg_in_oi_ce", "chg_in_oi_pe"]:
+        if col not in option_agg.columns:
+            option_agg[col] = np.nan
+    option_agg["pcr_oi_raw"] = option_agg["open_int_pe"] / option_agg["open_int_ce"].replace(0.0, np.nan)
+    option_agg["pcr_chg_raw"] = option_agg["chg_in_oi_pe"] / option_agg["chg_in_oi_ce"].replace(0.0, np.nan)
+
+    def _last_pct_rank(values: pd.Series) -> float:
+        clean = pd.to_numeric(values, errors="coerce").dropna()
+        if clean.empty:
+            return np.nan
+        return float(clean.rank(pct=True).iloc[-1])
+
+    option_agg["pcr_oi"] = option_agg["pcr_oi_raw"].shift(1)
+    option_agg["pcr_chg"] = option_agg["pcr_chg_raw"].shift(1)
+    option_agg["pcr_oi_rank_252"] = option_agg["pcr_oi_raw"].rolling(252, min_periods=40).apply(_last_pct_rank, raw=False).shift(1)
+    option_agg["pcr_high"] = (option_agg["pcr_oi_rank_252"] >= 0.60).fillna(False)
+    option_agg["pcr_low"] = (option_agg["pcr_oi_rank_252"] <= 0.40).fillna(False)
+    option_features = option_agg[
+        ["entry_date", "pcr_oi", "pcr_chg", "pcr_oi_rank_252", "pcr_high", "pcr_low"]
+    ].copy()
+
+    detail = source.merge(futures_features, on="entry_date", how="left") if not futures_features.empty else source.copy()
+    detail = detail.merge(option_features, on="entry_date", how="left")
+    detail["oi_feature_available"] = detail["pcr_oi"].notna() | detail.get("fut_oi", pd.Series(index=detail.index, dtype=float)).notna()
+    detail["positioning_bucket"] = np.select(
+        [
+            detail["fut_oi_rising"].fillna(False) & detail["pcr_high"].fillna(False),
+            detail["fut_oi_rising"].fillna(False) & detail["pcr_low"].fillna(False),
+            detail["fut_oi_falling"].fillna(False) & detail["pcr_high"].fillna(False),
+            detail["fut_oi_falling"].fillna(False) & detail["pcr_low"].fillna(False),
+            detail["pcr_high"].fillna(False),
+            detail["pcr_low"].fillna(False),
+            detail["fut_oi_rising"].fillna(False),
+            detail["fut_oi_falling"].fillna(False),
+        ],
+        [
+            "fut_rising_pcr_high",
+            "fut_rising_pcr_low",
+            "fut_falling_pcr_high",
+            "fut_falling_pcr_low",
+            "pcr_high_only",
+            "pcr_low_only",
+            "fut_rising_only",
+            "fut_falling_only",
+        ],
+        default="neutral_or_missing",
+    )
+    detail.to_csv(detail_csv, index=False)
+
+    filters = [
+        ("all_trades", lambda df: pd.Series(True, index=df.index)),
+        ("oi_feature_available", lambda df: df["oi_feature_available"].fillna(False)),
+        ("fut_oi_rising", lambda df: df["fut_oi_rising"].fillna(False)),
+        ("fut_oi_falling", lambda df: df["fut_oi_falling"].fillna(False)),
+        ("pcr_high", lambda df: df["pcr_high"].fillna(False)),
+        ("pcr_low", lambda df: df["pcr_low"].fillna(False)),
+        ("fut_rising_pcr_high", lambda df: df["positioning_bucket"].eq("fut_rising_pcr_high")),
+        ("fut_falling_pcr_low", lambda df: df["positioning_bucket"].eq("fut_falling_pcr_low")),
+    ]
+    summary_rows = []
+    for scenario, group in detail.groupby("scenario", dropna=False):
+        group = group.sort_values(["entry_date", "expiry_date"]).copy()
+        source_trade_count = int(len(group))
+        baseline_metrics = {}
+        for filter_name, filter_fn in filters:
+            sample = group.loc[filter_fn(group)].copy()
+            if sample.empty:
+                continue
+            equity = pd.to_numeric(sample["net_pnl_points"], errors="coerce").fillna(0.0).cumsum()
+            dd = equity - equity.cummax()
+            years = max(
+                (pd.to_datetime(sample["expiry_date"]).max() - pd.to_datetime(sample["entry_date"]).min()).days / 365.25,
+                len(sample) / 52.0,
+                1.0 / 52.0,
+            )
+            total_rom = float(pd.to_numeric(sample["return_on_margin"], errors="coerce").sum())
+            ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+            yearly = sample.assign(year=pd.to_datetime(sample["entry_date"]).dt.year).groupby("year")["net_pnl_points"].sum()
+            row = {
+                "scenario": scenario,
+                "filter_name": filter_name,
+                "source_trade_count": source_trade_count,
+                "trade_count": int(len(sample)),
+                "coverage_rate": float(len(sample) / max(source_trade_count, 1)),
+                "first_entry": pd.to_datetime(sample["entry_date"]).min(),
+                "last_expiry": pd.to_datetime(sample["expiry_date"]).max(),
+                "total_pnl_points": float(pd.to_numeric(sample["net_pnl_points"], errors="coerce").sum()),
+                "mean_pnl_points": float(pd.to_numeric(sample["net_pnl_points"], errors="coerce").mean()),
+                "worst_trade_points": float(pd.to_numeric(sample["net_pnl_points"], errors="coerce").min()),
+                "max_drawdown_points": float(dd.min()) if not dd.empty else 0.0,
+                "win_rate": float((pd.to_numeric(sample["net_pnl_points"], errors="coerce") > 0).mean()),
+                "total_return_on_margin": total_rom,
+                "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                "positive_years": int((yearly > 0).sum()),
+                "negative_years": int((yearly < 0).sum()),
+                "year_count": int(len(yearly)),
+            }
+            if filter_name == "all_trades":
+                baseline_metrics = row.copy()
+            baseline_ann = float(baseline_metrics.get("annualized_return_on_margin", np.nan))
+            baseline_dd = float(baseline_metrics.get("max_drawdown_points", np.nan))
+            row["coverage_gate_pass"] = bool(row["trade_count"] >= min_bucket_trades and row["coverage_rate"] >= min_coverage_rate)
+            row["return_gate_pass"] = bool(np.isfinite(row["annualized_return_on_margin"]) and np.isfinite(baseline_ann) and row["annualized_return_on_margin"] >= baseline_ann)
+            row["drawdown_gate_pass"] = bool(np.isfinite(row["max_drawdown_points"]) and np.isfinite(baseline_dd) and row["max_drawdown_points"] >= baseline_dd)
+            row["decision"] = (
+                "candidate_oi_filter"
+                if filter_name not in {"all_trades", "oi_feature_available"}
+                and row["coverage_gate_pass"]
+                and row["return_gate_pass"]
+                and row["drawdown_gate_pass"]
+                else "not_selected"
+            )
+            summary_rows.append(row)
+
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        summary_df["broker_orders_allowed"] = False
+        summary_df = summary_df.sort_values(
+            ["scenario", "decision", "annualized_return_on_margin", "max_drawdown_points"],
+            ascending=[True, True, False, False],
+        ).reset_index(drop=True)
+    else:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "scenario": "all",
+                    "filter_name": "",
+                    "decision": "blocked_no_positioning_overlap",
+                    "broker_orders_allowed": False,
+                }
+            ]
+        )
+    summary_df.to_csv(summary_csv, index=False)
+
+    passing = summary_df.loc[summary_df.get("decision", pd.Series(dtype=str)).eq("candidate_oi_filter")].copy()
+    durable_filters = []
+    if not passing.empty:
+        for filter_name, group in passing.groupby("filter_name", dropna=False):
+            if {"base", "harsh_stress"}.issubset(set(group["scenario"].astype(str))):
+                durable_filters.append(str(filter_name))
+    status = "durable_oi_filter_found" if durable_filters else "no_oi_filter_promoted"
+    if durable_filters:
+        best = passing.loc[passing["filter_name"].astype(str).eq(durable_filters[0])].iloc[0]
+    elif not passing.empty:
+        best = passing.iloc[0]
+    else:
+        best = summary_df.iloc[0]
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB19 OI Positioning Readiness",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- best scenario: `{best.get('scenario', '')}`",
+                f"- best filter: `{best.get('filter_name', '')}`",
+                f"- source/filter trades: `{best.get('source_trade_count', '')}` / `{best.get('trade_count', '')}`",
+                f"- coverage rate: `{best.get('coverage_rate', '')}`",
+                f"- annualized return on margin: `{best.get('annualized_return_on_margin', '')}`",
+                f"- worst trade points: `{best.get('worst_trade_points', '')}`",
+                f"- max drawdown points: `{best.get('max_drawdown_points', '')}`",
+                f"- decision: `{best.get('decision', '')}`",
+                f"- durable filters passing base and harsh: `{'|'.join(durable_filters) if durable_filters else 'none'}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: use TB19 only if a candidate OI filter passes coverage, return, and drawdown gates in both base and harsh scenarios.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB19-OI] detail saved: {detail_csv}", flush=True)
+    print(f"[TB19-OI] summary saved: {summary_csv}", flush=True)
+    print(f"[TB19-OI] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_tb18_earnings_overlay_readiness(
     output_prefix: str = "tb18_earnings_overlay_readiness",
 ) -> pd.DataFrame:
@@ -25288,6 +25594,7 @@ if __name__ == "__main__":
             "signal_baseline_tb15_t03_fresh_forward_sample",
             "signal_baseline_tb16_defined_risk_nifty_bull_put_spread",
             "signal_baseline_tb18_earnings_overlay_readiness",
+            "signal_baseline_tb19_oi_positioning_readiness",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -26098,6 +26405,14 @@ if __name__ == "__main__":
             "This checks local earnings-calendar and index-weight coverage without broker calls or orders."
         )
         run_tb18_earnings_overlay_readiness(output_prefix="tb18_earnings_overlay_readiness")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb19_oi_positioning_readiness":
+        main_logger.info(
+            "Starting TB19 OI positioning readiness. "
+            "This tests local futures OI and option-chain PCR buckets against selected TB11 returns with broker orders blocked."
+        )
+        run_tb19_oi_positioning_readiness(output_prefix="tb19_oi_positioning_readiness")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_diagnostic_tb12_portfolio_rank_regime_attribution", "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank", "signal_baseline_tb13_core_active_tilt_portfolio_rank", "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

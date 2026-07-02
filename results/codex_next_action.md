@@ -1877,3 +1877,38 @@ T31 is not a promotion candidate. The next-expiry sleeve can be priced for only 
 Next action:
 
 Open `TB19` OI positioning using the local F&O OI artifacts. Keep `TB15_T03`, `TB11_T30`, `TB18`, and `TB11_T31` parked until their respective data-readiness blockers clear.
+
+## `TB19_OIPositioningReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb19_oi_positioning_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb19_oi_positioning_readiness_detail.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_summary.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_metadata.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_decision.md`
+
+Current read:
+
+- status: `no_oi_filter_promoted`
+- source selected trades: `51`
+- best base-case filter: `pcr_high`
+- base `pcr_high`: `32` trades, `18.23%` annualized ROM, max DD `-0.66`
+- base all-trades: `51` trades, `17.57%` annualized ROM, max DD `-1.25`
+- harsh `pcr_high`: `32` trades, `7.78%` annualized ROM, max DD `-19.94`
+- harsh all-trades: `51` trades, `9.11%` annualized ROM, max DD `-18.77`
+- durable filters passing base and harsh: `none`
+- broker orders allowed: `False`
+
+Inference:
+
+TB19 found an interesting base-case OI condition, but no durable filter survived both base and harsh-cost gates. Do not add the OI overlay to TB11 sizing or execution logic.
+
+Next action:
+
+Move to `TB17` covered-call overwrite only if we explicitly define the underlying holding assumption. Otherwise the operational queue remains: keep T28 collection alive, rerun T30 after enough fresh IV history, refresh TB15 forward data, and populate TB18 earnings/index-weight inputs.

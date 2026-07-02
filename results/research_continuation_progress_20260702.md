@@ -196,3 +196,37 @@ Current result:
 Inference: T31 cannot be promoted from current local real-chain coverage. The few covered rows look benign, but only `3 / 51` selected entries have a tradable next-expiry construction under the current 60k total-contract threshold and local spot-settlement requirement. That is too little evidence for a staggered multi-expiry policy.
 
 Next action: move to `TB19` OI positioning as the next plan item that can use current local `data/nse_fno_bhavcopy_oi.csv` and option-chain/bhavcopy artifacts. Keep T31 closed unless a later liquidity model or refreshed chain archive materially improves second-expiry coverage.
+
+## TB19 OI Positioning Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb19_oi_positioning_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb19_oi_positioning_readiness_detail.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_summary.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_metadata.csv`
+- `results/signal_baseline/tb19_oi_positioning_readiness_decision.md`
+
+Current result:
+
+- status: `no_oi_filter_promoted`
+- local futures OI source: `data/nse_fno_bhavcopy_oi.csv`
+- local option OI source: `tb11_nifty_option_chain_bhavcopy_archive_liquid_detail.csv`
+- source selected TB11 trades: `51`
+- base-case candidate: `pcr_high`
+- base `pcr_high` trades: `32`
+- base `pcr_high` annualized return on margin: `18.23%` versus all-trades `17.57%`
+- base `pcr_high` max drawdown: `-0.66` versus all-trades `-1.25`
+- harsh `pcr_high` annualized return on margin: `7.78%` versus all-trades `9.11%`
+- harsh `pcr_high` max drawdown: `-19.94` versus all-trades `-18.77`
+- durable filters passing base and harsh: `none`
+- broker orders allowed: `False`
+
+Inference: OI positioning has a useful base-case signal, but it does not survive the harsh-cost robustness requirement. The `pcr_high` filter trims trades and improves the base drawdown, yet it underperforms the all-trades harsh case and worsens harsh drawdown. Do not promote TB19.
+
+Next action: proceed to the next attached-plan item, `TB17` covered-call overwrite, only as a readiness/backtest milestone if underlying holdings or synthetic holding assumptions are explicit. Otherwise keep the active no-order TB11/TB15 blockers as the operational priority.
