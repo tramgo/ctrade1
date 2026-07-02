@@ -1,2 +1,2 @@
 output_prefix,input_source,collection_date_ist,mode_scope,note
-tb11_options_zerodha_quote_only_collector,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_current_nfo_leg_resolver_template.csv,2026-07-01,tb11_phase1_zerodha_quote_only_collector,Quote-only Zerodha collector. Uses market-data quote endpoints only; never places orders.
+tb11_options_zerodha_quote_only_collector,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_current_nfo_leg_resolver_template.csv,2026-07-02,tb11_phase1_zerodha_quote_only_collector,Quote-only Zerodha collector. Uses market-data quote endpoints only; never places orders.

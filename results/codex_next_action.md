@@ -1658,3 +1658,35 @@ Post-transition audits:
 Verdict:
 
 Branch A crossed the Phase 1 Target-15 gate and opened the Phase 2 paper-price reconciliation runbook under the broker-block invariant. The required next action is to commit the runbook and transition artifacts before any Phase 2 reconciliation execution. Branch B TB15 remains research-only because tail risk still breaches the promotion bar; Branch C lockouts remain enforced.
+
+## `TB11 ScheduledJobsLatestInference 2026-07-02`
+
+Artifacts:
+
+- `results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260702_203939_scheduled.log`
+- `results/log_runs/tb11_t28_chain_band_freshness_gate_20260702_203939_scheduled.log`
+- `results/signal_baseline/tb11_scheduled_jobs_20260702_inference.md`
+
+Scheduler read:
+
+- checked at: `2026-07-02 21:48 IST`
+- `\TB11_Phase1_QuoteObservation_0940`: last run `2026-07-02 20:38:13`, next run `2026-07-03 09:40:00`, last result `0`
+- `\TB11_Phase1_QuoteObservation_1230`: last run `2026-07-02 20:38:13`, next run `2026-07-03 12:30:00`, last result `0`
+- `\TB11_Phase1_QuoteObservation_1445`: last run `2026-07-02 20:38:13`, next run `2026-07-03 14:45:00`, last result `0`
+- `\TB11_T28_ChainBandFreshness_0945`: last run `2026-07-02 20:38:13`, next run `2026-07-03 09:45:00`, last result `0`
+
+Latest artifact read:
+
+- Phase 1 ledger: `16 / 15` clean observations, `6 / 5` unique dates, broker-block violations `0`, Phase 1 evidence gate `True`
+- T28 gate: quote packets `96`, fresh rows `0`, median quote age `12002.884757` seconds, status `blocked_needs_fresh_intraday_t28`
+- Phase 2 readiness: gate `False`, selected-leg hits `2 / 4`, full coverage `False`, modeled credit available `True`, broker orders allowed `False`
+- Transition controller: transition passed `False`, runbook written `False`, automation state advanced `False`
+- Composite audit after refresh: `branch_a_waiting_for_market_evidence`
+
+Inference:
+
+The scheduled jobs are alive and returning `0`, but the `2026-07-02 20:39` run was outside the market window and produced stale T28 evidence. Treat it as a stale-data guard firing, not as a valid Phase 2 reconciliation opening and not as a reversal of the already committed `2026-07-01` Phase 2 runbook handoff.
+
+Next action:
+
+Wait for the next live-market run on `2026-07-03`; require fresh T28 rows, selected-leg coverage `4 / 4`, and Phase 2 readiness pass before any no-order paper-price reconciliation execution. Broker order endpoints remain blocked.
