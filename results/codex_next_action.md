@@ -1806,3 +1806,40 @@ TB18 cannot be backtested yet. The repo has the earnings-calendar schema placeho
 Next action:
 
 Populate `data/earnings_calendar.csv` from a non-Zerodha source and add `data/nifty50_index_weights.csv` or an equivalent symbol/weight file before running TB18.
+
+## `TB16_DefinedRiskNiftyBullPutSpread`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb16_defined_risk_nifty_bull_put_spread
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_detail.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_summary.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_skipped.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_metadata.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_decision.md`
+
+Current read:
+
+- status: `research_rejected_by_initial_gates`
+- trades: `308`
+- first entry / last expiry: `2016-07-25` / `2024-07-11`
+- annualized return on estimated margin: `14.91%`
+- win rate: `74.68%`
+- worst trade: `-325.18` points
+- max drawdown: `-1078.95` points
+- TB11 return correlation: `0.4700` over `161` overlapping expiries
+- blocker: `annualized_rom_below_15pct`
+- broker orders allowed: `False`
+
+Inference:
+
+The first real-chain TB16 bull-put spread is close on return and acceptable on TB11 diversification, but it fails the explicit 15% annualized return-on-margin gate and has too much point drawdown versus the current TB11 balanced/defensive options work. Treat it as a documented reject.
+
+Next action:
+
+Proceed to `TB11_T31` staggered multi-expiry or `TB19` OI positioning as the next plan item that can use current repo data. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers are cleared.

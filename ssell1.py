@@ -23355,6 +23355,335 @@ def run_tb18_earnings_overlay_readiness(
     return summary_df
 
 
+def run_tb16_defined_risk_nifty_bull_put_spread(
+    output_prefix: str = "tb16_defined_risk_nifty_bull_put_spread",
+) -> pd.DataFrame:
+    from signal_options_synth import (
+        _parse_bhavcopy_date,
+        _pick_leg,
+        _read_nifty_options_bhavcopy,
+        load_price_frame,
+    )
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    premium_haircut = 0.15
+    cost_per_leg_points = 1.0
+    short_put_otm_pct = 0.03
+    long_put_deeper_pct = 0.02
+    min_days_to_expiry = 3
+    max_days_to_expiry = 10
+    min_entry_contracts = 50000
+
+    spot_df, spot_path, spot_status = load_price_frame(
+        [
+            DATA_DIR / "data_fetched_NIFTY_day_3650d.csv",
+            DATA_DIR / "data_fetched_NIFTY_1day_3650d.csv",
+        ],
+        "Spot",
+    )
+    bhavcopy_root = DATA_DIR / "nse_fno_bhavcopy"
+    bhavcopy_files = sorted(bhavcopy_root.rglob("fo*bhav.csv.zip")) if bhavcopy_root.exists() else []
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": pd.Timestamp.now(tz="Asia/Kolkata").isoformat(),
+                "spot_path": str(spot_path) if spot_path is not None else "",
+                "spot_status": spot_status,
+                "bhavcopy_root": str(bhavcopy_root),
+                "bhavcopy_file_count": len(bhavcopy_files),
+                "short_put_otm_pct": short_put_otm_pct,
+                "long_put_deeper_pct": long_put_deeper_pct,
+                "premium_haircut": premium_haircut,
+                "cost_per_leg_points": cost_per_leg_points,
+                "min_entry_contracts": min_entry_contracts,
+                "trend_gate": "spot_above_sma20_and_20d_return_positive",
+                "mode_scope": "tb16_defined_risk_nifty_bull_put_spread_backtest_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if spot_df.empty or not bhavcopy_root.exists():
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        decision_md.write_text(
+            "# TB16 Defined-Risk NIFTY Bull Put Spread\n\n"
+            "Status: `blocked_missing_local_inputs`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB16-BULL-PUT] missing spot input or F&O bhavcopy root; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    spot = spot_df[["Date", "Spot"]].dropna().copy()
+    spot["Date"] = pd.to_datetime(spot["Date"], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+    spot["Spot"] = pd.to_numeric(spot["Spot"], errors="coerce")
+    spot = spot.dropna().sort_values("Date").drop_duplicates("Date", keep="last").reset_index(drop=True)
+    spot["spot_sma20"] = spot["Spot"].rolling(20, min_periods=10).mean()
+    spot["spot_ret_20d"] = spot["Spot"].pct_change(20)
+    spot["uptrend_gate"] = (spot["Spot"] > spot["spot_sma20"]) & (spot["spot_ret_20d"] > 0)
+    spot_by_date = dict(zip(spot["Date"], spot["Spot"]))
+    context_by_date = {
+        row["Date"]: {
+            "spot_sma20": float(row["spot_sma20"]) if pd.notna(row["spot_sma20"]) else np.nan,
+            "spot_ret_20d": float(row["spot_ret_20d"]) if pd.notna(row["spot_ret_20d"]) else np.nan,
+            "uptrend_gate": bool(row["uptrend_gate"]),
+        }
+        for _, row in spot.iterrows()
+    }
+    file_by_date = {date: path for path in bhavcopy_files if (date := _parse_bhavcopy_date(path)) is not None}
+
+    rows = []
+    skips = []
+    for entry_date in sorted(set(spot["Date"]).intersection(file_by_date.keys())):
+        context = context_by_date.get(entry_date, {})
+        if not context.get("uptrend_gate", False):
+            skips.append({"entry_date": entry_date, "reason": "uptrend_gate_false"})
+            continue
+        spot_entry = float(spot_by_date[entry_date])
+        options = _read_nifty_options_bhavcopy(file_by_date[entry_date])
+        if options.empty:
+            skips.append({"entry_date": entry_date, "reason": "no_nifty_options"})
+            continue
+        expiries = sorted(
+            pd.Timestamp(exp).normalize()
+            for exp in options["EXPIRY_DATE"].dropna().unique()
+            if min_days_to_expiry <= int((pd.Timestamp(exp).normalize() - entry_date).days) <= max_days_to_expiry
+        )
+        if not expiries:
+            skips.append({"entry_date": entry_date, "reason": "no_weekly_expiry_in_window"})
+            continue
+        expiry_date = expiries[0]
+        if expiry_date not in spot_by_date:
+            skips.append({"entry_date": entry_date, "expiry_date": expiry_date, "reason": "missing_spot_expiry"})
+            continue
+        chain = options.loc[options["EXPIRY_DATE"] == expiry_date].copy()
+        short_leg = _pick_leg(chain, "PE", spot_entry * (1.0 - short_put_otm_pct), "down", True)
+        if short_leg is None:
+            skips.append({"entry_date": entry_date, "expiry_date": expiry_date, "reason": "missing_short_put"})
+            continue
+        long_target = float(short_leg["STRIKE_PR"]) - spot_entry * long_put_deeper_pct
+        long_leg = _pick_leg(chain, "PE", long_target, "down", True)
+        if long_leg is None:
+            skips.append({"entry_date": entry_date, "expiry_date": expiry_date, "reason": "missing_long_put"})
+            continue
+        short_strike = float(short_leg["STRIKE_PR"])
+        long_strike = float(long_leg["STRIKE_PR"])
+        if long_strike >= short_strike:
+            skips.append({"entry_date": entry_date, "expiry_date": expiry_date, "reason": "invalid_spread_width"})
+            continue
+        total_contracts = float(pd.to_numeric(short_leg.get("CONTRACTS", np.nan), errors="coerce")) + float(
+            pd.to_numeric(long_leg.get("CONTRACTS", np.nan), errors="coerce")
+        )
+        if not np.isfinite(total_contracts) or total_contracts < min_entry_contracts:
+            skips.append(
+                {
+                    "entry_date": entry_date,
+                    "expiry_date": expiry_date,
+                    "reason": "liquidity_below_min_entry_contracts",
+                    "total_entry_contracts": total_contracts,
+                }
+            )
+            continue
+        short_close = float(short_leg["CLOSE"])
+        long_close = float(long_leg["CLOSE"])
+        net_credit = short_close * (1.0 - premium_haircut) - long_close * (1.0 + premium_haircut)
+        if net_credit <= 0:
+            skips.append({"entry_date": entry_date, "expiry_date": expiry_date, "reason": "non_positive_stressed_credit"})
+            continue
+        spot_expiry = float(spot_by_date[expiry_date])
+        expiry_payoff = max(short_strike - spot_expiry, 0.0) - max(long_strike - spot_expiry, 0.0)
+        width_points = short_strike - long_strike
+        total_cost_points = 2.0 * cost_per_leg_points
+        net_pnl_points = net_credit - expiry_payoff - total_cost_points
+        margin_estimate_points = max(width_points - net_credit, spot_entry * 0.02, 1.0)
+        rows.append(
+            {
+                "strategy": "TB16_T01_real_chain_nifty_bull_put_3pct_2pct_deeper",
+                "entry_date": entry_date,
+                "expiry_date": expiry_date,
+                "days_to_expiry": int((expiry_date - entry_date).days),
+                "spot_entry": spot_entry,
+                "spot_expiry": spot_expiry,
+                "spot_sma20": context.get("spot_sma20", np.nan),
+                "spot_ret_20d": context.get("spot_ret_20d", np.nan),
+                "short_put_strike": short_strike,
+                "long_put_strike": long_strike,
+                "spread_width_points": width_points,
+                "short_put_close": short_close,
+                "long_put_close": long_close,
+                "net_credit": net_credit,
+                "expiry_payoff": expiry_payoff,
+                "total_cost_points": total_cost_points,
+                "net_pnl_points": net_pnl_points,
+                "margin_estimate_points": margin_estimate_points,
+                "return_on_margin": net_pnl_points / margin_estimate_points,
+                "total_entry_contracts": total_contracts,
+                "short_open_int": float(pd.to_numeric(short_leg.get("OPEN_INT", np.nan), errors="coerce")),
+                "long_open_int": float(pd.to_numeric(long_leg.get("OPEN_INT", np.nan), errors="coerce")),
+            }
+        )
+
+    detail_df = pd.DataFrame(rows)
+    skipped_df = pd.DataFrame(skips)
+    detail_df.to_csv(detail_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+
+    if detail_df.empty:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "strategy": "TB16_T01_real_chain_nifty_bull_put_3pct_2pct_deeper",
+                    "status": "blocked_no_eligible_trades",
+                    "trade_count": 0,
+                    "broker_orders_allowed": False,
+                    "next_action": "Inspect skipped reasons and liquidity/expiry availability before changing spread rules.",
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB16 Defined-Risk NIFTY Bull Put Spread\n\n"
+            "Status: `blocked_no_eligible_trades`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print(f"[TB16-BULL-PUT] no eligible trades; skipped rows saved: {skipped_csv}", flush=True)
+        return summary_df
+
+    detail_df["entry_date"] = pd.to_datetime(detail_df["entry_date"]).dt.normalize()
+    detail_df["expiry_date"] = pd.to_datetime(detail_df["expiry_date"]).dt.normalize()
+    equity = pd.to_numeric(detail_df["net_pnl_points"], errors="coerce").fillna(0.0).cumsum()
+    returns = pd.to_numeric(detail_df["return_on_margin"], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    years = max(
+        (detail_df["expiry_date"].max() - detail_df["entry_date"].min()).days / 365.25,
+        len(detail_df) / 52.0,
+        1.0 / 52.0,
+    )
+    total_rom = float(returns.sum()) if not returns.empty else np.nan
+    ann_rom = (1.0 + total_rom) ** (1.0 / years) - 1.0 if total_rom > -0.999999 else np.nan
+    max_drawdown_points = float((equity - equity.cummax()).min()) if not equity.empty else 0.0
+
+    correlation_source = ""
+    correlation_observations = 0
+    tb11_correlation = np.nan
+    correlation_candidates = [
+        (
+            baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv",
+            {"scenario": "base", "allocation": "def_full_resg50_ovg50"},
+            "weighted_return_on_margin",
+        ),
+        (
+            baseline_dir / "tb10_real_chain_condor_detail.csv",
+            {},
+            "return_on_margin",
+        ),
+    ]
+    tb16_returns = detail_df[["expiry_date", "return_on_margin"]].rename(columns={"return_on_margin": "tb16_return"})
+    for candidate_path, filters, value_col in correlation_candidates:
+        if not candidate_path.exists():
+            continue
+        try:
+            peer = pd.read_csv(candidate_path)
+        except Exception:
+            continue
+        if value_col not in peer.columns or "expiry_date" not in peer.columns:
+            continue
+        for col, expected in filters.items():
+            if col in peer.columns:
+                peer = peer.loc[peer[col].astype(str) == str(expected)].copy()
+        if peer.empty:
+            continue
+        peer["expiry_date"] = pd.to_datetime(peer["expiry_date"], errors="coerce").dt.normalize()
+        peer[value_col] = pd.to_numeric(peer[value_col], errors="coerce")
+        peer = peer.dropna(subset=["expiry_date", value_col])
+        peer = peer.groupby("expiry_date", as_index=False)[value_col].sum().rename(columns={value_col: "peer_return"})
+        joined = tb16_returns.merge(peer, on="expiry_date", how="inner").dropna()
+        if len(joined) >= 10 and joined["tb16_return"].nunique() > 1 and joined["peer_return"].nunique() > 1:
+            tb11_correlation = float(joined["tb16_return"].corr(joined["peer_return"]))
+            correlation_source = str(candidate_path)
+            correlation_observations = int(len(joined))
+            break
+
+    ann_gate_pass = bool(pd.notna(ann_rom) and ann_rom >= 0.15)
+    correlation_gate_pass = bool(pd.isna(tb11_correlation) or tb11_correlation <= 0.60)
+    status = "candidate_passed_initial_tb16_research_gates" if ann_gate_pass and correlation_gate_pass else "research_rejected_by_initial_gates"
+    blockers = []
+    if not ann_gate_pass:
+        blockers.append("annualized_rom_below_15pct")
+    if not correlation_gate_pass:
+        blockers.append("tb11_correlation_above_0p60")
+
+    summary_df = pd.DataFrame(
+        [
+            {
+                "strategy": "TB16_T01_real_chain_nifty_bull_put_3pct_2pct_deeper",
+                "status": status,
+                "trade_count": int(len(detail_df)),
+                "first_entry": detail_df["entry_date"].min(),
+                "last_expiry": detail_df["expiry_date"].max(),
+                "total_pnl_points": float(pd.to_numeric(detail_df["net_pnl_points"], errors="coerce").sum()),
+                "mean_pnl_points": float(pd.to_numeric(detail_df["net_pnl_points"], errors="coerce").mean()),
+                "worst_trade_points": float(pd.to_numeric(detail_df["net_pnl_points"], errors="coerce").min()),
+                "win_rate": float((pd.to_numeric(detail_df["net_pnl_points"], errors="coerce") > 0).mean()),
+                "max_drawdown_points": max_drawdown_points,
+                "mean_return_on_margin": float(returns.mean()) if not returns.empty else np.nan,
+                "total_return_on_margin": total_rom,
+                "annualized_return_on_margin": float(ann_rom) if pd.notna(ann_rom) else np.nan,
+                "tb11_return_correlation": tb11_correlation,
+                "correlation_observations": correlation_observations,
+                "correlation_source": correlation_source,
+                "annualized_rom_gate_pass": ann_gate_pass,
+                "correlation_gate_pass": correlation_gate_pass,
+                "broker_orders_allowed": False,
+                "blockers": "|".join(blockers) if blockers else "none",
+                "next_action": (
+                    "Do not promote; compare against TB11 under fold/year stress if a later variant passes both gates."
+                    if status != "candidate_passed_initial_tb16_research_gates"
+                    else "Run TB16 fold/year robustness and harsh-cost sensitivity before any paper-trade consideration."
+                ),
+            }
+        ]
+    )
+    summary_df.to_csv(summary_csv, index=False)
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB16 Defined-Risk NIFTY Bull Put Spread",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- trades: `{len(detail_df)}`",
+                f"- first entry / last expiry: `{summary_df.iloc[0]['first_entry']}` / `{summary_df.iloc[0]['last_expiry']}`",
+                f"- annualized return on estimated margin: `{summary_df.iloc[0]['annualized_return_on_margin']}`",
+                f"- worst trade points: `{summary_df.iloc[0]['worst_trade_points']}`",
+                f"- max drawdown points: `{summary_df.iloc[0]['max_drawdown_points']}`",
+                f"- win rate: `{summary_df.iloc[0]['win_rate']}`",
+                f"- TB11 return correlation: `{tb11_correlation}` over `{correlation_observations}` overlaps",
+                f"- blockers: `{summary_df.iloc[0]['blockers']}`",
+                "- broker orders allowed: `False`",
+                "",
+                f"Next action: {summary_df.iloc[0]['next_action']}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB16-BULL-PUT] detail saved: {detail_csv}", flush=True)
+    print(f"[TB16-BULL-PUT] summary saved: {summary_csv}", flush=True)
+    print(f"[TB16-BULL-PUT] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_native_15m_holding_horizon_execution_sweep(
     instrument_df: pd.DataFrame,
     best_params: dict,
@@ -24635,6 +24964,7 @@ if __name__ == "__main__":
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_tb15_t03_fresh_forward_sample",
+            "signal_baseline_tb16_defined_risk_nifty_bull_put_spread",
             "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
@@ -25422,6 +25752,14 @@ if __name__ == "__main__":
             "This requires a non-overlapping local F&O bhavcopy slice and remains research-only with no broker orders."
         )
         run_tb15_t03_fresh_forward_sample(output_prefix="tb15_t03_fresh_forward_sample")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb16_defined_risk_nifty_bull_put_spread":
+        main_logger.info(
+            "Starting TB16 defined-risk NIFTY bull put spread backtest. "
+            "This uses local real-chain bhavcopy closes and remains research-only with no broker orders."
+        )
+        run_tb16_defined_risk_nifty_bull_put_spread(output_prefix="tb16_defined_risk_nifty_bull_put_spread")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb18_earnings_overlay_readiness":

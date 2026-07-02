@@ -129,3 +129,37 @@ Current result:
 Inference: TB18 is not runnable yet. The repo has the schema placeholder for earnings dates, but no actual event rows, and it also lacks the NIFTY index-weight/constituent file required to compute the TB11 "heavy earnings week" veto.
 
 Next action: populate `data/earnings_calendar.csv` with non-Zerodha earnings dates and add a NIFTY constituent/weight file with symbol and weight columns before running any TB18 overlay backtest.
+
+## TB16 Defined-Risk NIFTY Bull Put Spread
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb16_defined_risk_nifty_bull_put_spread
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_detail.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_summary.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_skipped.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_metadata.csv`
+- `results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_decision.md`
+
+Current result:
+
+- status: `research_rejected_by_initial_gates`
+- trades: `308`
+- first entry / last expiry: `2016-07-25` / `2024-07-11`
+- annualized return on estimated margin: `14.91%`
+- win rate: `74.68%`
+- worst trade: `-325.18` points
+- max drawdown: `-1078.95` points
+- TB11 return correlation: `0.4700` over `161` overlapping expiries
+- correlation source: `tb11_options_conditional_overlay_frontier_detail.csv`
+- blocker: `annualized_rom_below_15pct`
+- broker orders allowed: `False`
+
+Inference: TB16 has acceptable diversification versus the TB11 balanced overlay, but it misses the 15% annualized return-on-margin gate by a narrow margin and carries materially larger point drawdown than the current TB11 defensive/balanced profiles. Do not promote this first bull-put spread variant.
+
+Next action: keep TB16 as a documented reject unless we intentionally test a narrower follow-up variant with a higher credit floor, lower liquidity threshold sensitivity, or a stronger trend/volatility gate. The plan order can move to TB11_T31 staggered multi-expiry or TB19 OI positioning while TB15_T03, TB11_T30, and TB18 remain blocked by data readiness.
