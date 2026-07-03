@@ -1864,20 +1864,21 @@ Artifacts:
 Current read:
 
 - status: `blocked_insufficient_iv_history`
-- source chain-band detail files: `4`
-- raw chain rows: `388`
-- eligible OTM fresh rows: `50`
-- modeled IV rows: `50`
-- unique fresh capture dates: `1`
-- history span: `0 / 60` days
-- latest median modeled IV: `0.13398187395710384`
+- source chain-band detail files: `5`
+- raw chain rows: `486`
+- eligible OTM fresh rows: `100`
+- modeled IV rows: `100`
+- unique fresh capture dates: `2`
+- first/latest fresh capture date: `2026-07-01` / `2026-07-03`
+- history span: `2 / 60` days
+- latest median modeled IV: `0.12964946775400768`
 - latest median available-history IV rank: `1.0`
 - provisional sizing tier: `no_entry_insufficient_history`
 - broker orders allowed: `False`
 
 Inference:
 
-T30 can now compute modeled IV from chain-band mid quotes, but the current data is only a one-date fresh preview. It is not a valid 60-day IV percentile input yet and must not drive live/paper sizing.
+T30 can now compute modeled IV from chain-band mid quotes, and the current fresh-history sample has advanced to `2` dates. It is still not a valid 60-day IV percentile input and must not drive live/paper sizing.
 
 Next action:
 

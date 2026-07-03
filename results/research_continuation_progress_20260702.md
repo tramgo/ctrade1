@@ -190,19 +190,19 @@ Artifacts:
 Current result:
 
 - status: `blocked_insufficient_iv_history`
-- source chain-band detail files: `4`
-- raw chain rows: `388`
-- eligible OTM fresh rows: `50`
-- modeled IV rows: `50`
-- unique fresh capture dates: `1`
-- first/latest fresh capture date: `2026-07-01` / `2026-07-01`
-- history span: `0 / 60` days
-- latest median modeled IV: `0.13398187395710384`
+- source chain-band detail files: `5`
+- raw chain rows: `486`
+- eligible OTM fresh rows: `100`
+- modeled IV rows: `100`
+- unique fresh capture dates: `2`
+- first/latest fresh capture date: `2026-07-01` / `2026-07-03`
+- history span: `2 / 60` days
+- latest median modeled IV: `0.12964946775400768`
 - latest median available-history IV rank: `1.0`
 - provisional sizing tier: `no_entry_insufficient_history`
 - broker orders allowed: `False`
 
-Inference: the chain-band data is sufficient to compute modeled implied volatility from mid quotes, spot, strike, option type, and DTE, but it is not yet sufficient to use a 60-day IV percentile. T30 remains a research-only preview until enough fresh market-hour chain-band captures accumulate.
+Inference: the chain-band data is sufficient to compute modeled implied volatility from mid quotes, spot, strike, option type, and DTE, and fresh-history coverage has advanced to `2` dates. It is still not sufficient to use a 60-day IV percentile. T30 remains a research-only preview until enough fresh market-hour chain-band captures accumulate.
 
 Next action: keep scheduled T28 chain-band collection alive and rerun T30 after the fresh capture history spans 60 days or at least 20 fresh capture dates. Do not use the provisional IV rank for sizing yet.
 
