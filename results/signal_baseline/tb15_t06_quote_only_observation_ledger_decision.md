@@ -3,7 +3,7 @@
 Status: `collecting_quote_only_observations`
 
 - latest clean quote spreads: `4`
-- clean observations: `4` / `10`
+- clean observations: `8` / `10`
 - unique observation dates: `1` / `5`
 - broker block violations: `0`
 - broker orders allowed: `False`

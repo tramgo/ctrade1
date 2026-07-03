@@ -1,2 +1,2 @@
 collection_date_ist,latest_capture_rows,latest_clean_quote_spreads,ledger_rows,clean_observations,unique_observation_dates,required_clean_observations,required_unique_dates,remaining_clean_observations,remaining_unique_dates,broker_block_violations,broker_orders_allowed,phase1_evidence_gate_passed,ledger_status
-2026-07-03,5,4,5,4,1,10,5,6,4,0,False,False,collecting_quote_only_observations
+2026-07-03,5,4,10,8,1,10,5,2,4,0,False,False,collecting_quote_only_observations

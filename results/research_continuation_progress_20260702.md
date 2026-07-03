@@ -134,11 +134,13 @@ Current result:
 - resolved spreads: `5 / 5`
 - quote-ready spreads: `5 / 5`
 - clean quote-ready spreads: `4 / 5`
-- dirty spread: `LT`, due to a very wide short-leg ask/bid spread and negative executable credit
+- mean executable credit: `6.47`
+- minimum executable credit: `3.40`
+- dirty spread: `LT`, due to wide/stale long-put quote with max leg spread percentage `1.2669`
 - broker block violations: `0`
 - broker orders allowed: `False`
 
-Inference: the Zerodha quote-only path is live for TB15 and can resolve/current-quote stock-option bull put spread candidates without using order endpoints. One market snapshot is not enough evidence for a paper/live decision.
+Inference: the Zerodha quote-only path is live for TB15 and can resolve/current-quote stock-option bull put spread candidates without using order endpoints. Same-day repeat captures improved the clean-observation count, but the date-diversity gate still blocks promotion.
 
 ## TB15_T06 Quote-Only Observation Ledger
 
@@ -161,9 +163,9 @@ Current result:
 - status: `collecting_quote_only_observations`
 - latest capture rows: `5`
 - latest clean quote spreads: `4`
-- clean observations: `4 / 10`
+- clean observations: `8 / 10`
 - unique observation dates: `1 / 5`
-- remaining: `6` clean observations and `4` unique dates
+- remaining: `2` clean observations and `4` unique dates
 - broker block violations: `0`
 - broker orders allowed: `False`
 
