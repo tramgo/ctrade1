@@ -23781,6 +23781,371 @@ def run_tb19_oi_positioning_readiness(
     return summary_df
 
 
+def run_tb17_covered_call_overwrite_readiness(
+    output_prefix: str = "tb17_covered_call_overwrite_readiness",
+) -> pd.DataFrame:
+    import zipfile
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    symbols = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS"]
+    min_dte = 5
+    max_dte = 17
+    otm_pct = 0.03
+    min_contracts = 1
+    assignment_stt_rate = 0.001
+    option_cost_rate = 0.0005
+    min_incremental_yield = 0.03
+    max_upside_giveup_to_premium = 0.50
+    max_strike_to_entry_spot = 1.20
+    max_premium_to_entry_spot = 0.12
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    def _load_spot(symbol: str) -> pd.DataFrame:
+        candidates = [
+            DATA_DIR / f"data_fetched_{symbol}_day_3650d.csv",
+            DATA_DIR / f"data_fetched_{symbol}_1day_3650d.csv",
+        ]
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            return pd.DataFrame()
+        frame = pd.read_csv(path)
+        date_col = next((col for col in frame.columns if str(col).lower() in {"date", "datetime", "timestamp"}), None)
+        close_col = next((col for col in frame.columns if str(col).lower() in {"close", "last", "last_price"}), None)
+        if date_col is None or close_col is None:
+            return pd.DataFrame()
+        out = pd.DataFrame(
+            {
+                "date": pd.to_datetime(frame[date_col], errors="coerce").dt.normalize(),
+                "spot_close": pd.to_numeric(frame[close_col], errors="coerce"),
+            }
+        ).dropna()
+        out["source_path"] = str(path)
+        return out.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+
+    spot_frames = {symbol: spot for symbol in symbols if not (spot := _load_spot(symbol)).empty}
+    all_zip_paths = sorted((DATA_DIR / "nse_fno_bhavcopy").rglob("fo*bhav.csv.zip"))
+
+    def _zip_trade_date(path: Path) -> pd.Timestamp | None:
+        token = path.name[2:11].upper() if path.name.lower().startswith("fo") else ""
+        parsed = pd.to_datetime(token, format="%d%b%Y", errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return pd.Timestamp(parsed).normalize()
+
+    zip_date_rows = [
+        {"path": path, "trade_date": trade_date}
+        for path in all_zip_paths
+        if (trade_date := _zip_trade_date(path)) is not None
+    ]
+    if len(spot_frames) == len(symbols) and zip_date_rows:
+        shared_spot_dates = set.intersection(*[set(pd.to_datetime(spot["date"]).dt.normalize()) for spot in spot_frames.values()])
+        archive_dates = pd.DataFrame(zip_date_rows)
+        archive_dates = archive_dates.loc[archive_dates["trade_date"].isin(shared_spot_dates)].copy()
+        archive_dates["entry_week"] = archive_dates["trade_date"].dt.to_period("W-FRI").astype(str)
+        weekly_entry_dates = set(
+            archive_dates.sort_values("trade_date").groupby("entry_week", as_index=False).head(1)["trade_date"]
+        )
+        zip_paths = [
+            row["path"]
+            for row in zip_date_rows
+            if row["trade_date"] in weekly_entry_dates
+        ]
+    else:
+        weekly_entry_dates = set()
+        zip_paths = []
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "symbols": "|".join(symbols),
+                "symbols_with_spot": "|".join(sorted(spot_frames.keys())),
+                "bhavcopy_file_count": len(all_zip_paths),
+                "bhavcopy_file_count_after_weekly_entry_filter": len(zip_paths),
+                "min_dte": min_dte,
+                "max_dte": max_dte,
+                "otm_pct": otm_pct,
+                "min_contracts": min_contracts,
+                "assignment_stt_rate": assignment_stt_rate,
+                "option_cost_rate": option_cost_rate,
+                "max_strike_to_entry_spot": max_strike_to_entry_spot,
+                "max_premium_to_entry_spot": max_premium_to_entry_spot,
+                "holding_assumption": "synthetic_passive_core_holds_underlying_shares_for_each_written_call",
+                "mode_scope": "tb17_covered_call_overwrite_readiness_research_only",
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if len(spot_frames) < len(symbols) or not zip_paths:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        decision_md.write_text(
+            "# TB17 Covered-Call Overwrite Readiness\n\n"
+            "Status: `blocked_missing_local_inputs`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB17-COVERED-CALL] missing spot data or F&O bhavcopy root; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    required_cols = {
+        "INSTRUMENT",
+        "SYMBOL",
+        "EXPIRY_DT",
+        "STRIKE_PR",
+        "OPTION_TYP",
+        "CLOSE",
+        "SETTLE_PR",
+        "CONTRACTS",
+        "OPEN_INT",
+        "TIMESTAMP",
+    }
+    option_frames = []
+    for zip_path in zip_paths:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                csv_names = [name for name in zf.namelist() if name.lower().endswith(".csv")]
+                if not csv_names:
+                    continue
+                raw = pd.read_csv(zf.open(csv_names[0]), usecols=lambda col: col in required_cols)
+        except Exception:
+            continue
+        if not required_cols.issubset(raw.columns):
+            continue
+        opt = raw.loc[
+            raw["INSTRUMENT"].astype(str).str.upper().eq("OPTSTK")
+            & raw["SYMBOL"].astype(str).str.upper().isin(symbols)
+            & raw["OPTION_TYP"].astype(str).str.upper().eq("CE")
+        ].copy()
+        if opt.empty:
+            continue
+        option_frames.append(
+            pd.DataFrame(
+                {
+                    "symbol": opt["SYMBOL"].astype(str).str.upper(),
+                    "trade_date": pd.to_datetime(opt["TIMESTAMP"], format="%d-%b-%Y", errors="coerce").dt.normalize(),
+                    "expiry_date": pd.to_datetime(opt["EXPIRY_DT"], format="%d-%b-%Y", errors="coerce").dt.normalize(),
+                    "strike": pd.to_numeric(opt["STRIKE_PR"], errors="coerce"),
+                    "premium_close": pd.to_numeric(opt["CLOSE"], errors="coerce"),
+                    "premium_settle": pd.to_numeric(opt["SETTLE_PR"], errors="coerce"),
+                    "contracts": pd.to_numeric(opt["CONTRACTS"], errors="coerce").fillna(0),
+                    "open_interest": pd.to_numeric(opt["OPEN_INT"], errors="coerce").fillna(0),
+                }
+            )
+        )
+
+    if not option_frames:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        decision_md.write_text(
+            "# TB17 Covered-Call Overwrite Readiness\n\n"
+            "Status: `blocked_missing_stock_call_options`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB17-COVERED-CALL] no stock call option frames; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    options = pd.concat(option_frames, ignore_index=True, sort=False)
+    options = options.dropna(subset=["symbol", "trade_date", "expiry_date", "strike", "premium_close"])
+    options = options.loc[(options["premium_close"] > 0) & (options["contracts"] >= min_contracts)].copy()
+    options["dte"] = (options["expiry_date"] - options["trade_date"]).dt.days
+    options = options.loc[options["dte"].between(min_dte, max_dte)].copy()
+
+    rows = []
+    skipped_rows = []
+    for symbol, sym_options in options.groupby("symbol", dropna=False):
+        spot = spot_frames.get(symbol)
+        if spot is None or spot.empty:
+            skipped_rows.append({"symbol": symbol, "reason": "missing_spot"})
+            continue
+        merged = sym_options.merge(
+            spot[["date", "spot_close"]].rename(columns={"date": "trade_date", "spot_close": "entry_spot"}),
+            on="trade_date",
+            how="left",
+        ).dropna(subset=["entry_spot"])
+        if merged.empty:
+            skipped_rows.append({"symbol": symbol, "reason": "no_trade_date_spot_overlap"})
+            continue
+        merged["target_strike"] = merged["entry_spot"] * (1.0 + otm_pct)
+        merged = merged.loc[merged["strike"] >= merged["target_strike"]].copy()
+        if merged.empty:
+            skipped_rows.append({"symbol": symbol, "reason": "no_otm_call_candidates"})
+            continue
+        merged["strike_to_entry_spot"] = merged["strike"] / merged["entry_spot"]
+        merged["premium_to_entry_spot"] = merged["premium_close"] / merged["entry_spot"]
+        before_scale_filter = len(merged)
+        merged = merged.loc[
+            (merged["strike_to_entry_spot"] <= max_strike_to_entry_spot)
+            & (merged["premium_to_entry_spot"] <= max_premium_to_entry_spot)
+        ].copy()
+        if merged.empty:
+            skipped_rows.append(
+                {
+                    "symbol": symbol,
+                    "reason": "price_scale_sanity_filter",
+                    "rows_before_filter": before_scale_filter,
+                }
+            )
+            continue
+        merged["strike_distance"] = (merged["strike"] - merged["target_strike"]).abs()
+        chosen = (
+            merged.sort_values(
+                ["symbol", "expiry_date", "trade_date", "strike_distance", "contracts"],
+                ascending=[True, True, True, True, False],
+            )
+            .groupby(["symbol", "expiry_date"], as_index=False)
+            .head(1)
+            .copy()
+        )
+        chosen = chosen.merge(
+            spot[["date", "spot_close"]].rename(columns={"date": "expiry_date", "spot_close": "expiry_spot"}),
+            on="expiry_date",
+            how="left",
+        ).dropna(subset=["expiry_spot"])
+        if chosen.empty:
+            skipped_rows.append({"symbol": symbol, "reason": "missing_expiry_spot"})
+            continue
+        chosen["underlying_buyhold_return"] = (chosen["expiry_spot"] / chosen["entry_spot"]) - 1.0
+        chosen["upside_giveup_points"] = (chosen["expiry_spot"] - chosen["strike"]).clip(lower=0.0)
+        chosen["assignment_delivery_stt_points"] = np.where(
+            chosen["upside_giveup_points"] > 0.0,
+            chosen["strike"] * assignment_stt_rate,
+            0.0,
+        )
+        chosen["option_cost_points"] = chosen["premium_close"] * option_cost_rate
+        chosen["net_premium_points"] = chosen["premium_close"] - chosen["option_cost_points"] - chosen["assignment_delivery_stt_points"]
+        chosen["covered_call_incremental_points"] = chosen["net_premium_points"] - chosen["upside_giveup_points"]
+        chosen["covered_call_incremental_return"] = chosen["covered_call_incremental_points"] / chosen["entry_spot"]
+        chosen["covered_call_total_return"] = chosen["underlying_buyhold_return"] + chosen["covered_call_incremental_return"]
+        chosen["called_away"] = chosen["expiry_spot"] > chosen["strike"]
+        chosen["upside_giveup_to_gross_premium"] = chosen["upside_giveup_points"] / chosen["premium_close"].replace(0.0, np.nan)
+        rows.extend(chosen.to_dict("records"))
+
+    detail_df = pd.DataFrame(rows)
+    skipped_df = pd.DataFrame(skipped_rows)
+    detail_df.to_csv(detail_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    if detail_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB17 Covered-Call Overwrite Readiness\n\n"
+            "Status: `blocked_no_candidate_trades`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB17-COVERED-CALL] no candidate trades; summary saved.", flush=True)
+        return pd.DataFrame()
+
+    summary_rows = []
+    for symbol, group in detail_df.groupby("symbol", dropna=False):
+        group = group.sort_values(["trade_date", "expiry_date"]).copy()
+        incremental = pd.to_numeric(group["covered_call_incremental_return"], errors="coerce").dropna()
+        total = pd.to_numeric(group["covered_call_total_return"], errors="coerce").dropna()
+        buyhold = pd.to_numeric(group["underlying_buyhold_return"], errors="coerce").dropna()
+        years = max((pd.to_datetime(group["expiry_date"]).max() - pd.to_datetime(group["trade_date"]).min()).days / 365.25, len(group) / 52.0, 1.0 / 52.0)
+        incremental_total = float(np.prod(1.0 + incremental) - 1.0) if not incremental.empty else np.nan
+        covered_total = float(np.prod(1.0 + total) - 1.0) if not total.empty else np.nan
+        buyhold_total = float(np.prod(1.0 + buyhold) - 1.0) if not buyhold.empty else np.nan
+        incremental_ann = (1.0 + incremental_total) ** (1.0 / years) - 1.0 if np.isfinite(incremental_total) and incremental_total > -0.999999 else np.nan
+        covered_ann = (1.0 + covered_total) ** (1.0 / years) - 1.0 if np.isfinite(covered_total) and covered_total > -0.999999 else np.nan
+        buyhold_ann = (1.0 + buyhold_total) ** (1.0 / years) - 1.0 if np.isfinite(buyhold_total) and buyhold_total > -0.999999 else np.nan
+        assigned = group.loc[pd.to_numeric(group["upside_giveup_points"], errors="coerce") > 0.0].copy()
+        total_premium = float(pd.to_numeric(group["premium_close"], errors="coerce").sum())
+        total_upside_giveup = float(pd.to_numeric(group["upside_giveup_points"], errors="coerce").sum())
+        upside_ratio = total_upside_giveup / total_premium if total_premium > 0 else np.nan
+        summary_rows.append(
+            {
+                "symbol": symbol,
+                "trade_count": int(len(group)),
+                "first_trade_date": pd.to_datetime(group["trade_date"]).min(),
+                "last_expiry_date": pd.to_datetime(group["expiry_date"]).max(),
+                "incremental_yield_ann": float(incremental_ann) if pd.notna(incremental_ann) else np.nan,
+                "covered_call_ann_return": float(covered_ann) if pd.notna(covered_ann) else np.nan,
+                "buyhold_ann_return": float(buyhold_ann) if pd.notna(buyhold_ann) else np.nan,
+                "mean_incremental_return": float(incremental.mean()) if not incremental.empty else np.nan,
+                "worst_incremental_return": float(incremental.min()) if not incremental.empty else np.nan,
+                "assignment_rate": float(pd.Series(group["called_away"]).astype(bool).mean()),
+                "total_premium_points": total_premium,
+                "total_upside_giveup_points": total_upside_giveup,
+                "upside_giveup_to_premium": float(upside_ratio) if pd.notna(upside_ratio) else np.nan,
+                "assignment_delivery_stt_points": float(pd.to_numeric(group["assignment_delivery_stt_points"], errors="coerce").sum()),
+                "yield_gate_pass": bool(pd.notna(incremental_ann) and incremental_ann >= min_incremental_yield),
+                "upside_giveup_gate_pass": bool(pd.notna(upside_ratio) and upside_ratio <= max_upside_giveup_to_premium),
+                "assignment_tax_modelled": True,
+            }
+        )
+    summary_df = pd.DataFrame(summary_rows)
+    if not summary_df.empty:
+        overall = {
+            "symbol": "PORTFOLIO_EQUAL_WEIGHT",
+            "trade_count": int(summary_df["trade_count"].sum()),
+            "first_trade_date": pd.to_datetime(detail_df["trade_date"]).min(),
+            "last_expiry_date": pd.to_datetime(detail_df["expiry_date"]).max(),
+            "incremental_yield_ann": float(pd.to_numeric(summary_df["incremental_yield_ann"], errors="coerce").mean()),
+            "covered_call_ann_return": float(pd.to_numeric(summary_df["covered_call_ann_return"], errors="coerce").mean()),
+            "buyhold_ann_return": float(pd.to_numeric(summary_df["buyhold_ann_return"], errors="coerce").mean()),
+            "mean_incremental_return": float(pd.to_numeric(detail_df["covered_call_incremental_return"], errors="coerce").mean()),
+            "worst_incremental_return": float(pd.to_numeric(detail_df["covered_call_incremental_return"], errors="coerce").min()),
+            "assignment_rate": float(pd.Series(detail_df["called_away"]).astype(bool).mean()),
+            "total_premium_points": float(pd.to_numeric(detail_df["premium_close"], errors="coerce").sum()),
+            "total_upside_giveup_points": float(pd.to_numeric(detail_df["upside_giveup_points"], errors="coerce").sum()),
+            "upside_giveup_to_premium": float(pd.to_numeric(detail_df["upside_giveup_points"], errors="coerce").sum() / max(pd.to_numeric(detail_df["premium_close"], errors="coerce").sum(), 1e-9)),
+            "assignment_delivery_stt_points": float(pd.to_numeric(detail_df["assignment_delivery_stt_points"], errors="coerce").sum()),
+            "yield_gate_pass": bool((pd.to_numeric(summary_df["incremental_yield_ann"], errors="coerce") >= min_incremental_yield).all()),
+            "upside_giveup_gate_pass": bool((pd.to_numeric(summary_df["upside_giveup_to_premium"], errors="coerce") <= max_upside_giveup_to_premium).all()),
+            "assignment_tax_modelled": True,
+        }
+        summary_df = pd.concat([pd.DataFrame([overall]), summary_df], ignore_index=True, sort=False)
+    summary_df["broker_orders_allowed"] = False
+    summary_df.to_csv(summary_csv, index=False)
+
+    portfolio_row = summary_df.iloc[0]
+    status = (
+        "covered_call_candidate_passes_initial_gates"
+        if bool(portfolio_row["yield_gate_pass"]) and bool(portfolio_row["upside_giveup_gate_pass"])
+        else "research_rejected_by_initial_gates"
+    )
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB17 Covered-Call Overwrite Readiness",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- holding assumption: `synthetic passive core holds underlying shares`",
+                f"- symbols tested: `{len(symbols)}`",
+                f"- detail trades: `{len(detail_df)}`",
+                f"- portfolio incremental yield annualized: `{portfolio_row['incremental_yield_ann']}`",
+                f"- portfolio covered-call annualized return: `{portfolio_row['covered_call_ann_return']}`",
+                f"- portfolio buy-hold annualized return: `{portfolio_row['buyhold_ann_return']}`",
+                f"- upside give-up / premium: `{portfolio_row['upside_giveup_to_premium']}`",
+                f"- assignment delivery STT points modelled: `{portfolio_row['assignment_delivery_stt_points']}`",
+                f"- yield/upside gates: `{portfolio_row['yield_gate_pass']}` / `{portfolio_row['upside_giveup_gate_pass']}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: do not promote unless the passive-core holding file is explicit and both initial gates pass with reviewed cost/tax assumptions.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB17-COVERED-CALL] detail saved: {detail_csv}", flush=True)
+    print(f"[TB17-COVERED-CALL] summary saved: {summary_csv}", flush=True)
+    print(f"[TB17-COVERED-CALL] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_tb18_earnings_overlay_readiness(
     output_prefix: str = "tb18_earnings_overlay_readiness",
 ) -> pd.DataFrame:
@@ -25593,6 +25958,7 @@ if __name__ == "__main__":
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
             "signal_baseline_tb15_t03_fresh_forward_sample",
             "signal_baseline_tb16_defined_risk_nifty_bull_put_spread",
+            "signal_baseline_tb17_covered_call_overwrite_readiness",
             "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_tb19_oi_positioning_readiness",
             "signal_baseline_cost_sensitivity",
@@ -26397,6 +26763,14 @@ if __name__ == "__main__":
             "This uses local real-chain bhavcopy closes and remains research-only with no broker orders."
         )
         run_tb16_defined_risk_nifty_bull_put_spread(output_prefix="tb16_defined_risk_nifty_bull_put_spread")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb17_covered_call_overwrite_readiness":
+        main_logger.info(
+            "Starting TB17 covered-call overwrite readiness. "
+            "This tests passive-core overwrite assumptions with local stock closes and F&O bhavcopy calls, with no broker orders."
+        )
+        run_tb17_covered_call_overwrite_readiness(output_prefix="tb17_covered_call_overwrite_readiness")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb18_earnings_overlay_readiness":

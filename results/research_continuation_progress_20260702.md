@@ -230,3 +230,39 @@ Current result:
 Inference: OI positioning has a useful base-case signal, but it does not survive the harsh-cost robustness requirement. The `pcr_high` filter trims trades and improves the base drawdown, yet it underperforms the all-trades harsh case and worsens harsh drawdown. Do not promote TB19.
 
 Next action: proceed to the next attached-plan item, `TB17` covered-call overwrite, only as a readiness/backtest milestone if underlying holdings or synthetic holding assumptions are explicit. Otherwise keep the active no-order TB11/TB15 blockers as the operational priority.
+
+## TB17 Covered-Call Overwrite Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb17_covered_call_overwrite_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_detail.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_summary.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_skipped.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_metadata.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_decision.md`
+
+Current result:
+
+- status: `research_rejected_by_initial_gates`
+- symbols tested: `RELIANCE`, `HDFCBANK`, `ICICIBANK`, `INFY`, `TCS`
+- raw F&O bhavcopy files: `2346`
+- weekly-entry files scanned: `426`
+- sanity-passing trades: `238`
+- first trade / last expiry: `2016-05-09` / `2024-06-27`
+- portfolio incremental yield annualized: `4.38%`
+- portfolio covered-call annualized return: `8.95%`
+- portfolio buy-hold annualized return over matched windows: `2.84%`
+- assignment rate: `28.57%`
+- upside give-up / premium: `67.77%`
+- HDFCBANK and RELIANCE were excluded by the price-scale sanity filter after their adjusted spot closes did not line up with unadjusted option strikes/premiums
+- broker orders allowed: `False`
+
+Inference: TB17 is not a promotion candidate from current local data. The first raw pass showed impossible premiums caused by adjusted-equity versus unadjusted-option price-scale mismatch; after adding strike/spot and premium/spot sanity gates, the remaining sample still gives up too much upside relative to premium and fails both portfolio gates.
+
+Next action: keep TB17 closed as a documented reject until a corporate-action-adjusted spot/options alignment exists and a real passive holding file is specified. Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item, while `TB15_T03`, `TB11_T30`, and `TB18` remain data-readiness blocked.

@@ -1912,3 +1912,41 @@ TB19 found an interesting base-case OI condition, but no durable filter survived
 Next action:
 
 Move to `TB17` covered-call overwrite only if we explicitly define the underlying holding assumption. Otherwise the operational queue remains: keep T28 collection alive, rerun T30 after enough fresh IV history, refresh TB15 forward data, and populate TB18 earnings/index-weight inputs.
+
+## `TB17_CoveredCallOverwriteReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb17_covered_call_overwrite_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_detail.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_summary.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_skipped.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_metadata.csv`
+- `results/signal_baseline/tb17_covered_call_overwrite_readiness_decision.md`
+
+Current read:
+
+- status: `research_rejected_by_initial_gates`
+- symbols tested: `RELIANCE`, `HDFCBANK`, `ICICIBANK`, `INFY`, `TCS`
+- F&O bhavcopy files available/scanned after weekly-entry filter: `2346` / `426`
+- sanity-passing trades: `238`
+- portfolio incremental yield annualized: `4.38%`
+- portfolio covered-call annualized return: `8.95%`
+- matched-window buy-hold annualized return: `2.84%`
+- assignment rate: `28.57%`
+- upside give-up / premium: `67.77%`
+- price-scale sanity exclusions: HDFCBANK and RELIANCE after adjusted stock closes did not align with unadjusted option strikes/premiums
+- broker orders allowed: `False`
+
+Inference:
+
+TB17 is not deployable from the current data. A raw pass produced impossible premium/spot relationships because the equity spot CSVs are adjusted while the option bhavcopy strikes/premiums are not. After adding strike-to-spot and premium-to-spot sanity gates, the remaining sample still fails the portfolio yield/upside gates: the overwrite gives up too much upside for the premium collected.
+
+Next action:
+
+Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item. Keep TB17 closed unless we add corporate-action-adjusted spot/options alignment and an explicit passive-core holdings file. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers clear.
