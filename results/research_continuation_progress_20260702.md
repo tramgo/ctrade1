@@ -266,3 +266,39 @@ Current result:
 Inference: TB17 is not a promotion candidate from current local data. The first raw pass showed impossible premiums caused by adjusted-equity versus unadjusted-option price-scale mismatch; after adding strike/spot and premium/spot sanity gates, the remaining sample still gives up too much upside relative to premium and fails both portfolio gates.
 
 Next action: keep TB17 closed as a documented reject until a corporate-action-adjusted spot/options alignment exists and a real passive holding file is specified. Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item, while `TB15_T03`, `TB11_T30`, and `TB18` remain data-readiness blocked.
+
+## TB20 Cross-Asset Defensive Tilt
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb20_cross_asset_defensive_tilt
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_detail.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_summary.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_folds.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_metadata.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_decision.md`
+
+Current result:
+
+- status: `research_rejected_by_initial_gates`
+- universe: `NIFTYBEES`, `BANKBEES`, `ITBEES`, `PHARMABEES` plus `INDIAVIX`
+- rule: top-2 ETF momentum unless NIFTYBEES is below 200-session SMA or India VIX is above its 80th percentile; risk-off sleeve uses `PHARMABEES`
+- events: `83`
+- risk-off events: `32`
+- NIFTYBEES interval benchmark annualized return: `8.92%`
+- top-2 ETF momentum annualized return: `3.87%`
+- defensive tilt annualized return: `0.56%`
+- benchmark max drawdown: `-13.92%`
+- defensive tilt max drawdown: `-25.66%`
+- drawdown improvement versus benchmark: `-84.32%`
+- folds beating benchmark: `3 / 10`
+- broker orders allowed: `False`
+
+Inference: TB20 fails the intended smoothing test. The PHARMABEES risk-off sleeve avoided a few bad intervals but sacrificed too much return and worsened full-sample drawdown versus simply holding NIFTYBEES over the matched interval set. Do not promote this defensive tilt.
+
+Next action: the attached plan is now exhausted into either completed rejects or explicit data blockers. Return to operational/data-readiness work: keep T28/Phase 2 no-order collection healthy, refresh F&O/spot data for `TB15_T03`, accumulate IV history for `TB11_T30`, and populate earnings/index weights for `TB18`.

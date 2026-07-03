@@ -1,0 +1,4 @@
+strategy,status,event_count,total_return,annualized_return,max_drawdown,worst_event_return,risk_off_events,folds_beating_benchmark,drawdown_improvement_vs_benchmark,return_giveup_vs_benchmark,promotion_gate_pass,broker_orders_allowed
+NIFTYBEES_BUYHOLD_INTERVAL,evaluated,83,0.4593474046952397,0.08918917846056074,-0.1391990823521474,-0.07984420642648493,0,,,,False,False
+TOP2_ETF_MOMENTUM,evaluated,83,0.18293616349563702,0.03870157671191965,-0.18207462237500427,-0.08259216443740891,0,,,,False,False
+VIX_TREND_PHARMABEES_DEFENSIVE_TILT,evaluated,83,0.024844251869646783,0.005562115039822846,-0.2565667721281819,-0.0714622432579976,32,3,-0.8431642493096069,0.08362706342073789,False,False

@@ -24146,6 +24146,302 @@ def run_tb17_covered_call_overwrite_readiness(
     return summary_df
 
 
+def run_tb20_cross_asset_defensive_tilt(
+    output_prefix: str = "tb20_cross_asset_defensive_tilt",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    symbols = ["NIFTYBEES", "BANKBEES", "ITBEES", "PHARMABEES"]
+    defensive_symbol = "PHARMABEES"
+    vix_symbol = "INDIAVIX"
+    lookback_sessions = 60
+    trend_sessions = 200
+    rebalance_sessions = 10
+    top_k = 2
+    risk_off_vix_percentile = 0.80
+    min_folds_beating_benchmark = 7
+    min_drawdown_improvement = 0.20
+    max_return_giveup = 0.03
+    roundtrip_cost = 0.001
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    def _load_daily(symbol: str, value_col: str = "close") -> tuple[pd.DataFrame, str]:
+        candidates = [
+            DATA_DIR / f"data_fetched_{symbol}_day_3650d.csv",
+            DATA_DIR / f"data_fetched_{symbol}_1day_3650d.csv",
+            RESULTS_DIR / f"data_fetched_{symbol}_day_3650d.csv",
+            RESULTS_DIR / f"data_fetched_{symbol}_1day_3650d.csv",
+        ]
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            return pd.DataFrame(), ""
+        frame = pd.read_csv(path)
+        date_col = next((col for col in frame.columns if str(col).lower() in {"date", "datetime", "timestamp"}), None)
+        close_col = next((col for col in frame.columns if str(col).lower() in {"close", "last", "last_price"}), None)
+        if date_col is None or close_col is None:
+            return pd.DataFrame(), str(path)
+        parsed_dates = pd.to_datetime(frame[date_col], errors="coerce", utc=True).dt.tz_convert(None).dt.normalize()
+        out = pd.DataFrame(
+            {
+                "date": parsed_dates,
+                value_col: pd.to_numeric(frame[close_col], errors="coerce"),
+            }
+        ).dropna()
+        out = out.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+        return out, str(path)
+
+    price_frames = {}
+    source_paths = {}
+    for symbol in symbols:
+        loaded, path = _load_daily(symbol, symbol)
+        if loaded.empty:
+            source_paths[symbol] = path
+            continue
+        price_frames[symbol] = loaded
+        source_paths[symbol] = path
+    vix_df, vix_path = _load_daily(vix_symbol, "indiavix")
+    source_paths[vix_symbol] = vix_path
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "symbols": "|".join(symbols),
+                "symbols_with_price": "|".join(sorted(price_frames.keys())),
+                "defensive_symbol": defensive_symbol,
+                "vix_symbol": vix_symbol,
+                "vix_available": bool(not vix_df.empty),
+                "lookback_sessions": lookback_sessions,
+                "trend_sessions": trend_sessions,
+                "rebalance_sessions": rebalance_sessions,
+                "top_k": top_k,
+                "risk_off_vix_percentile": risk_off_vix_percentile,
+                "roundtrip_cost": roundtrip_cost,
+                "source_paths": "|".join(f"{key}:{value}" for key, value in sorted(source_paths.items())),
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    if set(symbols) - set(price_frames.keys()) or vix_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        decision_md.write_text(
+            "# TB20 Cross-Asset Defensive Tilt\n\n"
+            "Status: `blocked_missing_local_inputs`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB20-XASSET] missing ETF or VIX daily input; empty artifacts saved.", flush=True)
+        return pd.DataFrame()
+
+    prices = None
+    for symbol, frame in price_frames.items():
+        prices = frame if prices is None else prices.merge(frame, on="date", how="outer")
+    prices = prices.merge(vix_df, on="date", how="left").sort_values("date").reset_index(drop=True)
+    prices = prices.dropna(subset=symbols).copy()
+    prices["nifty_sma200"] = prices["NIFTYBEES"].rolling(trend_sessions, min_periods=100).mean()
+    prices["nifty_below_sma200"] = prices["NIFTYBEES"] < prices["nifty_sma200"]
+    prices["indiavix_pct_rank"] = prices["indiavix"].rolling(252, min_periods=60).apply(
+        lambda window: float(pd.Series(window).rank(pct=True).iloc[-1]),
+        raw=False,
+    )
+    for symbol in symbols:
+        prices[f"{symbol}_mom"] = prices[symbol].pct_change(lookback_sessions)
+
+    eligible = prices.dropna(subset=[f"{symbol}_mom" for symbol in symbols] + ["nifty_sma200", "indiavix_pct_rank"]).copy()
+    trade_dates = eligible["date"].tolist()
+    detail_rows = []
+    for idx in range(0, max(0, len(trade_dates) - 1), rebalance_sessions):
+        trade_date = trade_dates[idx]
+        next_idx = min(idx + rebalance_sessions, len(trade_dates) - 1)
+        next_trade_date = trade_dates[next_idx]
+        if next_trade_date <= trade_date:
+            continue
+        current = eligible.loc[eligible["date"] == trade_date].iloc[0]
+        future = prices.loc[prices["date"] == next_trade_date]
+        if future.empty:
+            continue
+        future = future.iloc[0]
+        interval_returns = {
+            symbol: (float(future[symbol]) / float(current[symbol])) - 1.0
+            for symbol in symbols
+            if float(current[symbol]) > 0
+        }
+        momentum_rank = sorted(
+            symbols,
+            key=lambda symbol: float(current[f"{symbol}_mom"]),
+            reverse=True,
+        )
+        top_symbols = momentum_rank[:top_k]
+        risk_off = bool(current["nifty_below_sma200"] or current["indiavix_pct_rank"] >= risk_off_vix_percentile)
+        top2_return = float(np.mean([interval_returns[symbol] for symbol in top_symbols]) - roundtrip_cost)
+        defensive_return = float(interval_returns[defensive_symbol] - roundtrip_cost)
+        tilt_symbols = [defensive_symbol] if risk_off else top_symbols
+        tilt_return = defensive_return if risk_off else top2_return
+        benchmark_return = float(interval_returns["NIFTYBEES"])
+        detail_rows.append(
+            {
+                "trade_date": trade_date,
+                "next_trade_date": next_trade_date,
+                "risk_off": risk_off,
+                "nifty_below_sma200": bool(current["nifty_below_sma200"]),
+                "indiavix": float(current["indiavix"]),
+                "indiavix_pct_rank": float(current["indiavix_pct_rank"]),
+                "top2_symbols": "|".join(top_symbols),
+                "tilt_symbols": "|".join(tilt_symbols),
+                "benchmark_return": benchmark_return,
+                "top2_momentum_return": top2_return,
+                "defensive_symbol_return": defensive_return,
+                "defensive_tilt_return": tilt_return,
+            }
+        )
+
+    detail_df = pd.DataFrame(detail_rows)
+    detail_df.to_csv(detail_csv, index=False)
+    if detail_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB20 Cross-Asset Defensive Tilt\n\n"
+            "Status: `blocked_no_eligible_rebalance_events`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB20-XASSET] no eligible rebalance events; summary saved.", flush=True)
+        return pd.DataFrame()
+
+    def _metrics(frame: pd.DataFrame, return_col: str) -> dict:
+        returns = pd.to_numeric(frame[return_col], errors="coerce").dropna()
+        if returns.empty:
+            return {
+                "event_count": 0,
+                "total_return": np.nan,
+                "annualized_return": np.nan,
+                "max_drawdown": np.nan,
+                "worst_event_return": np.nan,
+            }
+        equity = pd.concat([pd.Series([1.0]), (1.0 + returns).cumprod()], ignore_index=True)
+        peak = equity.cummax()
+        drawdown = (equity / peak) - 1.0
+        days = max(1, (pd.to_datetime(frame["next_trade_date"]).max() - pd.to_datetime(frame["trade_date"]).min()).days)
+        total_return = float(equity.iloc[-1] - 1.0)
+        ann = float((1.0 + total_return) ** (365.25 / days) - 1.0) if total_return > -0.999999 else np.nan
+        return {
+            "event_count": int(len(returns)),
+            "total_return": total_return,
+            "annualized_return": ann,
+            "max_drawdown": float(drawdown.min()),
+            "worst_event_return": float(returns.min()),
+        }
+
+    fold_edges = np.array_split(np.arange(len(detail_df)), 10)
+    fold_rows = []
+    for fold_idx, indices in enumerate(fold_edges, start=1):
+        if len(indices) == 0:
+            continue
+        fold = detail_df.iloc[indices].copy()
+        benchmark = _metrics(fold, "benchmark_return")
+        top2 = _metrics(fold, "top2_momentum_return")
+        tilt = _metrics(fold, "defensive_tilt_return")
+        fold_rows.append(
+            {
+                "fold_id": fold_idx,
+                "fold_start_date": pd.to_datetime(fold["trade_date"]).min(),
+                "fold_end_date": pd.to_datetime(fold["next_trade_date"]).max(),
+                "benchmark_ann": benchmark["annualized_return"],
+                "top2_ann": top2["annualized_return"],
+                "tilt_ann": tilt["annualized_return"],
+                "benchmark_max_drawdown": benchmark["max_drawdown"],
+                "top2_max_drawdown": top2["max_drawdown"],
+                "tilt_max_drawdown": tilt["max_drawdown"],
+                "tilt_beats_benchmark": bool(tilt["annualized_return"] > benchmark["annualized_return"]),
+                "tilt_drawdown_better_than_benchmark": bool(abs(tilt["max_drawdown"]) < abs(benchmark["max_drawdown"])),
+                "risk_off_events": int(fold["risk_off"].sum()),
+                "event_count": int(len(fold)),
+            }
+        )
+
+    summary_rows = []
+    overall_metrics = {
+        "NIFTYBEES_BUYHOLD_INTERVAL": _metrics(detail_df, "benchmark_return"),
+        "TOP2_ETF_MOMENTUM": _metrics(detail_df, "top2_momentum_return"),
+        "VIX_TREND_PHARMABEES_DEFENSIVE_TILT": _metrics(detail_df, "defensive_tilt_return"),
+    }
+    benchmark_ann = overall_metrics["NIFTYBEES_BUYHOLD_INTERVAL"]["annualized_return"]
+    benchmark_dd = overall_metrics["NIFTYBEES_BUYHOLD_INTERVAL"]["max_drawdown"]
+    tilt_ann = overall_metrics["VIX_TREND_PHARMABEES_DEFENSIVE_TILT"]["annualized_return"]
+    tilt_dd = overall_metrics["VIX_TREND_PHARMABEES_DEFENSIVE_TILT"]["max_drawdown"]
+    fold_df = pd.DataFrame(fold_rows)
+    folds_beating = int(fold_df["tilt_beats_benchmark"].sum()) if not fold_df.empty else 0
+    drawdown_improvement = (abs(benchmark_dd) - abs(tilt_dd)) / abs(benchmark_dd) if abs(benchmark_dd) > 1e-9 else np.nan
+    return_giveup = benchmark_ann - tilt_ann if pd.notna(benchmark_ann) and pd.notna(tilt_ann) else np.nan
+    passes = bool(
+        folds_beating >= min_folds_beating_benchmark
+        and pd.notna(drawdown_improvement)
+        and drawdown_improvement >= min_drawdown_improvement
+        and pd.notna(return_giveup)
+        and return_giveup <= max_return_giveup
+    )
+    for strategy, metrics in overall_metrics.items():
+        summary_rows.append(
+            {
+                "strategy": strategy,
+                "status": "evaluated",
+                "event_count": metrics["event_count"],
+                "total_return": metrics["total_return"],
+                "annualized_return": metrics["annualized_return"],
+                "max_drawdown": metrics["max_drawdown"],
+                "worst_event_return": metrics["worst_event_return"],
+                "risk_off_events": int(detail_df["risk_off"].sum()) if "DEFENSIVE_TILT" in strategy else 0,
+                "folds_beating_benchmark": folds_beating if "DEFENSIVE_TILT" in strategy else "",
+                "drawdown_improvement_vs_benchmark": drawdown_improvement if "DEFENSIVE_TILT" in strategy else "",
+                "return_giveup_vs_benchmark": return_giveup if "DEFENSIVE_TILT" in strategy else "",
+                "promotion_gate_pass": passes if "DEFENSIVE_TILT" in strategy else False,
+                "broker_orders_allowed": False,
+            }
+        )
+    summary_df = pd.DataFrame(summary_rows)
+    summary_df.to_csv(summary_csv, index=False)
+    fold_df.to_csv(baseline_dir / f"{output_prefix}_folds.csv", index=False)
+
+    status = "defensive_tilt_candidate_passes_initial_gates" if passes else "research_rejected_by_initial_gates"
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB20 Cross-Asset Defensive Tilt",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- strategy: `VIX/trend risk-off to {defensive_symbol}; otherwise top-{top_k} ETF momentum`",
+                f"- events: `{len(detail_df)}`",
+                f"- risk-off events: `{int(detail_df['risk_off'].sum())}`",
+                f"- benchmark annualized return: `{benchmark_ann}`",
+                f"- defensive tilt annualized return: `{tilt_ann}`",
+                f"- benchmark max drawdown: `{benchmark_dd}`",
+                f"- defensive tilt max drawdown: `{tilt_dd}`",
+                f"- drawdown improvement vs benchmark: `{drawdown_improvement}`",
+                f"- folds beating benchmark: `{folds_beating} / {len(fold_df)}`",
+                f"- gate pass: `{passes}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: promote only if the gate passes and the defensive asset universe is accepted; otherwise keep as documented research evidence.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB20-XASSET] detail saved: {detail_csv}", flush=True)
+    print(f"[TB20-XASSET] summary saved: {summary_csv}", flush=True)
+    print(f"[TB20-XASSET] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_tb18_earnings_overlay_readiness(
     output_prefix: str = "tb18_earnings_overlay_readiness",
 ) -> pd.DataFrame:
@@ -25961,6 +26257,7 @@ if __name__ == "__main__":
             "signal_baseline_tb17_covered_call_overwrite_readiness",
             "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_tb19_oi_positioning_readiness",
+            "signal_baseline_tb20_cross_asset_defensive_tilt",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
             "signal_diagnostic_bucket_quality",
@@ -26787,6 +27084,14 @@ if __name__ == "__main__":
             "This tests local futures OI and option-chain PCR buckets against selected TB11 returns with broker orders blocked."
         )
         run_tb19_oi_positioning_readiness(output_prefix="tb19_oi_positioning_readiness")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb20_cross_asset_defensive_tilt":
+        main_logger.info(
+            "Starting TB20 cross-asset defensive tilt. "
+            "This compares cached ETF momentum against a VIX/trend defensive sleeve with no broker orders."
+        )
+        run_tb20_cross_asset_defensive_tilt(output_prefix="tb20_cross_asset_defensive_tilt")
         raise SystemExit(0)
 
     if run_mode in {"signal_baseline", "signal_baseline_e302", "signal_baseline_generalization_next", "signal_baseline_e102_deepdive", "signal_baseline_cross_sectional_60m", "signal_baseline_cross_sectional_commonality_residual", "signal_baseline_intraday_volume_liquidity_forecast", "signal_baseline_event_outcome_accounting", "signal_baseline_event_outcome_accounting_refined", "signal_baseline_ablation_grid", "signal_baseline_setup_regimes", "signal_baseline_market_state_60m", "signal_baseline_multiscale_60m", "signal_baseline_second_timeframe_60m", "signal_baseline_intrahour_path_v1", "signal_baseline_breadth_context_60m", "signal_baseline_time_distribution_v2", "signal_baseline_time_distribution_v2_top", "signal_baseline_native_15m_execution", "signal_baseline_native_15m_execution_validate", "signal_baseline_native_15m_execution_top_compare", "signal_baseline_native_15m_failed_breakout", "signal_baseline_native_15m_open_drive", "signal_baseline_opening_auction_gap_liquidity", "signal_baseline_native_15m_session_phase", "signal_baseline_native_15m_holding_horizon", "signal_baseline_native_15m_holding_horizon_execution_sweep", "signal_baseline_native_15m_breadth_event", "signal_baseline_native_15m_topk_event_rank", "signal_baseline_native_15m_mean_reversion_exhaustion", "signal_baseline_native_15m_mean_reversion_exhaustion_compare", "signal_baseline_native_15m_mean_reversion_exhaustion_validate", "signal_baseline_sixty_minute_daily_context", "signal_baseline_event_conditioned_sizing_veto", "signal_baseline_all_15m_top2", "signal_baseline_e211_intrahour_veto", "signal_baseline_e211_entry_audit", "signal_baseline_portfolio_rank_60m", "signal_baseline_portfolio_rank_60m_long_only", "signal_baseline_portfolio_rank_60m_long_only_sweep", "signal_baseline_portfolio_rank_60m_long_only_cadence_sweep", "signal_baseline_portfolio_rank_60m_long_only_walkforward", "signal_baseline_portfolio_rank_60m_long_only_hold_sweep", "signal_baseline_portfolio_rank_60m_long_only_hold_walkforward", "signal_baseline_portfolio_rank_60m_long_only_topk_sweep", "signal_baseline_portfolio_rank_60m_regime_gate_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_sizing", "signal_baseline_portfolio_rank_60m_liquid_subset_audit", "signal_baseline_portfolio_rank_60m_score_weighted_topk_sweep", "signal_baseline_portfolio_rank_60m_score_weighted_topk_walkforward", "signal_baseline_portfolio_rank_60m_dispersion_gate_sweep", "signal_baseline_portfolio_rank_60m_dispersion_sizing_walkforward", "signal_baseline_portfolio_rank_60m_buyhold_benchmark_walkforward", "signal_baseline_portfolio_rank_60m_10y_buyhold_multifold", "signal_baseline_portfolio_rank_60m_post2020_buyhold_multifold", "signal_baseline_portfolio_rank_60m_fold_attribution_ensemble", "signal_baseline_portfolio_rank_60m_drawdown_stop", "signal_diagnostic_tb12_portfolio_rank_regime_attribution", "signal_baseline_tb12_ohlcv_regime_conditioned_portfolio_rank", "signal_baseline_tb13_core_active_tilt_portfolio_rank", "signal_baseline_tb14_all_fold_dynamic_hedge_portfolio_rank", "signal_baseline_tb06_swing_batch", "signal_baseline_tb06_zerodha_only_extensions", "signal_baseline_tb06_guardrail_overlay", "signal_baseline_tb06_zerodha_etf_rotation", "signal_fetch_tb06_midcap_smallcap_universe", "signal_baseline_tb06_midcap_smallcap_momentum", "signal_prepare_tb07_breadth_ticker_template", "signal_fetch_tb07_breadth_from_zerodha", "signal_prepare_tb07_earnings_calendar_template", "signal_diagnostic_tb07_external_data_readiness", "signal_diagnostic_tb07_equity_cache_audit", "signal_baseline_tb07_delivery_filtered", "signal_baseline_tb07_oi_filtered", "signal_baseline_tb07_earnings_event_risk", "signal_baseline_tb07_breadth_confirmation_gate", "signal_baseline_tb08_pairs_relative_value_scan", "signal_baseline_cost_sensitivity", "signal_baseline_futures_cost_profile", "walk_forward", "walk_forward_focus", "walk_forward_focus_adjacent", "walk_forward_focus_timeseries", "experiment_suite"}:

@@ -1950,3 +1950,42 @@ TB17 is not deployable from the current data. A raw pass produced impossible pre
 Next action:
 
 Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item. Keep TB17 closed unless we add corporate-action-adjusted spot/options alignment and an explicit passive-core holdings file. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers clear.
+
+## `TB20_CrossAssetDefensiveTilt`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb20_cross_asset_defensive_tilt
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_detail.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_summary.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_folds.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_metadata.csv`
+- `results/signal_baseline/tb20_cross_asset_defensive_tilt_decision.md`
+
+Current read:
+
+- status: `research_rejected_by_initial_gates`
+- universe: `NIFTYBEES`, `BANKBEES`, `ITBEES`, `PHARMABEES`, `INDIAVIX`
+- rule: top-2 ETF momentum unless NIFTYBEES is below its 200-session SMA or India VIX is above its 80th percentile; risk-off sleeve uses `PHARMABEES`
+- events: `83`
+- risk-off events: `32`
+- benchmark annualized return: `8.92%`
+- top-2 ETF momentum annualized return: `3.87%`
+- defensive tilt annualized return: `0.56%`
+- benchmark max drawdown: `-13.92%`
+- defensive tilt max drawdown: `-25.66%`
+- folds beating benchmark: `3 / 10`
+- broker orders allowed: `False`
+
+Inference:
+
+TB20 does not smooth the curve with the currently available cross-asset ETF set. The PHARMABEES risk-off sleeve worsens drawdown and gives up too much return versus the NIFTYBEES interval benchmark, so it should not be promoted.
+
+Next action:
+
+The attached-plan research queue is now exhausted into documented rejects or explicit data blockers. Operationally, keep the TB11 no-order T28/Phase 2 collection healthy; for research, refresh F&O/spot data for `TB15_T03`, keep accumulating IV history for `TB11_T30`, and populate earnings plus NIFTY weights for `TB18`.
