@@ -1949,7 +1949,7 @@ TB17 is not deployable from the current data. A raw pass produced impossible pre
 
 Next action:
 
-Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item. Keep TB17 closed unless we add corporate-action-adjusted spot/options alignment and an explicit passive-core holdings file. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers clear.
+`TB20` is now completed below with the required Zerodha gold/debt defensive assets. Keep TB17 closed unless we add corporate-action-adjusted spot/options alignment and an explicit passive-core holdings file. Keep `TB15_T03`, `TB11_T30`, and `TB18` parked until their data-readiness blockers clear.
 
 ## `TB20_CrossAssetDefensiveTilt`
 

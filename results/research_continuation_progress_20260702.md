@@ -265,7 +265,7 @@ Current result:
 
 Inference: TB17 is not a promotion candidate from current local data. The first raw pass showed impossible premiums caused by adjusted-equity versus unadjusted-option price-scale mismatch; after adding strike/spot and premium/spot sanity gates, the remaining sample still gives up too much upside relative to premium and fails both portfolio gates.
 
-Next action: keep TB17 closed as a documented reject until a corporate-action-adjusted spot/options alignment exists and a real passive holding file is specified. Proceed to `TB20` cross-asset defensive tilt as the next attached-plan research item, while `TB15_T03`, `TB11_T30`, and `TB18` remain data-readiness blocked.
+Next action: keep TB17 closed as a documented reject until a corporate-action-adjusted spot/options alignment exists and a real passive holding file is specified. `TB20` is now completed below with the required Zerodha gold/debt assets, while `TB15_T03`, `TB11_T30`, and `TB18` remain data-readiness blocked.
 
 ## TB20 Cross-Asset Defensive Tilt
 
