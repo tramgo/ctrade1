@@ -110,6 +110,65 @@ Current result:
 
 Inference: T04 is the first TB15 branch that converts the CSP idea into capped-loss spreads and passes initial gates on the refreshed archive. It is a candidate for quote-only Phase 1 observation, not for broker execution.
 
+## TB15_T05 Zerodha Quote-Only Readiness
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t05_zerodha_quote_only_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_template_20260703.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_detail_20260703.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_summary.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_metadata.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_decision.md`
+
+Current result:
+
+- status: `quote_only_readiness_passed`
+- candidate symbols: `SBIN`, `ICICIBANK`, `LT`, `TCS`, `BHARTIARTL`
+- excluded by minimum sample gate: `RELIANCE` because T04 had only `3` trades despite positive raw Kelly
+- resolved spreads: `5 / 5`
+- quote-ready spreads: `5 / 5`
+- clean quote-ready spreads: `4 / 5`
+- dirty spread: `LT`, due to a very wide short-leg ask/bid spread and negative executable credit
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Inference: the Zerodha quote-only path is live for TB15 and can resolve/current-quote stock-option bull put spread candidates without using order endpoints. One market snapshot is not enough evidence for a paper/live decision.
+
+## TB15_T06 Quote-Only Observation Ledger
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t06_quote_only_observation_ledger
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_latest_detail.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_summary.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_metadata.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_decision.md`
+
+Current result:
+
+- status: `collecting_quote_only_observations`
+- latest capture rows: `5`
+- latest clean quote spreads: `4`
+- clean observations: `4 / 10`
+- unique observation dates: `1 / 5`
+- remaining: `6` clean observations and `4` unique dates
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Inference: TB15 has entered a no-order Zerodha observation lane. The gate remains open/collecting until repeated market-hour captures reach at least `10` clean observations across `5` dates.
+
 ## TB11_T30 IV-Conditioned Sizing Readiness
 
 Implemented mode:

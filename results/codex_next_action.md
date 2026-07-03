@@ -1706,6 +1706,8 @@ Progress artifacts:
 - `results/signal_baseline/tb15_udiff_fno_bhavcopy_forward_fetch.csv`
 - `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_summary.csv`
 - `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_decision.md`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_summary.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_summary.csv`
 
 Plan reconciliation:
 
@@ -1778,7 +1780,68 @@ TB15_T04 converts the cash-secured put thesis into capped-risk bull put spreads 
 
 Next action:
 
-Open a TB15_T05 quote-only observation/readiness gate if we want to observe live modeled credits for the selected large-cap spread candidates. Keep TB11_T30 blocked until enough IV history accumulates, and keep TB18 blocked until earnings dates plus NIFTY weights are populated.
+TB15_T05/T06 are now open as Zerodha quote-only/no-order observation gates for current large-cap spread candidates. Keep TB11_T30 blocked until enough IV history accumulates, and keep TB18 blocked until earnings dates plus NIFTY weights are populated.
+
+## `TB15_T05_ZerodhaQuoteOnlyReadiness`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t05_zerodha_quote_only_readiness
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_template_20260703.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_detail_20260703.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_summary.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_metadata.csv`
+- `results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_decision.md`
+
+Current read:
+
+- status: `quote_only_readiness_passed`
+- candidate symbols: `SBIN|ICICIBANK|LT|TCS|BHARTIARTL`
+- resolved spreads: `5 / 5`
+- quote-ready spreads: `5 / 5`
+- clean quote-ready spreads: `4 / 5`
+- dirty spread: `LT`, due to wide bid/ask and negative executable credit
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Inference:
+
+The TB15 Zerodha quote-only path is working for current stock-option bull put spreads. The minimum-sample guard keeps `RELIANCE` out despite positive raw Kelly because T04 only had `3` historical spread trades.
+
+## `TB15_T06_QuoteOnlyObservationLedger`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t06_quote_only_observation_ledger
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_latest_detail.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_summary.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_metadata.csv`
+- `results/signal_baseline/tb15_t06_quote_only_observation_ledger_decision.md`
+
+Current read:
+
+- status: `collecting_quote_only_observations`
+- latest clean quote spreads: `4`
+- clean observations: `4 / 10`
+- unique observation dates: `1 / 5`
+- remaining: `6` clean observations and `4` unique dates
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Next action:
+
+Keep collecting TB15 Zerodha quote-only captures across market sessions. Do not paper/live trade TB15 until the observation ledger passes repeated clean-observation gates and a later paper-price reconciliation gate is implemented.
 
 ## `TB11_T30_IVConditionedSizingReadiness`
 
