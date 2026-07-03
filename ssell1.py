@@ -22149,6 +22149,41 @@ def run_tb15_cash_secured_put_large_caps(
         "OPEN_INT",
         "TIMESTAMP",
     }
+
+    def _normalize_fno_bhavcopy(raw: pd.DataFrame) -> pd.DataFrame:
+        if required_cols.issubset(raw.columns):
+            return raw.copy()
+        udiff_required = {
+            "TradDt",
+            "FinInstrmTp",
+            "TckrSymb",
+            "XpryDt",
+            "StrkPric",
+            "OptnTp",
+            "ClsPric",
+            "SttlmPric",
+            "TtlTradgVol",
+            "OpnIntrst",
+        }
+        if not udiff_required.issubset(raw.columns):
+            return pd.DataFrame()
+        return pd.DataFrame(
+            {
+                "INSTRUMENT": raw["FinInstrmTp"].map(
+                    {"STF": "FUTSTK", "STO": "OPTSTK", "IDF": "FUTIDX", "IDO": "OPTIDX"}
+                ).fillna(raw["FinInstrmTp"].astype(str)),
+                "SYMBOL": raw["TckrSymb"].astype(str).str.upper(),
+                "EXPIRY_DT": pd.to_datetime(raw["XpryDt"], errors="coerce").dt.strftime("%d-%b-%Y").str.upper(),
+                "STRIKE_PR": pd.to_numeric(raw["StrkPric"], errors="coerce"),
+                "OPTION_TYP": raw["OptnTp"].astype(str).str.upper().replace({"XX": ""}),
+                "CLOSE": pd.to_numeric(raw["ClsPric"], errors="coerce"),
+                "SETTLE_PR": pd.to_numeric(raw["SttlmPric"], errors="coerce"),
+                "CONTRACTS": pd.to_numeric(raw["TtlTradgVol"], errors="coerce").fillna(0),
+                "OPEN_INT": pd.to_numeric(raw["OpnIntrst"], errors="coerce").fillna(0),
+                "TIMESTAMP": pd.to_datetime(raw["TradDt"], errors="coerce").dt.strftime("%d-%b-%Y").str.upper(),
+            }
+        )
+
     for zip_path in zip_paths:
         try:
             with zipfile.ZipFile(zip_path) as zf:
@@ -22158,6 +22193,7 @@ def run_tb15_cash_secured_put_large_caps(
                 raw = pd.read_csv(zf.open(csv_names[0]))
         except Exception:
             continue
+        raw = _normalize_fno_bhavcopy(raw)
         if not required_cols.issubset(raw.columns):
             continue
         opt = raw.loc[
@@ -22661,6 +22697,83 @@ def run_tb15_csp_vol_breadth_stress_gate(
     return summary_df
 
 
+def run_tb15_fetch_udiff_fno_bhavcopy_forward_window(
+    start_date: str = "2024-07-08",
+    end_date: str = "2024-12-31",
+    output_prefix: str = "tb15_udiff_fno_bhavcopy_forward_fetch",
+) -> pd.DataFrame:
+    import requests
+
+    requests.packages.urllib3.disable_warnings()
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    inventory_csv = baseline_dir / f"{output_prefix}.csv"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    start = pd.to_datetime(start_date, errors="raise").normalize()
+    end = pd.to_datetime(end_date, errors="raise").normalize()
+    out_root = DATA_DIR / "nse_fno_bhavcopy"
+    out_root.mkdir(parents=True, exist_ok=True)
+    session = requests.Session()
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/zip,text/html,*/*",
+        "Referer": "https://www.nseindia.com/all-reports-derivatives",
+    }
+    try:
+        session.get("https://www.nseindia.com", headers=headers, timeout=20, verify=False)
+    except Exception:
+        pass
+
+    rows = []
+    for trade_date in pd.date_range(start, end, freq="B"):
+        ymd = trade_date.strftime("%Y%m%d")
+        file_name = f"BhavCopy_NSE_FO_0_0_0_{ymd}_F_0000.csv.zip"
+        url = f"https://nsearchives.nseindia.com/content/fo/{file_name}"
+        out_dir = out_root / trade_date.strftime("%Y") / trade_date.strftime("%m")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / file_name
+        if out_path.exists() and out_path.stat().st_size > 0:
+            rows.append(
+                {
+                    "trade_date": trade_date.date().isoformat(),
+                    "status": "cached",
+                    "url": url,
+                    "path": str(out_path),
+                    "bytes": int(out_path.stat().st_size),
+                    "generated_at_ist": generated_at_ist,
+                }
+            )
+            continue
+        try:
+            response = session.get(url, headers=headers, timeout=30, verify=False)
+            content_type = response.headers.get("content-type", "")
+            if response.status_code == 200 and "zip" in content_type.lower() and response.content:
+                out_path.write_bytes(response.content)
+                status = "fetched"
+                byte_count = len(response.content)
+            else:
+                status = f"missing_http_{response.status_code}"
+                byte_count = 0
+        except Exception as exc:
+            status = f"fetch_error:{exc}"
+            byte_count = 0
+        rows.append(
+            {
+                "trade_date": trade_date.date().isoformat(),
+                "status": status,
+                "url": url,
+                "path": str(out_path),
+                "bytes": int(byte_count),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+        time.sleep(0.10)
+    out = pd.DataFrame(rows)
+    out.to_csv(inventory_csv, index=False)
+    print(f"[TB15-UDIFF-FETCH] inventory saved: {inventory_csv}", flush=True)
+    return out
+
+
 def run_tb15_t03_fresh_forward_sample(
     output_prefix: str = "tb15_t03_fresh_forward_sample",
 ) -> pd.DataFrame:
@@ -22680,9 +22793,12 @@ def run_tb15_t03_fresh_forward_sample(
 
     def _parse_bhavcopy_date(path: Path) -> pd.Timestamp:
         match = re.search(r"FO(\d{2}[A-Z]{3}\d{4})BHAV", path.name.upper())
-        if not match:
-            return pd.NaT
-        return pd.to_datetime(match.group(1), format="%d%b%Y", errors="coerce")
+        if match:
+            return pd.to_datetime(match.group(1), format="%d%b%Y", errors="coerce")
+        udiff_match = re.search(r"BHAVCOPY_NSE_FO_0_0_0_(\d{8})_F_0000", path.name.upper())
+        if udiff_match:
+            return pd.to_datetime(udiff_match.group(1), format="%Y%m%d", errors="coerce")
+        return pd.NaT
 
     archive_dates = pd.Series([_parse_bhavcopy_date(path) for path in zip_paths], dtype="datetime64[ns]").dropna()
     archive_min_date = archive_dates.min() if not archive_dates.empty else pd.NaT
@@ -22908,6 +23024,341 @@ def run_tb15_t03_fresh_forward_sample(
     print(f"[TB15-T03] detail saved: {detail_csv}", flush=True)
     print(f"[TB15-T03] summary saved: {summary_csv}", flush=True)
     print(f"[TB15-T03] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
+def run_tb15_t04_defined_risk_bull_put_redesign(
+    output_prefix: str = "tb15_t04_defined_risk_bull_put_redesign",
+) -> pd.DataFrame:
+    import zipfile
+
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    sizing_csv = baseline_dir / f"{output_prefix}_kelly_sizing.csv"
+    skipped_csv = baseline_dir / f"{output_prefix}_skipped.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    t03_summary_csv = baseline_dir / "tb15_t03_fresh_forward_sample_summary.csv"
+    symbols = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "LT", "BHARTIARTL"]
+    min_dte = 7
+    max_dte = 35
+    short_otm_pct = 0.05
+    target_max_loss_pct = 0.04
+    min_contracts = 1
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    t03_status = ""
+    if t03_summary_csv.exists():
+        try:
+            t03_summary = pd.read_csv(t03_summary_csv)
+            if not t03_summary.empty:
+                t03_status = str(t03_summary.iloc[0].get("status", ""))
+        except Exception:
+            t03_status = ""
+    if t03_status != "t03_passed_unlock_tb15_t04":
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(sizing_csv, index=False)
+        pd.DataFrame().to_csv(skipped_csv, index=False)
+        decision_md.write_text(
+            "# TB15 T04 Defined-Risk Bull Put Redesign\n\n"
+            "Status: `blocked_waiting_for_t03_pass`\n\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print("[TB15-T04] blocked; T03 has not passed.", flush=True)
+        return pd.DataFrame()
+
+    required_cols = {
+        "INSTRUMENT",
+        "SYMBOL",
+        "EXPIRY_DT",
+        "STRIKE_PR",
+        "OPTION_TYP",
+        "CLOSE",
+        "SETTLE_PR",
+        "CONTRACTS",
+        "OPEN_INT",
+        "TIMESTAMP",
+    }
+
+    def _normalize_fno_bhavcopy(raw: pd.DataFrame) -> pd.DataFrame:
+        if required_cols.issubset(raw.columns):
+            return raw.copy()
+        udiff_required = {
+            "TradDt",
+            "FinInstrmTp",
+            "TckrSymb",
+            "XpryDt",
+            "StrkPric",
+            "OptnTp",
+            "ClsPric",
+            "SttlmPric",
+            "TtlTradgVol",
+            "OpnIntrst",
+        }
+        if not udiff_required.issubset(raw.columns):
+            return pd.DataFrame()
+        return pd.DataFrame(
+            {
+                "INSTRUMENT": raw["FinInstrmTp"].map(
+                    {"STF": "FUTSTK", "STO": "OPTSTK", "IDF": "FUTIDX", "IDO": "OPTIDX"}
+                ).fillna(raw["FinInstrmTp"].astype(str)),
+                "SYMBOL": raw["TckrSymb"].astype(str).str.upper(),
+                "EXPIRY_DT": pd.to_datetime(raw["XpryDt"], errors="coerce").dt.strftime("%d-%b-%Y").str.upper(),
+                "STRIKE_PR": pd.to_numeric(raw["StrkPric"], errors="coerce"),
+                "OPTION_TYP": raw["OptnTp"].astype(str).str.upper().replace({"XX": ""}),
+                "CLOSE": pd.to_numeric(raw["ClsPric"], errors="coerce"),
+                "SETTLE_PR": pd.to_numeric(raw["SttlmPric"], errors="coerce"),
+                "CONTRACTS": pd.to_numeric(raw["TtlTradgVol"], errors="coerce").fillna(0),
+                "OPEN_INT": pd.to_numeric(raw["OpnIntrst"], errors="coerce").fillna(0),
+                "TIMESTAMP": pd.to_datetime(raw["TradDt"], errors="coerce").dt.strftime("%d-%b-%Y").str.upper(),
+            }
+        )
+
+    def _load_spot(symbol: str) -> pd.DataFrame:
+        path = DATA_DIR / f"data_fetched_{symbol}_day_3650d.csv"
+        if not path.exists():
+            return pd.DataFrame()
+        spot = pd.read_csv(path)
+        if "Date" not in spot.columns or "Close" not in spot.columns:
+            return pd.DataFrame()
+        out = pd.DataFrame(
+            {
+                "date": pd.to_datetime(spot["Date"], errors="coerce").dt.normalize(),
+                "spot_close": pd.to_numeric(spot["Close"], errors="coerce"),
+            }
+        ).dropna()
+        return out.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+
+    spot_frames = {symbol: spot for symbol in symbols if not (spot := _load_spot(symbol)).empty}
+    zip_paths = sorted((DATA_DIR / "nse_fno_bhavcopy").rglob("*.zip"))
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "t03_status": t03_status,
+                "symbols": "|".join(symbols),
+                "symbols_with_spot": "|".join(sorted(spot_frames.keys())),
+                "fno_zip_count": len(zip_paths),
+                "short_otm_pct": short_otm_pct,
+                "target_max_loss_pct": target_max_loss_pct,
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    option_frames = []
+    for zip_path in zip_paths:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                csv_names = [name for name in zf.namelist() if name.lower().endswith(".csv")]
+                if not csv_names:
+                    continue
+                raw = pd.read_csv(zf.open(csv_names[0]))
+        except Exception:
+            continue
+        raw = _normalize_fno_bhavcopy(raw)
+        if not required_cols.issubset(raw.columns):
+            continue
+        opt = raw.loc[
+            raw["INSTRUMENT"].astype(str).str.upper().eq("OPTSTK")
+            & raw["SYMBOL"].astype(str).str.upper().isin(symbols)
+            & raw["OPTION_TYP"].astype(str).str.upper().eq("PE")
+        ].copy()
+        if opt.empty:
+            continue
+        option_frames.append(
+            pd.DataFrame(
+                {
+                    "symbol": opt["SYMBOL"].astype(str).str.upper(),
+                    "trade_date": pd.to_datetime(opt["TIMESTAMP"], format="%d-%b-%Y", errors="coerce").dt.normalize(),
+                    "expiry_date": pd.to_datetime(opt["EXPIRY_DT"], format="%d-%b-%Y", errors="coerce").dt.normalize(),
+                    "strike": pd.to_numeric(opt["STRIKE_PR"], errors="coerce"),
+                    "premium_close": pd.to_numeric(opt["CLOSE"], errors="coerce"),
+                    "contracts": pd.to_numeric(opt["CONTRACTS"], errors="coerce").fillna(0),
+                    "open_interest": pd.to_numeric(opt["OPEN_INT"], errors="coerce").fillna(0),
+                }
+            )
+        )
+
+    rows = []
+    skipped = []
+    options = pd.concat(option_frames, ignore_index=True, sort=False) if option_frames else pd.DataFrame()
+    if not options.empty:
+        options = options.dropna(subset=["symbol", "trade_date", "expiry_date", "strike", "premium_close"])
+        options = options.loc[(options["premium_close"] > 0) & (options["contracts"] >= min_contracts)].copy()
+        options["dte"] = (options["expiry_date"] - options["trade_date"]).dt.days
+        options = options.loc[options["dte"].between(min_dte, max_dte)].copy()
+
+    for symbol, sym_options in options.groupby("symbol", dropna=False):
+        spot = spot_frames.get(symbol)
+        if spot is None or spot.empty:
+            skipped.append({"symbol": symbol, "reason": "missing_spot"})
+            continue
+        merged = sym_options.merge(
+            spot.rename(columns={"date": "trade_date", "spot_close": "entry_spot"}),
+            on="trade_date",
+            how="left",
+        ).dropna(subset=["entry_spot"])
+        if merged.empty:
+            skipped.append({"symbol": symbol, "reason": "no_entry_spot_overlap"})
+            continue
+        merged["target_short_strike"] = merged["entry_spot"] * (1.0 - short_otm_pct)
+        short_candidates = merged.loc[merged["strike"] <= merged["target_short_strike"]].copy()
+        if short_candidates.empty:
+            skipped.append({"symbol": symbol, "reason": "no_short_put_candidates"})
+            continue
+        short_candidates["short_distance"] = (short_candidates["strike"] - short_candidates["target_short_strike"]).abs()
+        shorts = (
+            short_candidates.sort_values(["symbol", "expiry_date", "trade_date", "short_distance", "contracts"], ascending=[True, True, True, True, False])
+            .groupby(["symbol", "expiry_date"], as_index=False)
+            .head(1)
+            .copy()
+        )
+        for _, short in shorts.iterrows():
+            chain = sym_options.loc[
+                (sym_options["trade_date"] == short["trade_date"])
+                & (sym_options["expiry_date"] == short["expiry_date"])
+                & (sym_options["strike"] < short["strike"])
+            ].copy()
+            if chain.empty:
+                skipped.append({"symbol": symbol, "trade_date": short["trade_date"], "expiry_date": short["expiry_date"], "reason": "no_long_put_candidates"})
+                continue
+            chain["net_credit"] = float(short["premium_close"]) - pd.to_numeric(chain["premium_close"], errors="coerce")
+            chain["spread_width"] = float(short["strike"]) - pd.to_numeric(chain["strike"], errors="coerce")
+            chain["max_loss_points"] = chain["spread_width"] - chain["net_credit"]
+            chain["max_loss_pct_collateral"] = chain["max_loss_points"] / float(short["strike"])
+            chain = chain.loc[(chain["net_credit"] > 0) & (chain["max_loss_points"] > 0)].copy()
+            if chain.empty:
+                skipped.append({"symbol": symbol, "trade_date": short["trade_date"], "expiry_date": short["expiry_date"], "reason": "no_positive_credit_spread"})
+                continue
+            below_target = chain.loc[chain["max_loss_pct_collateral"] <= target_max_loss_pct].copy()
+            choose_from = below_target if not below_target.empty else chain
+            choose_from["loss_target_distance"] = (choose_from["max_loss_pct_collateral"] - target_max_loss_pct).abs()
+            long = choose_from.sort_values(["loss_target_distance", "open_interest"], ascending=[True, False]).iloc[0]
+            expiry_spot = spot.loc[spot["date"] == short["expiry_date"], "spot_close"]
+            if expiry_spot.empty:
+                skipped.append({"symbol": symbol, "trade_date": short["trade_date"], "expiry_date": short["expiry_date"], "reason": "missing_expiry_spot"})
+                continue
+            expiry_spot_value = float(expiry_spot.iloc[-1])
+            short_intrinsic = max(float(short["strike"]) - expiry_spot_value, 0.0)
+            long_intrinsic = max(float(long["strike"]) - expiry_spot_value, 0.0)
+            pnl_points = float(long["net_credit"]) - short_intrinsic + long_intrinsic
+            max_loss_points = float(long["max_loss_points"])
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "trade_date": short["trade_date"],
+                    "expiry_date": short["expiry_date"],
+                    "entry_spot": float(short["entry_spot"]),
+                    "expiry_spot": expiry_spot_value,
+                    "short_put_strike": float(short["strike"]),
+                    "long_put_strike": float(long["strike"]),
+                    "short_put_premium": float(short["premium_close"]),
+                    "long_put_premium": float(long["premium_close"]),
+                    "net_credit_points": float(long["net_credit"]),
+                    "spread_width_points": float(long["spread_width"]),
+                    "max_loss_points": max_loss_points,
+                    "max_loss_pct_collateral": float(long["max_loss_pct_collateral"]),
+                    "pnl_points": pnl_points,
+                    "return_on_max_loss": pnl_points / max_loss_points if max_loss_points > 0 else np.nan,
+                    "return_on_cash_equivalent": pnl_points / float(short["strike"]),
+                    "assigned_or_tested": bool(expiry_spot_value < float(short["strike"])),
+                }
+            )
+
+    detail_df = pd.DataFrame(rows)
+    skipped_df = pd.DataFrame(skipped)
+    detail_df.to_csv(detail_csv, index=False)
+    skipped_df.to_csv(skipped_csv, index=False)
+    if detail_df.empty:
+        pd.DataFrame().to_csv(summary_csv, index=False)
+        pd.DataFrame().to_csv(sizing_csv, index=False)
+        decision_md.write_text("# TB15 T04 Defined-Risk Bull Put Redesign\n\nStatus: `blocked_no_candidate_spreads`\n", encoding="utf-8")
+        print("[TB15-T04] no candidate spreads; empty summary saved.", flush=True)
+        return pd.DataFrame()
+
+    sizing_rows = []
+    for symbol, grp in detail_df.groupby("symbol", dropna=False):
+        returns = pd.to_numeric(grp["return_on_max_loss"], errors="coerce").dropna()
+        mean_ret = float(returns.mean()) if not returns.empty else np.nan
+        var_ret = float(returns.var(ddof=1)) if len(returns) > 1 else np.nan
+        raw_kelly = mean_ret / var_ret if np.isfinite(var_ret) and var_ret > 0 else 0.0
+        sizing_rows.append(
+            {
+                "symbol": symbol,
+                "trade_count": int(len(grp)),
+                "mean_return_on_max_loss": mean_ret,
+                "worst_return_on_max_loss": float(returns.min()) if not returns.empty else np.nan,
+                "raw_kelly_fraction": raw_kelly,
+                "positive_kelly": bool(raw_kelly > 0),
+            }
+        )
+    sizing_df = pd.DataFrame(sizing_rows)
+    expiry_returns = (
+        detail_df.groupby("expiry_date", as_index=False)["return_on_cash_equivalent"]
+        .mean()
+        .rename(columns={"return_on_cash_equivalent": "portfolio_expiry_return_on_cash_equivalent"})
+    )
+    returns = pd.to_numeric(detail_df["return_on_max_loss"], errors="coerce").dropna()
+    positive_kelly_symbols = int(sizing_df["positive_kelly"].sum()) if not sizing_df.empty else 0
+    worst_expiry_return = float(expiry_returns["portfolio_expiry_return_on_cash_equivalent"].min()) if not expiry_returns.empty else np.nan
+    mean_spread_return = float(returns.mean()) if not returns.empty else np.nan
+    mean_cash_equivalent = float(pd.to_numeric(detail_df["return_on_cash_equivalent"], errors="coerce").mean())
+    positive_kelly_gate = positive_kelly_symbols >= 4
+    worst_gate = bool(pd.notna(worst_expiry_return) and worst_expiry_return > -0.08)
+    mean_gate = bool(pd.notna(mean_spread_return) and mean_spread_return > 0.006)
+    decision = "t04_passed_candidate_for_phase1_observation" if positive_kelly_gate and worst_gate and mean_gate else "research_rejected_by_initial_gates"
+    summary_df = pd.DataFrame(
+        [
+            {
+                "audit_id": "TB15_T04_defined_risk_bull_put_redesign",
+                "status": decision,
+                "trade_count": int(len(detail_df)),
+                "first_trade_date": pd.to_datetime(detail_df["trade_date"]).min().date().isoformat(),
+                "last_expiry_date": pd.to_datetime(detail_df["expiry_date"]).max().date().isoformat(),
+                "mean_return_on_max_loss": mean_spread_return,
+                "mean_return_on_cash_equivalent": mean_cash_equivalent,
+                "worst_expiry_return_on_cash_equivalent": worst_expiry_return,
+                "positive_kelly_symbols": positive_kelly_symbols,
+                "positive_kelly_gate_passed": positive_kelly_gate,
+                "worst_expiry_gate_passed": worst_gate,
+                "mean_return_gate_passed": mean_gate,
+                "broker_orders_allowed": False,
+            }
+        ]
+    )
+    sizing_df.to_csv(sizing_csv, index=False)
+    summary_df.to_csv(summary_csv, index=False)
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB15 T04 Defined-Risk Bull Put Redesign",
+                "",
+                f"Status: `{decision}`",
+                "",
+                f"- trades: `{len(detail_df)}`",
+                f"- mean return on capped max loss: `{mean_spread_return}`",
+                f"- mean return on cash-equivalent collateral: `{mean_cash_equivalent}`",
+                f"- worst portfolio expiry return on cash-equivalent collateral: `{worst_expiry_return}`",
+                f"- positive Kelly symbols: `{positive_kelly_symbols}`",
+                f"- gates positive-Kelly/worst/mean: `{positive_kelly_gate}` / `{worst_gate}` / `{mean_gate}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: open Phase 1 quote-only observation only if all gates pass; otherwise keep TB15 T04 research-only.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB15-T04] detail saved: {detail_csv}", flush=True)
+    print(f"[TB15-T04] summary saved: {summary_csv}", flush=True)
+    print(f"[TB15-T04] decision saved: {decision_md}", flush=True)
     return summary_df
 
 
@@ -26383,7 +26834,9 @@ if __name__ == "__main__":
             "signal_baseline_tb11_t31_staggered_multi_expiry_readiness",
             "signal_baseline_tb15_cash_secured_put_large_caps",
             "signal_baseline_tb15_csp_vol_breadth_stress_gate",
+            "signal_fetch_tb15_udiff_fno_bhavcopy_forward_window",
             "signal_baseline_tb15_t03_fresh_forward_sample",
+            "signal_baseline_tb15_t04_defined_risk_bull_put_redesign",
             "signal_baseline_tb16_defined_risk_nifty_bull_put_spread",
             "signal_baseline_tb17_covered_call_overwrite_readiness",
             "signal_baseline_tb18_earnings_overlay_readiness",
@@ -27184,6 +27637,26 @@ if __name__ == "__main__":
             "This requires a non-overlapping local F&O bhavcopy slice and remains research-only with no broker orders."
         )
         run_tb15_t03_fresh_forward_sample(output_prefix="tb15_t03_fresh_forward_sample")
+        raise SystemExit(0)
+
+    if run_mode == "signal_fetch_tb15_udiff_fno_bhavcopy_forward_window":
+        main_logger.info(
+            "Starting TB15 UDiFF F&O bhavcopy forward-window fetch. "
+            "This downloads NSE archive files only and does not call broker endpoints."
+        )
+        run_tb15_fetch_udiff_fno_bhavcopy_forward_window(
+            start_date="2024-07-08",
+            end_date="2024-12-31",
+            output_prefix="tb15_udiff_fno_bhavcopy_forward_fetch",
+        )
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb15_t04_defined_risk_bull_put_redesign":
+        main_logger.info(
+            "Starting TB15 T04 defined-risk bull put redesign. "
+            "This uses local F&O bhavcopy closes and remains research-only with no broker orders."
+        )
+        run_tb15_t04_defined_risk_bull_put_redesign(output_prefix="tb15_t04_defined_risk_bull_put_redesign")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb16_defined_risk_nifty_bull_put_spread":

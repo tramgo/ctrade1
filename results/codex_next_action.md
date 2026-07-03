@@ -1703,6 +1703,9 @@ Progress artifacts:
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_summary.csv`
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_metadata.csv`
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_decision.md`
+- `results/signal_baseline/tb15_udiff_fno_bhavcopy_forward_fetch.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_summary.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_decision.md`
 
 Plan reconciliation:
 
@@ -1714,24 +1717,68 @@ Plan reconciliation:
 
 TB15_T03:
 
+- refresh command: `python -B ssell1.py --mode signal_fetch_tb15_udiff_fno_bhavcopy_forward_window`
 - implemented mode: `signal_baseline_tb15_t03_fresh_forward_sample`
 - command: `python -B ssell1.py --mode signal_baseline_tb15_t03_fresh_forward_sample`
-- status: `blocked_no_non_overlapping_forward_slice`
+- status: `t03_passed_unlock_tb15_t04`
 - TB15 base source trades: `522`
 - source first trade date: `2016-05-09`
 - source last expiry date: `2024-07-25`
-- local F&O zip count: `2346`
-- archive min/max date: `2015-01-01` / `2024-07-05`
-- held-out trade count: `0`
+- local F&O zip count: `2467`
+- archive min/max date: `2015-01-01` / `2024-12-31`
+- UDiFF forward fetch: `121` files fetched from `2024-07-08` through `2024-12-31`, with `6` HTTP 404 gaps
+- held-out trade count: `33`
+- held-out first trade date: `2024-08-22`
+- held-out last expiry date: `2025-01-30`
+- held-out mean return on cash: `0.4576%`
+- held-out assignment rate: `15.15%`
+- held-out worst expiry return on cash: `-0.5012%`
 - broker orders allowed: `False`
 
 Inference:
 
-The plan's first item is already closed by the existing strict OOS kill-switch, so TB14 does not reopen the equity family. The second item, TB15_T03, cannot honestly run yet because no non-overlapping forward slice exists locally; reusing the original 522 trades would violate the T03 gate.
+The plan's first item is already closed by the existing strict OOS kill-switch, so TB14 does not reopen the equity family. TB15_T03 was unblocked by refreshing the NSE F&O archive with the post-2024-07-05 UDiFF bhavcopy format, and the non-overlapping held-out slice passed all initial gates.
 
 Next action:
 
-Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample, then rerun T03. If a fresh forward slice cannot be obtained now, proceed to TB11_T30 IV-conditioned sizing as the next cheapest high-value research item using already collected chain-band data.
+Proceed only through the capped-risk TB15_T04 redesign path. Do not open naked CSP paper trading from T03.
+
+## `TB15_T04_DefinedRiskBullPutRedesign`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t04_defined_risk_bull_put_redesign
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_detail.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_summary.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_kelly_sizing.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_skipped.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_metadata.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_decision.md`
+
+Current read:
+
+- status: `t04_passed_candidate_for_phase1_observation`
+- trades: `523`
+- first trade / last expiry: `2016-05-09` / `2025-01-30`
+- mean return on capped max loss: `5.4315%`
+- mean return on cash-equivalent collateral: `0.1719%`
+- worst portfolio expiry return on cash-equivalent collateral: `-3.0581%`
+- positive Kelly symbols: `6`
+- gates positive-Kelly / worst / mean: `True` / `True` / `True`
+- broker orders allowed: `False`
+
+Inference:
+
+TB15_T04 converts the cash-secured put thesis into capped-risk bull put spreads and passes the initial research gates on the refreshed archive. This is a candidate for a no-order quote-only Phase 1 observation lane, not live or broker execution.
+
+Next action:
+
+Open a TB15_T05 quote-only observation/readiness gate if we want to observe live modeled credits for the selected large-cap spread candidates. Keep TB11_T30 blocked until enough IV history accumulates, and keep TB18 blocked until earnings dates plus NIFTY weights are populated.
 
 ## `TB11_T30_IVConditionedSizingReadiness`
 

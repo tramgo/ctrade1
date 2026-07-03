@@ -33,6 +33,12 @@ Inference: post-TB14 does not reopen the equity family. The already-recorded str
 
 ## TB15_T03 Fresh Forward Sample
 
+Refresh mode:
+
+```powershell
+python -B ssell1.py --mode signal_fetch_tb15_udiff_fno_bhavcopy_forward_window
+```
+
 Implemented mode:
 
 ```powershell
@@ -45,23 +51,64 @@ Artifacts:
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_metadata.csv`
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_detail.csv`
 - `results/signal_baseline/tb15_t03_fresh_forward_sample_decision.md`
+- `results/signal_baseline/tb15_udiff_fno_bhavcopy_forward_fetch.csv`
 
 Current result:
 
-- status: `blocked_no_non_overlapping_forward_slice`
+- status: `t03_passed_unlock_tb15_t04`
 - source TB15 base trades: `522`
 - source first trade date: `2016-05-09`
 - source last expiry date: `2024-07-25`
-- local F&O zip count: `2346`
-- archive min/max date: `2015-01-01` / `2024-07-05`
-- held-out trade count: `0`
+- local F&O zip count: `2467`
+- archive min/max date: `2015-01-01` / `2024-12-31`
+- UDiFF forward fetch: `121` files fetched from `2024-07-08` through `2024-12-31`, with `6` HTTP 404 gaps
+- held-out trade count: `33`
+- held-out first trade date: `2024-08-22`
+- held-out last expiry date: `2025-01-30`
+- held-out mean return on cash: `0.4576%`
+- held-out portfolio mean return on cash: `0.4339%`
+- held-out win rate: `84.85%`
+- held-out assignment rate: `15.15%`
+- held-out worst expiry return on cash: `-0.5012%`
+- gates mean / assignment / worst: `True` / `True` / `True`
 - broker orders allowed: `False`
 
-Inference: a genuine fresh forward sample is not locally available. The F&O archive ends before the already-used TB15 base sample expiry horizon. Reusing the original 522 trades would violate the T03 non-overlap requirement.
+Inference: the old NSE F&O bhavcopy archive stopped before the original TB15 expiry horizon, but the UDiFF common bhavcopy archive provides a valid non-overlapping forward slice. T03 now passes its held-out gates and unlocks only the defined-risk T04 redesign path.
 
 ## Current Next Action
 
-Do not proceed to TB15_T04 defined-risk bull put spread redesign from this blocked T03 result. Refresh local F&O bhavcopy and daily spot data beyond the TB15 base sample, then rerun T03. If refreshing the forward slice is not possible, move to TB11_T30 IV-conditioned sizing as the next cheapest high-value research item that uses already collected chain-band data.
+Proceed to TB15_T04 defined-risk bull put spread redesign as research-only/no-order work. Do not open naked cash-secured put paper trading from T03; the tail-risk reduction must be proven through the capped-risk spread version first.
+
+## TB15_T04 Defined-Risk Bull Put Redesign
+
+Implemented mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb15_t04_defined_risk_bull_put_redesign
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_detail.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_summary.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_kelly_sizing.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_skipped.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_metadata.csv`
+- `results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_decision.md`
+
+Current result:
+
+- status: `t04_passed_candidate_for_phase1_observation`
+- trades: `523`
+- first trade date / last expiry date: `2016-05-09` / `2025-01-30`
+- mean return on capped max loss: `5.4315%`
+- mean return on cash-equivalent collateral: `0.1719%`
+- worst portfolio expiry return on cash-equivalent collateral: `-3.0581%`
+- positive Kelly symbols: `6`
+- gates positive-Kelly / worst / mean: `True` / `True` / `True`
+- broker orders allowed: `False`
+
+Inference: T04 is the first TB15 branch that converts the CSP idea into capped-loss spreads and passes initial gates on the refreshed archive. It is a candidate for quote-only Phase 1 observation, not for broker execution.
 
 ## TB11_T30 IV-Conditioned Sizing Readiness
 
