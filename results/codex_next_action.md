@@ -1969,9 +1969,15 @@ Artifacts:
 Current read:
 
 - status: `phase2_no_order_reconciliation_passed`
-- Phase 1 latest weighted credit: `8.25`
-- Phase 2 T28 weighted credit: `8.175`
-- drift versus latest Phase 1: `-0.91%`
+- latest T28 refresh: `2026-07-03T14:17:22.893136+05:30`
+- T28 fresh quote rows: `98`
+- selected profile legs covered: `4 / 4`
+- Phase 1 latest weighted credit: `7.125`
+- Phase 1 modeled credit: `7.275`
+- Phase 2 T28 defensive credit: `4.85`
+- Phase 2 T28 weighted credit: `7.275`
+- drift versus latest Phase 1: `+2.11%`
+- drift versus latest modeled credit: `0.00%`
 - selected legs OK: `4 / 4`
 - within 10% / 15% adverse tolerance: `True` / `True`
 - broker block violations: `0`
@@ -1979,7 +1985,7 @@ Current read:
 
 Next action:
 
-Continue no-order Phase 2 paper-price observations. Do not place broker orders.
+Continue no-order Phase 2 paper-price observations; the 14:17 IST refresh passed all reconciliation gates. Do not place broker orders.
 
 ## `TB16_DefinedRiskNiftyBullPutSpread`
 

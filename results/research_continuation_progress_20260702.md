@@ -446,3 +446,48 @@ Current result:
 Inference: TB20 now uses the attached plan's required gold/debt defensive assets from Zerodha instead of the earlier PHARMABEES proxy. The mechanical drawdown trigger does reduce max drawdown by the required `25%` threshold, but it gives up `3.69%` annualized return versus the `3%` cap and beats the benchmark in only `1 / 10` folds. Do not promote this defensive tilt.
 
 Next action: the attached plan is now exhausted into either completed rejects or explicit data blockers. Return to operational/data-readiness work: keep T28/Phase 2 no-order collection healthy, refresh F&O/spot data for `TB15_T03`, accumulate IV history for `TB11_T30`, and populate earnings/index weights for `TB18`.
+
+## TB11 Phase 2 No-Order Refresh - 2026-07-03 14:17 IST
+
+Implemented modes:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_nifty_chain_band_quote_collector
+python -B ssell1.py --mode signal_baseline_tb11_options_t28_freshness_gate
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_transition_controller
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv`
+- `results/signal_baseline/tb11_t28_freshness_gate_summary.csv`
+- `results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv`
+- `results/signal_baseline/tb11_phase2_transition_controller_summary.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_summary.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_detail_20260703.csv`
+
+Current result:
+
+- T28 generated at: `2026-07-03T14:17:22.893136+05:30`
+- spot: `24283.2`
+- selected expiry: `2026-07-07`
+- quote packets/fresh rows: `98 / 98`
+- selected profile legs covered: `4 / 4`
+- freshness gate: `phase2_paper_price_reconciliation_ready`
+- readiness status: `phase2_paper_price_reconciliation_ready`
+- reconciliation status: `phase2_no_order_reconciliation_passed`
+- Phase 1 latest weighted credit: `7.125`
+- Phase 1 modeled credit: `7.275`
+- Phase 2 defensive credit: `4.85`
+- Phase 2 weighted credit: `7.275`
+- drift versus latest Phase 1: `+2.11%`
+- drift versus latest modeled credit: `0.00%`
+- within 10% / 15% adverse tolerance: `True` / `True`
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Inference: the 14:17 IST Zerodha quote-only refresh keeps TB11 Phase 2 healthy. The selected four legs are fully covered, the weighted paper credit reconciles to the modeled Phase 1 credit, and no broker-order route was enabled.
+
+Next action: continue no-order Phase 2 collection across more market-hour timestamps. Do not place broker orders.

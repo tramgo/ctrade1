@@ -1,6 +1,6 @@
 # TB11 Phase 1 To Phase 2 Transition Closeout
 
-Generated at IST: `2026-07-01T14:39:40.165182+05:30`
+Generated at IST: `2026-07-03T14:17:46.594178+05:30`
 
 ## Verdict
 
@@ -10,10 +10,10 @@ Generated at IST: `2026-07-01T14:39:40.165182+05:30`
 
 ## Gate Evidence
 
-- Phase 1 collection date: `2026-07-01`
-- readiness collection date: `2026-07-01`
-- clean observations: `15` / `15`
-- unique observation dates: `5` / `5`
+- Phase 1 collection date: `2026-07-03`
+- readiness collection date: `2026-07-03`
+- clean observations: `18` / `15`
+- unique observation dates: `7` / `5`
 - Phase 1 evidence gate passed: `True`
 - readiness Phase 2 gate passed: `True`
 - selected-leg coverage: `4` / `4`

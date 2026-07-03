@@ -1,18 +1,18 @@
 # TB11 Phase 2 Transition Controller
 
-- Status: `blocked_phase1_transition_gate_not_met`
-- Transition passed: `False`
-- Phase 1 collection date: `2026-07-02`
-- readiness collection date: `2026-07-02`
-- clean observations: `16` / `15`
-- unique observation dates: `6` / `5`
+- Status: `phase2_runbook_opened_state_advanced`
+- Transition passed: `True`
+- Phase 1 collection date: `2026-07-03`
+- readiness collection date: `2026-07-03`
+- clean observations: `18` / `15`
+- unique observation dates: `7` / `5`
 - Phase 1 evidence gate passed: `True`
-- readiness Phase 2 gate passed: `False`
-- selected leg coverage: `2` / `4`
+- readiness Phase 2 gate passed: `True`
+- selected leg coverage: `4` / `4`
 - modeled credit available: `True`
 - broker-block violations: `0`
-- blockers: `t28_freshness_gate_not_passed|t28_selected_leg_full_coverage_not_passed`
-- runbook written: `False`
-- automation state advanced: `False`
+- blockers: `none`
+- runbook written: `True`
+- automation state advanced: `True`
 
-Next action: Do not advance automation state. Continue scheduled no-order Phase 1/T28 collection until clean observations >= 15, unique dates >= 5, Phase 1 evidence gate is true, and broker blocks remain 0.
+Next action: Phase 2 runbook is written. Next execute only no-order paper-price reconciliation logic under the runbook.
