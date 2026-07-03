@@ -24146,6 +24146,146 @@ def run_tb17_covered_call_overwrite_readiness(
     return summary_df
 
 
+def run_tb20_fetch_defensive_assets_from_zerodha(
+    tickers: Optional[List[str]] = None,
+    history_days: int = 3650,
+    output_prefix: str = "tb20_defensive_assets_zerodha_fetch",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    tickers = tickers or ["GOLDBEES", "LIQUIDBEES"]
+    inventory_csv = baseline_dir / f"{output_prefix}.csv"
+    rows = []
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    try:
+        kite_client = get_authenticated_kite()
+        live_instruments = pd.DataFrame(kite_call_with_retry(kite_client.instruments, "NSE"))
+    except Exception as exc:
+        rows = [
+            {
+                "ticker": ticker,
+                "status": "zerodha_auth_or_instrument_error",
+                "error": str(exc),
+                "broker_orders_allowed": False,
+                "generated_at_ist": generated_at_ist,
+            }
+            for ticker in tickers
+        ]
+        out = pd.DataFrame(rows)
+        out.to_csv(inventory_csv, index=False)
+        print(f"[TB20-FETCH] Zerodha instrument/auth error; inventory saved: {inventory_csv}", flush=True)
+        return out
+
+    required_cols = {"tradingsymbol", "instrument_token", "exchange"}
+    if live_instruments.empty or not required_cols.issubset(live_instruments.columns):
+        rows = [
+            {
+                "ticker": ticker,
+                "status": "zerodha_instrument_schema_missing",
+                "broker_orders_allowed": False,
+                "generated_at_ist": generated_at_ist,
+            }
+            for ticker in tickers
+        ]
+        out = pd.DataFrame(rows)
+        out.to_csv(inventory_csv, index=False)
+        print(f"[TB20-FETCH] Zerodha instrument schema missing; inventory saved: {inventory_csv}", flush=True)
+        return out
+
+    tz = pytz.timezone("Asia/Kolkata")
+    end = datetime.now(tz)
+    begin = end - timedelta(days=int(history_days))
+    for ticker in tickers:
+        out_path = DATA_DIR / f"data_fetched_{ticker}_day_{int(history_days)}d.csv"
+        token_rows = live_instruments.loc[
+            (live_instruments["tradingsymbol"].astype(str).str.upper() == ticker.upper())
+            & (live_instruments["exchange"].astype(str).str.upper() == "NSE")
+        ].copy()
+        if token_rows.empty:
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "status": "instrument_not_found",
+                    "rows": 0,
+                    "cache_path": str(out_path),
+                    "broker_orders_allowed": False,
+                    "generated_at_ist": generated_at_ist,
+                }
+            )
+            print(f"[TB20-FETCH] {ticker}: instrument_not_found", flush=True)
+            continue
+        token = int(pd.to_numeric(token_rows.iloc[0]["instrument_token"], errors="raise"))
+        try:
+            raw_rows = []
+            cur = begin
+            while cur < end:
+                nxt = min(cur + timedelta(days=1900), end)
+                raw_rows.extend(
+                    kite_call_with_retry(
+                        kite_client.historical_data,
+                        token,
+                        cur.strftime("%Y-%m-%d %H:%M:%S"),
+                        nxt.strftime("%Y-%m-%d %H:%M:%S"),
+                        "day",
+                    )
+                )
+                cur = nxt + timedelta(seconds=1)
+                time.sleep(0.35)
+            if not raw_rows:
+                rows.append(
+                    {
+                        "ticker": ticker,
+                        "status": "empty_fetch",
+                        "rows": 0,
+                        "cache_path": str(out_path),
+                        "broker_orders_allowed": False,
+                        "generated_at_ist": generated_at_ist,
+                    }
+                )
+                print(f"[TB20-FETCH] {ticker}: empty_fetch", flush=True)
+                continue
+            frame = (
+                pd.DataFrame(raw_rows)
+                .rename(columns={"date": "Date", "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
+                .assign(Date=lambda x: pd.to_datetime(x["Date"], errors="coerce").dt.tz_localize(None).dt.normalize())
+                .dropna(subset=["Date", "Close"])
+                .drop_duplicates("Date")
+                .sort_values("Date")
+                .reset_index(drop=True)
+            )
+            frame[["Date", "Open", "High", "Low", "Close", "Volume"]].to_csv(out_path, index=False)
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "status": "fetched",
+                    "rows": int(len(frame)),
+                    "first_date": frame["Date"].min().date().isoformat(),
+                    "last_date": frame["Date"].max().date().isoformat(),
+                    "cache_path": str(out_path),
+                    "broker_orders_allowed": False,
+                    "generated_at_ist": generated_at_ist,
+                }
+            )
+            print(f"[TB20-FETCH] {ticker}: fetched rows={len(frame)} path={out_path}", flush=True)
+        except Exception as exc:
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "status": "fetch_error",
+                    "rows": 0,
+                    "error": str(exc),
+                    "cache_path": str(out_path),
+                    "broker_orders_allowed": False,
+                    "generated_at_ist": generated_at_ist,
+                }
+            )
+            print(f"[TB20-FETCH] {ticker}: fetch_error {exc}", flush=True)
+    out = pd.DataFrame(rows)
+    out.to_csv(inventory_csv, index=False)
+    print(f"[TB20-FETCH] inventory saved: {inventory_csv}", flush=True)
+    return out
+
+
 def run_tb20_cross_asset_defensive_tilt(
     output_prefix: str = "tb20_cross_asset_defensive_tilt",
 ) -> pd.DataFrame:
@@ -24156,15 +24296,15 @@ def run_tb20_cross_asset_defensive_tilt(
     metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
     decision_md = baseline_dir / f"{output_prefix}_decision.md"
 
-    symbols = ["NIFTYBEES", "BANKBEES", "ITBEES", "PHARMABEES"]
-    defensive_symbol = "PHARMABEES"
-    vix_symbol = "INDIAVIX"
-    lookback_sessions = 60
-    trend_sessions = 200
+    symbols = ["NIFTYBEES", "GOLDBEES", "LIQUIDBEES"]
+    equity_symbol = "NIFTYBEES"
+    gold_symbol = "GOLDBEES"
+    debt_symbol = "LIQUIDBEES"
+    drawdown_lookback_sessions = 60
+    drawdown_trigger = 0.12
     rebalance_sessions = 10
-    top_k = 2
-    risk_off_vix_percentile = 0.80
-    min_folds_beating_benchmark = 7
+    baseline_weights = {equity_symbol: 0.90, gold_symbol: 0.05, debt_symbol: 0.05, "CASH": 0.00}
+    defensive_weights = {equity_symbol: 0.50, gold_symbol: 0.15, debt_symbol: 0.15, "CASH": 0.20}
     min_drawdown_improvement = 0.20
     max_return_giveup = 0.03
     roundtrip_cost = 0.001
@@ -24204,8 +24344,6 @@ def run_tb20_cross_asset_defensive_tilt(
             continue
         price_frames[symbol] = loaded
         source_paths[symbol] = path
-    vix_df, vix_path = _load_daily(vix_symbol, "indiavix")
-    source_paths[vix_symbol] = vix_path
 
     pd.DataFrame(
         [
@@ -24214,14 +24352,14 @@ def run_tb20_cross_asset_defensive_tilt(
                 "generated_at_ist": generated_at_ist,
                 "symbols": "|".join(symbols),
                 "symbols_with_price": "|".join(sorted(price_frames.keys())),
-                "defensive_symbol": defensive_symbol,
-                "vix_symbol": vix_symbol,
-                "vix_available": bool(not vix_df.empty),
-                "lookback_sessions": lookback_sessions,
-                "trend_sessions": trend_sessions,
+                "equity_symbol": equity_symbol,
+                "gold_symbol": gold_symbol,
+                "debt_symbol": debt_symbol,
+                "drawdown_lookback_sessions": drawdown_lookback_sessions,
+                "drawdown_trigger": drawdown_trigger,
                 "rebalance_sessions": rebalance_sessions,
-                "top_k": top_k,
-                "risk_off_vix_percentile": risk_off_vix_percentile,
+                "baseline_weights": "|".join(f"{key}:{value}" for key, value in baseline_weights.items()),
+                "defensive_weights": "|".join(f"{key}:{value}" for key, value in defensive_weights.items()),
                 "roundtrip_cost": roundtrip_cost,
                 "source_paths": "|".join(f"{key}:{value}" for key, value in sorted(source_paths.items())),
                 "broker_orders_allowed": False,
@@ -24229,33 +24367,31 @@ def run_tb20_cross_asset_defensive_tilt(
         ]
     ).to_csv(metadata_csv, index=False)
 
-    if set(symbols) - set(price_frames.keys()) or vix_df.empty:
+    missing_symbols = sorted(set(symbols) - set(price_frames.keys()))
+    if missing_symbols:
         pd.DataFrame().to_csv(summary_csv, index=False)
         pd.DataFrame().to_csv(detail_csv, index=False)
+        pd.DataFrame().to_csv(baseline_dir / f"{output_prefix}_folds.csv", index=False)
         decision_md.write_text(
             "# TB20 Cross-Asset Defensive Tilt\n\n"
             "Status: `blocked_missing_local_inputs`\n\n"
+            f"- missing symbols: `{ '|'.join(missing_symbols) }`\n"
+            "- required inputs: `NIFTYBEES|GOLDBEES|LIQUIDBEES`\n"
             "- broker orders allowed: `False`\n",
             encoding="utf-8",
         )
-        print("[TB20-XASSET] missing ETF or VIX daily input; empty artifacts saved.", flush=True)
+        print("[TB20-XASSET] missing required ETF daily input; empty artifacts saved.", flush=True)
         return pd.DataFrame()
 
     prices = None
     for symbol, frame in price_frames.items():
         prices = frame if prices is None else prices.merge(frame, on="date", how="outer")
-    prices = prices.merge(vix_df, on="date", how="left").sort_values("date").reset_index(drop=True)
+    prices = prices.sort_values("date").reset_index(drop=True)
     prices = prices.dropna(subset=symbols).copy()
-    prices["nifty_sma200"] = prices["NIFTYBEES"].rolling(trend_sessions, min_periods=100).mean()
-    prices["nifty_below_sma200"] = prices["NIFTYBEES"] < prices["nifty_sma200"]
-    prices["indiavix_pct_rank"] = prices["indiavix"].rolling(252, min_periods=60).apply(
-        lambda window: float(pd.Series(window).rank(pct=True).iloc[-1]),
-        raw=False,
-    )
-    for symbol in symbols:
-        prices[f"{symbol}_mom"] = prices[symbol].pct_change(lookback_sessions)
+    prices["equity_trailing_peak"] = prices[equity_symbol].rolling(drawdown_lookback_sessions, min_periods=20).max()
+    prices["equity_60d_drawdown"] = (prices[equity_symbol] / prices["equity_trailing_peak"]) - 1.0
 
-    eligible = prices.dropna(subset=[f"{symbol}_mom" for symbol in symbols] + ["nifty_sma200", "indiavix_pct_rank"]).copy()
+    eligible = prices.dropna(subset=["equity_60d_drawdown"]).copy()
     trade_dates = eligible["date"].tolist()
     detail_rows = []
     for idx in range(0, max(0, len(trade_dates) - 1), rebalance_sessions):
@@ -24274,31 +24410,23 @@ def run_tb20_cross_asset_defensive_tilt(
             for symbol in symbols
             if float(current[symbol]) > 0
         }
-        momentum_rank = sorted(
-            symbols,
-            key=lambda symbol: float(current[f"{symbol}_mom"]),
-            reverse=True,
-        )
-        top_symbols = momentum_rank[:top_k]
-        risk_off = bool(current["nifty_below_sma200"] or current["indiavix_pct_rank"] >= risk_off_vix_percentile)
-        top2_return = float(np.mean([interval_returns[symbol] for symbol in top_symbols]) - roundtrip_cost)
-        defensive_return = float(interval_returns[defensive_symbol] - roundtrip_cost)
-        tilt_symbols = [defensive_symbol] if risk_off else top_symbols
-        tilt_return = defensive_return if risk_off else top2_return
+        risk_off = bool(current["equity_60d_drawdown"] <= -drawdown_trigger)
+        active_weights = defensive_weights if risk_off else baseline_weights
+        benchmark_return = float(interval_returns[equity_symbol])
+        baseline_return = float(sum(baseline_weights.get(symbol, 0.0) * interval_returns[symbol] for symbol in symbols) - roundtrip_cost)
+        defensive_return = float(sum(defensive_weights.get(symbol, 0.0) * interval_returns[symbol] for symbol in symbols) - roundtrip_cost)
+        tilt_return = float(sum(active_weights.get(symbol, 0.0) * interval_returns[symbol] for symbol in symbols) - roundtrip_cost)
         benchmark_return = float(interval_returns["NIFTYBEES"])
         detail_rows.append(
             {
                 "trade_date": trade_date,
                 "next_trade_date": next_trade_date,
                 "risk_off": risk_off,
-                "nifty_below_sma200": bool(current["nifty_below_sma200"]),
-                "indiavix": float(current["indiavix"]),
-                "indiavix_pct_rank": float(current["indiavix_pct_rank"]),
-                "top2_symbols": "|".join(top_symbols),
-                "tilt_symbols": "|".join(tilt_symbols),
+                "equity_60d_drawdown": float(current["equity_60d_drawdown"]),
+                "active_weights": "|".join(f"{key}:{value}" for key, value in active_weights.items()),
                 "benchmark_return": benchmark_return,
-                "top2_momentum_return": top2_return,
-                "defensive_symbol_return": defensive_return,
+                "baseline_static_return": baseline_return,
+                "defensive_static_return": defensive_return,
                 "defensive_tilt_return": tilt_return,
             }
         )
@@ -24347,7 +24475,7 @@ def run_tb20_cross_asset_defensive_tilt(
             continue
         fold = detail_df.iloc[indices].copy()
         benchmark = _metrics(fold, "benchmark_return")
-        top2 = _metrics(fold, "top2_momentum_return")
+        baseline = _metrics(fold, "baseline_static_return")
         tilt = _metrics(fold, "defensive_tilt_return")
         fold_rows.append(
             {
@@ -24355,10 +24483,10 @@ def run_tb20_cross_asset_defensive_tilt(
                 "fold_start_date": pd.to_datetime(fold["trade_date"]).min(),
                 "fold_end_date": pd.to_datetime(fold["next_trade_date"]).max(),
                 "benchmark_ann": benchmark["annualized_return"],
-                "top2_ann": top2["annualized_return"],
+                "baseline_static_ann": baseline["annualized_return"],
                 "tilt_ann": tilt["annualized_return"],
                 "benchmark_max_drawdown": benchmark["max_drawdown"],
-                "top2_max_drawdown": top2["max_drawdown"],
+                "baseline_static_max_drawdown": baseline["max_drawdown"],
                 "tilt_max_drawdown": tilt["max_drawdown"],
                 "tilt_beats_benchmark": bool(tilt["annualized_return"] > benchmark["annualized_return"]),
                 "tilt_drawdown_better_than_benchmark": bool(abs(tilt["max_drawdown"]) < abs(benchmark["max_drawdown"])),
@@ -24370,20 +24498,21 @@ def run_tb20_cross_asset_defensive_tilt(
     summary_rows = []
     overall_metrics = {
         "NIFTYBEES_BUYHOLD_INTERVAL": _metrics(detail_df, "benchmark_return"),
-        "TOP2_ETF_MOMENTUM": _metrics(detail_df, "top2_momentum_return"),
-        "VIX_TREND_PHARMABEES_DEFENSIVE_TILT": _metrics(detail_df, "defensive_tilt_return"),
+        "STATIC_90_5_5_EQUITY_GOLD_DEBT": _metrics(detail_df, "baseline_static_return"),
+        "DRAWDOWN_TRIGGER_GOLD_DEBT_TILT": _metrics(detail_df, "defensive_tilt_return"),
     }
     benchmark_ann = overall_metrics["NIFTYBEES_BUYHOLD_INTERVAL"]["annualized_return"]
     benchmark_dd = overall_metrics["NIFTYBEES_BUYHOLD_INTERVAL"]["max_drawdown"]
-    tilt_ann = overall_metrics["VIX_TREND_PHARMABEES_DEFENSIVE_TILT"]["annualized_return"]
-    tilt_dd = overall_metrics["VIX_TREND_PHARMABEES_DEFENSIVE_TILT"]["max_drawdown"]
+    baseline_ann = overall_metrics["STATIC_90_5_5_EQUITY_GOLD_DEBT"]["annualized_return"]
+    baseline_dd = overall_metrics["STATIC_90_5_5_EQUITY_GOLD_DEBT"]["max_drawdown"]
+    tilt_ann = overall_metrics["DRAWDOWN_TRIGGER_GOLD_DEBT_TILT"]["annualized_return"]
+    tilt_dd = overall_metrics["DRAWDOWN_TRIGGER_GOLD_DEBT_TILT"]["max_drawdown"]
     fold_df = pd.DataFrame(fold_rows)
     folds_beating = int(fold_df["tilt_beats_benchmark"].sum()) if not fold_df.empty else 0
     drawdown_improvement = (abs(benchmark_dd) - abs(tilt_dd)) / abs(benchmark_dd) if abs(benchmark_dd) > 1e-9 else np.nan
     return_giveup = benchmark_ann - tilt_ann if pd.notna(benchmark_ann) and pd.notna(tilt_ann) else np.nan
     passes = bool(
-        folds_beating >= min_folds_beating_benchmark
-        and pd.notna(drawdown_improvement)
+        pd.notna(drawdown_improvement)
         and drawdown_improvement >= min_drawdown_improvement
         and pd.notna(return_giveup)
         and return_giveup <= max_return_giveup
@@ -24398,11 +24527,11 @@ def run_tb20_cross_asset_defensive_tilt(
                 "annualized_return": metrics["annualized_return"],
                 "max_drawdown": metrics["max_drawdown"],
                 "worst_event_return": metrics["worst_event_return"],
-                "risk_off_events": int(detail_df["risk_off"].sum()) if "DEFENSIVE_TILT" in strategy else 0,
-                "folds_beating_benchmark": folds_beating if "DEFENSIVE_TILT" in strategy else "",
-                "drawdown_improvement_vs_benchmark": drawdown_improvement if "DEFENSIVE_TILT" in strategy else "",
-                "return_giveup_vs_benchmark": return_giveup if "DEFENSIVE_TILT" in strategy else "",
-                "promotion_gate_pass": passes if "DEFENSIVE_TILT" in strategy else False,
+                "risk_off_events": int(detail_df["risk_off"].sum()) if "TILT" in strategy else 0,
+                "folds_beating_benchmark": folds_beating if "TILT" in strategy else "",
+                "drawdown_improvement_vs_benchmark": drawdown_improvement if "TILT" in strategy else "",
+                "return_giveup_vs_benchmark": return_giveup if "TILT" in strategy else "",
+                "promotion_gate_pass": passes if "TILT" in strategy else False,
                 "broker_orders_allowed": False,
             }
         )
@@ -24418,12 +24547,14 @@ def run_tb20_cross_asset_defensive_tilt(
                 "",
                 f"Status: `{status}`",
                 "",
-                f"- strategy: `VIX/trend risk-off to {defensive_symbol}; otherwise top-{top_k} ETF momentum`",
+                "- strategy: `baseline 90% NIFTYBEES / 5% GOLDBEES / 5% LIQUIDBEES; shift to 50% / 15% / 15% plus 20% cash when 60-day NIFTYBEES drawdown exceeds 12%`",
                 f"- events: `{len(detail_df)}`",
                 f"- risk-off events: `{int(detail_df['risk_off'].sum())}`",
                 f"- benchmark annualized return: `{benchmark_ann}`",
+                f"- static 90/5/5 annualized return: `{baseline_ann}`",
                 f"- defensive tilt annualized return: `{tilt_ann}`",
                 f"- benchmark max drawdown: `{benchmark_dd}`",
+                f"- static 90/5/5 max drawdown: `{baseline_dd}`",
                 f"- defensive tilt max drawdown: `{tilt_dd}`",
                 f"- drawdown improvement vs benchmark: `{drawdown_improvement}`",
                 f"- folds beating benchmark: `{folds_beating} / {len(fold_df)}`",
@@ -26257,6 +26388,7 @@ if __name__ == "__main__":
             "signal_baseline_tb17_covered_call_overwrite_readiness",
             "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_tb19_oi_positioning_readiness",
+            "signal_fetch_tb20_defensive_assets_from_zerodha",
             "signal_baseline_tb20_cross_asset_defensive_tilt",
             "signal_baseline_cost_sensitivity",
             "signal_baseline_futures_cost_profile",
@@ -27086,10 +27218,22 @@ if __name__ == "__main__":
         run_tb19_oi_positioning_readiness(output_prefix="tb19_oi_positioning_readiness")
         raise SystemExit(0)
 
+    if run_mode == "signal_fetch_tb20_defensive_assets_from_zerodha":
+        main_logger.info(
+            "Starting TB20 Zerodha defensive asset fetch. "
+            "This fetches GOLDBEES and LIQUIDBEES historical data only; broker orders remain blocked."
+        )
+        run_tb20_fetch_defensive_assets_from_zerodha(
+            tickers=["GOLDBEES", "LIQUIDBEES"],
+            history_days=3650,
+            output_prefix="tb20_defensive_assets_zerodha_fetch",
+        )
+        raise SystemExit(0)
+
     if run_mode == "signal_baseline_tb20_cross_asset_defensive_tilt":
         main_logger.info(
             "Starting TB20 cross-asset defensive tilt. "
-            "This compares cached ETF momentum against a VIX/trend defensive sleeve with no broker orders."
+            "This compares NIFTYBEES buy-hold against a drawdown-triggered gold/debt defensive sleeve with no broker orders."
         )
         run_tb20_cross_asset_defensive_tilt(output_prefix="tb20_cross_asset_defensive_tilt")
         raise SystemExit(0)

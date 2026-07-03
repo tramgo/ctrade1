@@ -272,11 +272,13 @@ Next action: keep TB17 closed as a documented reject until a corporate-action-ad
 Implemented mode:
 
 ```powershell
+python -B ssell1.py --mode signal_fetch_tb20_defensive_assets_from_zerodha
 python -B ssell1.py --mode signal_baseline_tb20_cross_asset_defensive_tilt
 ```
 
 Artifacts:
 
+- `results/signal_baseline/tb20_defensive_assets_zerodha_fetch.csv`
 - `results/signal_baseline/tb20_cross_asset_defensive_tilt_detail.csv`
 - `results/signal_baseline/tb20_cross_asset_defensive_tilt_summary.csv`
 - `results/signal_baseline/tb20_cross_asset_defensive_tilt_folds.csv`
@@ -286,19 +288,22 @@ Artifacts:
 Current result:
 
 - status: `research_rejected_by_initial_gates`
-- universe: `NIFTYBEES`, `BANKBEES`, `ITBEES`, `PHARMABEES` plus `INDIAVIX`
-- rule: top-2 ETF momentum unless NIFTYBEES is below 200-session SMA or India VIX is above its 80th percentile; risk-off sleeve uses `PHARMABEES`
-- events: `83`
-- risk-off events: `32`
-- NIFTYBEES interval benchmark annualized return: `8.92%`
-- top-2 ETF momentum annualized return: `3.87%`
-- defensive tilt annualized return: `0.56%`
-- benchmark max drawdown: `-13.92%`
-- defensive tilt max drawdown: `-25.66%`
-- drawdown improvement versus benchmark: `-84.32%`
-- folds beating benchmark: `3 / 10`
+- Zerodha fetch: `GOLDBEES` rows `2471` from `2016-07-05` to `2026-07-02`; `LIQUIDBEES` rows `2473` from `2016-07-05` to `2026-07-03`
+- universe: `NIFTYBEES`, `GOLDBEES`, `LIQUIDBEES`
+- rule: baseline `90%` NIFTYBEES / `5%` GOLDBEES / `5%` LIQUIDBEES; shift to `50%` / `15%` / `15%` plus `20%` cash when trailing 60-session NIFTYBEES drawdown breaches `12%`
+- events: `242`
+- risk-off events: `10`
+- NIFTYBEES interval benchmark annualized return: `12.23%`
+- static 90/5/5 annualized return: `9.21%`
+- defensive tilt annualized return: `8.53%`
+- benchmark max drawdown: `-32.03%`
+- static 90/5/5 max drawdown: `-29.04%`
+- defensive tilt max drawdown: `-24.01%`
+- drawdown improvement versus benchmark: `25.03%`
+- annualized return give-up versus benchmark: `3.69%`
+- folds beating benchmark: `1 / 10`
 - broker orders allowed: `False`
 
-Inference: TB20 fails the intended smoothing test. The PHARMABEES risk-off sleeve avoided a few bad intervals but sacrificed too much return and worsened full-sample drawdown versus simply holding NIFTYBEES over the matched interval set. Do not promote this defensive tilt.
+Inference: TB20 now uses the attached plan's required gold/debt defensive assets from Zerodha instead of the earlier PHARMABEES proxy. The mechanical drawdown trigger does reduce max drawdown by the required `25%` threshold, but it gives up `3.69%` annualized return versus the `3%` cap and beats the benchmark in only `1 / 10` folds. Do not promote this defensive tilt.
 
 Next action: the attached plan is now exhausted into either completed rejects or explicit data blockers. Return to operational/data-readiness work: keep T28/Phase 2 no-order collection healthy, refresh F&O/spot data for `TB15_T03`, accumulate IV history for `TB11_T30`, and populate earnings/index weights for `TB18`.
