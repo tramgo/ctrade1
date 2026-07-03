@@ -450,7 +450,7 @@ Inference: TB20 now uses the attached plan's required gold/debt defensive assets
 
 Next action: the attached plan is now exhausted into either completed rejects or explicit data blockers. Return to operational/data-readiness work: keep T28/Phase 2 no-order collection healthy, refresh F&O/spot data for `TB15_T03`, accumulate IV history for `TB11_T30`, and populate earnings/index weights for `TB18`.
 
-## TB11 Phase 2 No-Order Refresh - 2026-07-03 14:17 IST
+## TB11 Phase 2 No-Order Refresh - 2026-07-03 14:29 IST
 
 Implemented modes:
 
@@ -473,8 +473,8 @@ Artifacts:
 
 Current result:
 
-- T28 generated at: `2026-07-03T14:17:22.893136+05:30`
-- spot: `24283.2`
+- T28 generated at: `2026-07-03T14:28:47.031408+05:30`
+- spot: `24270.4`
 - selected expiry: `2026-07-07`
 - quote packets/fresh rows: `98 / 98`
 - selected profile legs covered: `4 / 4`
@@ -483,14 +483,15 @@ Current result:
 - reconciliation status: `phase2_no_order_reconciliation_passed`
 - Phase 1 latest weighted credit: `7.125`
 - Phase 1 modeled credit: `7.275`
-- Phase 2 defensive credit: `4.85`
-- Phase 2 weighted credit: `7.275`
-- drift versus latest Phase 1: `+2.11%`
-- drift versus latest modeled credit: `0.00%`
+- Phase 2 defensive credit: `4.75`
+- Phase 2 weighted credit: `7.125`
+- drift versus latest Phase 1: `0.00%`
+- drift versus latest modeled credit: `-2.06%`
+- same-day Phase 2 passing ledger rows: `3`
 - within 10% / 15% adverse tolerance: `True` / `True`
 - broker block violations: `0`
 - broker orders allowed: `False`
 
-Inference: the 14:17 IST Zerodha quote-only refresh keeps TB11 Phase 2 healthy. The selected four legs are fully covered, the weighted paper credit reconciles to the modeled Phase 1 credit, and no broker-order route was enabled.
+Inference: the 14:29 IST Zerodha quote-only refresh keeps TB11 Phase 2 healthy. The selected four legs are fully covered, weighted paper credit matches the latest observed Phase 1 credit, and no broker-order route was enabled.
 
 Next action: continue no-order Phase 2 collection across more market-hour timestamps. Do not place broker orders.
