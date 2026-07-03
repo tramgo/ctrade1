@@ -20969,6 +20969,229 @@ def run_tb11_options_phase2_transition_controller(
     return summary_df
 
 
+def run_tb11_options_phase2_no_order_paper_price_reconciliation(
+    output_prefix: str = "tb11_phase2_no_order_paper_price_reconciliation",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    today_ist = pd.Timestamp.now(tz="Asia/Kolkata").date().isoformat()
+    today_tag = today_ist.replace("-", "")
+    readiness_summary_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_summary.csv"
+    readiness_detail_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_detail.csv"
+    transition_summary_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
+    phase1_latest_csv = baseline_dir / "tb11_options_phase1_observation_ledger_latest_detail.csv"
+    runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
+    detail_csv = baseline_dir / f"{output_prefix}_detail_{today_tag}.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    ledger_csv = baseline_dir / f"{output_prefix}_ledger.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    profile_weight = 1.5
+    max_quote_age_seconds = 300.0
+    max_leg_spread_pct = 0.50
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "collection_date_ist": today_ist,
+                "generated_at_ist": generated_at_ist,
+                "readiness_summary_source": str(readiness_summary_csv),
+                "readiness_detail_source": str(readiness_detail_csv),
+                "transition_summary_source": str(transition_summary_csv),
+                "phase1_latest_source": str(phase1_latest_csv),
+                "runbook_source": str(runbook_md),
+                "profile_weight": profile_weight,
+                "mode_scope": "tb11_phase2_no_order_paper_price_reconciliation",
+                "note": "Artifact-only Phase 2 paper-price reconciliation. No broker calls and no orders.",
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    def _write_blocked(status: str, blocker: str) -> pd.DataFrame:
+        pd.DataFrame().to_csv(detail_csv, index=False)
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "generated_at_ist": generated_at_ist,
+                    "collection_date_ist": today_ist,
+                    "reconciliation_status": status,
+                    "blockers": blocker,
+                    "phase2_reconciliation_passed": False,
+                    "broker_orders_allowed": False,
+                }
+            ]
+        )
+        summary_df.to_csv(summary_csv, index=False)
+        decision_md.write_text(
+            "# TB11 Phase 2 No-Order Paper-Price Reconciliation\n\n"
+            f"Status: `{status}`\n\n"
+            f"- blockers: `{blocker}`\n"
+            "- broker orders allowed: `False`\n",
+            encoding="utf-8",
+        )
+        print(f"[TB11-PHASE2-RECON] blocked: {status}", flush=True)
+        return summary_df
+
+    required_paths = [readiness_summary_csv, readiness_detail_csv, transition_summary_csv, phase1_latest_csv, runbook_md]
+    missing = [str(path) for path in required_paths if not path.exists()]
+    if missing:
+        return _write_blocked("blocked_missing_phase2_inputs", "|".join(missing))
+
+    try:
+        readiness_summary = pd.read_csv(readiness_summary_csv)
+        readiness_detail = pd.read_csv(readiness_detail_csv)
+        transition_summary = pd.read_csv(transition_summary_csv)
+        phase1_latest = pd.read_csv(phase1_latest_csv)
+    except Exception as exc:
+        return _write_blocked("blocked_unreadable_phase2_inputs", str(exc))
+
+    def _bool_text(value: object) -> bool:
+        return str(value).strip().lower() in {"true", "1", "yes", "y"}
+
+    blockers = []
+    readiness_row = readiness_summary.iloc[0] if not readiness_summary.empty else pd.Series(dtype=object)
+    transition_row = transition_summary.iloc[0] if not transition_summary.empty else pd.Series(dtype=object)
+    if not _bool_text(readiness_row.get("phase2_gate_passed", False)):
+        blockers.append("readiness_phase2_gate_not_passed")
+    if not _bool_text(transition_row.get("transition_passed", False)):
+        blockers.append("transition_controller_not_passed")
+    if not _bool_text(transition_row.get("runbook_written", False)):
+        blockers.append("phase2_runbook_not_written")
+    if readiness_detail.empty:
+        blockers.append("empty_readiness_detail")
+
+    clean_phase1 = phase1_latest.loc[
+        phase1_latest.get("clean_observation", pd.Series(dtype=bool)).astype(str).str.lower().isin({"true", "1"})
+    ].copy()
+    if clean_phase1.empty:
+        blockers.append("missing_latest_clean_phase1_observation")
+        latest_phase1 = pd.Series(dtype=object)
+    else:
+        sort_col = "observed_timestamp_ist" if "observed_timestamp_ist" in clean_phase1.columns else clean_phase1.columns[0]
+        latest_phase1 = clean_phase1.sort_values(sort_col).iloc[-1]
+
+    if blockers:
+        return _write_blocked("blocked_phase2_inputs_not_ready", "|".join(blockers))
+
+    detail = readiness_detail.copy()
+    detail["bid"] = pd.to_numeric(detail.get("bid", pd.Series(dtype=float)), errors="coerce")
+    detail["ask"] = pd.to_numeric(detail.get("ask", pd.Series(dtype=float)), errors="coerce")
+    detail["quote_age_seconds"] = pd.to_numeric(detail.get("quote_age_seconds", pd.Series(dtype=float)), errors="coerce")
+    detail["spread_pct"] = pd.to_numeric(detail.get("spread_pct", pd.Series(dtype=float)), errors="coerce")
+    detail["present_in_t28_chain_band"] = detail.get("present_in_t28_chain_band", pd.Series(dtype=bool)).astype(str).str.lower().isin({"true", "1"})
+    detail["leg_reconciliation_ok"] = (
+        detail["present_in_t28_chain_band"]
+        & detail["bid"].notna()
+        & detail["ask"].notna()
+        & (detail["ask"] >= detail["bid"])
+        & (detail["quote_age_seconds"] <= max_quote_age_seconds)
+        & (detail["spread_pct"] <= max_leg_spread_pct)
+    )
+    short_credit = detail.loc[detail.get("side", pd.Series(dtype=str)).astype(str).str.lower().eq("sell"), "bid"].sum()
+    long_debit = detail.loc[detail.get("side", pd.Series(dtype=str)).astype(str).str.lower().eq("buy"), "ask"].sum()
+    phase2_defensive_credit = float(short_credit - long_debit)
+    phase2_weighted_credit = phase2_defensive_credit * profile_weight
+    phase1_weighted_credit = pd.to_numeric(
+        pd.Series([latest_phase1.get("observed_weighted_credit_points")]), errors="coerce"
+    ).iloc[0]
+    phase1_modeled_credit = pd.to_numeric(pd.Series([latest_phase1.get("modeled_credit_points")]), errors="coerce").iloc[0]
+    phase1_timestamp = str(latest_phase1.get("observed_timestamp_ist", ""))
+    phase2_vs_phase1_diff = phase2_weighted_credit - float(phase1_weighted_credit)
+    phase2_vs_phase1_diff_pct = (
+        phase2_vs_phase1_diff / float(phase1_weighted_credit)
+        if pd.notna(phase1_weighted_credit) and float(phase1_weighted_credit) != 0
+        else np.nan
+    )
+    phase2_vs_model_diff = phase2_weighted_credit - float(phase1_modeled_credit)
+    phase2_vs_model_diff_pct = (
+        phase2_vs_model_diff / float(phase1_modeled_credit)
+        if pd.notna(phase1_modeled_credit) and float(phase1_modeled_credit) != 0
+        else np.nan
+    )
+    within_10pct_adverse = bool(pd.notna(phase2_vs_phase1_diff_pct) and phase2_vs_phase1_diff_pct >= -0.10)
+    within_15pct_adverse = bool(pd.notna(phase2_vs_phase1_diff_pct) and phase2_vs_phase1_diff_pct >= -0.15)
+    broker_block_violations = int(float(readiness_row.get("broker_block_violations", 0) or 0)) + int(
+        float(transition_row.get("ledger_broker_block_violations", 0) or 0)
+    )
+    all_legs_ok = bool(detail["leg_reconciliation_ok"].all())
+    phase2_passed = all_legs_ok and within_15pct_adverse and broker_block_violations == 0
+    status = "phase2_no_order_reconciliation_passed" if phase2_passed else "phase2_no_order_reconciliation_review_required"
+
+    detail["phase2_defensive_credit_points"] = phase2_defensive_credit
+    detail["phase2_weighted_credit_points"] = phase2_weighted_credit
+    detail["phase1_latest_weighted_credit_points"] = phase1_weighted_credit
+    detail["phase1_latest_observed_timestamp_ist"] = phase1_timestamp
+    detail["phase2_vs_phase1_diff_points"] = phase2_vs_phase1_diff
+    detail["phase2_vs_phase1_diff_pct"] = phase2_vs_phase1_diff_pct
+    detail["broker_order_allowed"] = False
+    detail.to_csv(detail_csv, index=False)
+
+    ledger_row = pd.DataFrame(
+        [
+            {
+                "generated_at_ist": generated_at_ist,
+                "collection_date_ist": today_ist,
+                "phase1_latest_observed_timestamp_ist": phase1_timestamp,
+                "phase1_weighted_credit_points": phase1_weighted_credit,
+                "phase1_modeled_credit_points": phase1_modeled_credit,
+                "phase2_defensive_credit_points": phase2_defensive_credit,
+                "phase2_weighted_credit_points": phase2_weighted_credit,
+                "phase2_vs_phase1_diff_points": phase2_vs_phase1_diff,
+                "phase2_vs_phase1_diff_pct": phase2_vs_phase1_diff_pct,
+                "phase2_vs_model_diff_points": phase2_vs_model_diff,
+                "phase2_vs_model_diff_pct": phase2_vs_model_diff_pct,
+                "within_10pct_adverse_tolerance": within_10pct_adverse,
+                "within_15pct_adverse_tolerance": within_15pct_adverse,
+                "all_legs_reconciliation_ok": all_legs_ok,
+                "broker_block_violations": broker_block_violations,
+                "broker_orders_allowed": False,
+                "reconciliation_status": status,
+            }
+        ]
+    )
+    existing = pd.read_csv(ledger_csv) if ledger_csv.exists() else pd.DataFrame()
+    combined = pd.concat([existing, ledger_row], ignore_index=True, sort=False) if not existing.empty else ledger_row
+    combined = combined.drop_duplicates(subset=["generated_at_ist"], keep="last")
+    combined.to_csv(ledger_csv, index=False)
+
+    summary_df = ledger_row.copy()
+    summary_df["readiness_collection_date_ist"] = readiness_row.get("collection_date_ist", "")
+    summary_df["transition_status"] = transition_row.get("transition_status", "")
+    summary_df["leg_rows"] = int(len(detail))
+    summary_df["leg_rows_ok"] = int(detail["leg_reconciliation_ok"].sum())
+    summary_df["phase2_reconciliation_passed"] = phase2_passed
+    summary_df["blockers"] = "" if phase2_passed else "leg_quality_or_adverse_credit_tolerance_review_required"
+    summary_df.to_csv(summary_csv, index=False)
+
+    decision_md.write_text(
+        "\n".join(
+            [
+                "# TB11 Phase 2 No-Order Paper-Price Reconciliation",
+                "",
+                f"Status: `{status}`",
+                "",
+                f"- Phase 1 latest weighted credit: `{phase1_weighted_credit}`",
+                f"- Phase 2 T28 weighted credit: `{phase2_weighted_credit}`",
+                f"- Phase 2 vs Phase 1 drift: `{phase2_vs_phase1_diff_pct}`",
+                f"- all legs reconciliation ok: `{all_legs_ok}`",
+                f"- within 10% / 15% adverse tolerance: `{within_10pct_adverse}` / `{within_15pct_adverse}`",
+                f"- broker block violations: `{broker_block_violations}`",
+                "- broker orders allowed: `False`",
+                "",
+                "Next action: continue no-order Phase 2 paper-price observations; do not place broker orders.",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    print(f"[TB11-PHASE2-RECON] detail saved: {detail_csv}", flush=True)
+    print(f"[TB11-PHASE2-RECON] summary saved: {summary_csv}", flush=True)
+    return summary_df
+
+
 def run_tb11_phase2_runbook_template_contract_audit(
     output_prefix: str = "tb11_phase2_runbook_template_contract_audit",
 ) -> pd.DataFrame:
@@ -21175,6 +21398,7 @@ def run_tb11_no_order_endpoint_static_audit(
         "run_tb11_options_t28_freshness_gate",
         "run_tb11_options_phase2_paper_price_reconciliation_readiness",
         "run_tb11_options_phase2_transition_controller",
+        "run_tb11_options_phase2_no_order_paper_price_reconciliation",
         "run_composite_plan_gate_audit",
     }
 
@@ -25595,6 +25819,267 @@ def run_tb20_cross_asset_defensive_tilt(
     return summary_df
 
 
+def run_tb18_fetch_earnings_and_nifty_weights(
+    output_prefix: str = "tb18_external_data_fetch",
+) -> pd.DataFrame:
+    import requests
+    import urllib3
+    from bs4 import BeautifulSoup
+
+    urllib3.disable_warnings()
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    manifest_csv = baseline_dir / f"{output_prefix}.csv"
+    earnings_csv = DATA_DIR / "earnings_calendar.csv"
+    weights_csv = DATA_DIR / "nifty50_index_weights.csv"
+    earnings_raw_csv = DATA_DIR / "earnings_calendar_nse_raw.csv"
+    weights_raw_csv = DATA_DIR / "nifty50_index_weights_smart_investing_raw.csv"
+    constituents_csv = DATA_DIR / "nifty50_constituents.csv"
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    tb15_symbols = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "LT", "BHARTIARTL"]
+
+    session = requests.Session()
+    nse_headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json,text/csv,text/html,*/*",
+        "Referer": "https://www.nseindia.com/companies-listing/corporate-filings-event-calendar",
+    }
+    try:
+        session.get("https://www.nseindia.com", headers=nse_headers, timeout=20, verify=False)
+    except Exception:
+        pass
+
+    rows = []
+    event_rows = []
+    event_url = "https://www.nseindia.com/api/event-calendar"
+    try:
+        response = session.get(event_url, headers=nse_headers, timeout=30, verify=False)
+        event_rows = response.json() if response.status_code == 200 else []
+        rows.append(
+            {
+                "artifact": "nse_event_calendar",
+                "source_url": event_url,
+                "status": f"http_{response.status_code}",
+                "rows": len(event_rows) if isinstance(event_rows, list) else 0,
+                "output_path": str(earnings_raw_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+    except Exception as exc:
+        rows.append(
+            {
+                "artifact": "nse_event_calendar",
+                "source_url": event_url,
+                "status": f"fetch_error:{exc}",
+                "rows": 0,
+                "output_path": str(earnings_raw_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+
+    results_url = "https://www.nseindia.com/api/corporates-financial-results?index=equities&period=Quarterly"
+    results_rows = []
+    try:
+        response = session.get(results_url, headers=nse_headers, timeout=60, verify=False)
+        results_rows = response.json() if response.status_code == 200 else []
+        rows.append(
+            {
+                "artifact": "nse_quarterly_financial_results",
+                "source_url": results_url,
+                "status": f"http_{response.status_code}",
+                "rows": len(results_rows) if isinstance(results_rows, list) else 0,
+                "output_path": str(earnings_raw_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+    except Exception as exc:
+        rows.append(
+            {
+                "artifact": "nse_quarterly_financial_results",
+                "source_url": results_url,
+                "status": f"fetch_error:{exc}",
+                "rows": 0,
+                "output_path": str(earnings_raw_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+
+    earnings_records = []
+    if isinstance(event_rows, list):
+        for item in event_rows:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol", "")).strip().upper()
+            event_date = pd.to_datetime(item.get("date"), errors="coerce", dayfirst=True)
+            purpose = str(item.get("purpose", ""))
+            if symbol and pd.notna(event_date) and "financial" in purpose.lower():
+                earnings_records.append(
+                    {
+                        "Date": event_date.date().isoformat(),
+                        "Ticker": symbol,
+                        "EventDate": event_date.date().isoformat(),
+                        "Source": "NSE event-calendar",
+                        "Purpose": purpose,
+                        "Company": item.get("company", ""),
+                        "SourceUrl": event_url,
+                        "FetchedAtIST": generated_at_ist,
+                    }
+                )
+    if isinstance(results_rows, list):
+        for item in results_rows:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol", "")).strip().upper()
+            filing_date = pd.to_datetime(item.get("filingDate") or item.get("broadCastDate"), errors="coerce", dayfirst=True)
+            if symbol and pd.notna(filing_date):
+                earnings_records.append(
+                    {
+                        "Date": filing_date.date().isoformat(),
+                        "Ticker": symbol,
+                        "EventDate": filing_date.date().isoformat(),
+                        "Source": "NSE corporates-financial-results quarterly",
+                        "Purpose": str(item.get("relatingTo", "Financial Results")),
+                        "Company": item.get("companyName", ""),
+                        "SourceUrl": results_url,
+                        "FetchedAtIST": generated_at_ist,
+                    }
+                )
+    earnings_df = pd.DataFrame(earnings_records)
+    if earnings_df.empty:
+        earnings_df = pd.DataFrame(columns=["Date", "Ticker", "EventDate", "Source", "Purpose", "Company", "SourceUrl", "FetchedAtIST"])
+    earnings_df["Ticker"] = earnings_df["Ticker"].astype(str).str.upper()
+    earnings_df = earnings_df.drop_duplicates(subset=["Ticker", "EventDate", "Source"], keep="last").sort_values(
+        ["Ticker", "EventDate", "Source"]
+    )
+    earnings_df.to_csv(earnings_raw_csv, index=False)
+    earnings_df.to_csv(earnings_csv, index=False)
+
+    constituent_url = "https://archives.nseindia.com/content/indices/ind_nifty50list.csv"
+    constituent_df = pd.DataFrame()
+    try:
+        response = session.get(constituent_url, headers=nse_headers, timeout=30, verify=False)
+        if response.status_code == 200 and response.text:
+            from io import StringIO
+
+            constituent_df = pd.read_csv(StringIO(response.text))
+            constituent_df.to_csv(constituents_csv, index=False)
+        rows.append(
+            {
+                "artifact": "nifty50_constituents",
+                "source_url": constituent_url,
+                "status": f"http_{response.status_code}",
+                "rows": int(len(constituent_df)),
+                "output_path": str(constituents_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+    except Exception as exc:
+        rows.append(
+            {
+                "artifact": "nifty50_constituents",
+                "source_url": constituent_url,
+                "status": f"fetch_error:{exc}",
+                "rows": 0,
+                "output_path": str(constituents_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+
+    def _norm_company(value: object) -> str:
+        text = re.sub(r"[^A-Z0-9 ]+", " ", str(value).upper())
+        for token in [" LIMITED", " LTD", " COMPANY", " CO "]:
+            text = text.replace(token, " ")
+        return re.sub(r"\s+", " ", text).strip()
+
+    symbol_by_company = {}
+    if not constituent_df.empty and {"Company Name", "Symbol"}.issubset(constituent_df.columns):
+        for _, row in constituent_df.iterrows():
+            symbol_by_company[_norm_company(row["Company Name"])] = str(row["Symbol"]).strip().upper()
+    manual_symbol_by_company = {
+        "RELIANCE INDUSTRIES": "RELIANCE",
+        "HDFC BANK": "HDFCBANK",
+        "BHARTI AIRTEL": "BHARTIARTL",
+        "ICICI BANK": "ICICIBANK",
+        "STATE BANK OF INDIA": "SBIN",
+        "TATA CONSULTANCY SERVICES": "TCS",
+        "LARSEN TOUBRO": "LT",
+        "INFOSYS": "INFY",
+        "DR REDDYS LABORATORIES": "DRREDDY",
+    }
+
+    weight_url = "https://www.smart-investing.in/indices-bse-nse.php?index=NIFTY"
+    weight_records = []
+    try:
+        response = requests.get(weight_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=30, verify=False)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for table in soup.find_all("table"):
+            header = [cell.get_text(" ", strip=True).lower() for cell in table.find_all("tr")[0].find_all(["th", "td"])] if table.find_all("tr") else []
+            if "company" not in header or not any("weight" in col for col in header):
+                continue
+            for tr in table.find_all("tr")[1:]:
+                cells = [cell.get_text(" ", strip=True) for cell in tr.find_all(["th", "td"])]
+                if len(cells) < 2:
+                    continue
+                company = cells[0]
+                weight = pd.to_numeric(pd.Series([str(cells[1]).replace("%", "").strip()]), errors="coerce").iloc[0]
+                if pd.isna(weight):
+                    continue
+                company_norm = _norm_company(company)
+                symbol = symbol_by_company.get(company_norm) or manual_symbol_by_company.get(company_norm, "")
+                weight_records.append(
+                    {
+                        "Symbol": symbol,
+                        "Company": company,
+                        "Weight": float(weight),
+                        "WeightPct": float(weight),
+                        "Source": "Smart-Investing NIFTY weightage table",
+                        "SourceUrl": weight_url,
+                        "FetchedAtIST": generated_at_ist,
+                        "MappingStatus": "mapped_to_official_nifty_constituent" if symbol else "unmapped",
+                    }
+                )
+            break
+        rows.append(
+            {
+                "artifact": "nifty50_index_weights",
+                "source_url": weight_url,
+                "status": f"http_{response.status_code}",
+                "rows": len(weight_records),
+                "output_path": str(weights_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+    except Exception as exc:
+        rows.append(
+            {
+                "artifact": "nifty50_index_weights",
+                "source_url": weight_url,
+                "status": f"fetch_error:{exc}",
+                "rows": 0,
+                "output_path": str(weights_csv),
+                "generated_at_ist": generated_at_ist,
+            }
+        )
+
+    weights_df = pd.DataFrame(weight_records)
+    if weights_df.empty:
+        weights_df = pd.DataFrame(columns=["Symbol", "Company", "Weight", "WeightPct", "Source", "SourceUrl", "FetchedAtIST", "MappingStatus"])
+    weights_df.to_csv(weights_raw_csv, index=False)
+    weights_df.loc[weights_df["Symbol"].astype(str).str.strip().ne("")].to_csv(weights_csv, index=False)
+
+    tb15_coverage = sorted(set(tb15_symbols) & set(earnings_df["Ticker"].astype(str).str.upper()))
+    manifest = pd.DataFrame(rows)
+    manifest["tb15_earnings_covered_symbols"] = "|".join(tb15_coverage)
+    manifest["tb15_earnings_coverage_count"] = len(tb15_coverage)
+    manifest["nifty_weight_mapped_rows"] = int((weights_df.get("Symbol", pd.Series(dtype=str)).astype(str).str.strip() != "").sum()) if not weights_df.empty else 0
+    manifest.to_csv(manifest_csv, index=False)
+    print(f"[TB18-FETCH] earnings saved: {earnings_csv}", flush=True)
+    print(f"[TB18-FETCH] weights saved: {weights_csv}", flush=True)
+    print(f"[TB18-FETCH] manifest saved: {manifest_csv}", flush=True)
+    return manifest
+
+
 def run_tb18_earnings_overlay_readiness(
     output_prefix: str = "tb18_earnings_overlay_readiness",
 ) -> pd.DataFrame:
@@ -27397,6 +27882,7 @@ if __name__ == "__main__":
             "signal_baseline_tb11_options_t28_freshness_gate",
             "signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness",
             "signal_baseline_tb11_options_phase2_transition_controller",
+            "signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation",
             "signal_baseline_tb11_phase2_runbook_template_contract_audit",
             "signal_baseline_tb11_no_order_endpoint_static_audit",
             "signal_baseline_tb11_task_scheduler_readiness_audit",
@@ -27412,6 +27898,7 @@ if __name__ == "__main__":
             "signal_baseline_tb15_t06_quote_only_observation_ledger",
             "signal_baseline_tb16_defined_risk_nifty_bull_put_spread",
             "signal_baseline_tb17_covered_call_overwrite_readiness",
+            "signal_fetch_tb18_earnings_and_nifty_weights",
             "signal_baseline_tb18_earnings_overlay_readiness",
             "signal_baseline_tb19_oi_positioning_readiness",
             "signal_fetch_tb20_defensive_assets_from_zerodha",
@@ -28138,6 +28625,16 @@ if __name__ == "__main__":
         run_tb11_options_phase2_transition_controller(output_prefix="tb11_phase2_transition_controller")
         raise SystemExit(0)
 
+    if run_mode == "signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation":
+        main_logger.info(
+            "Starting TB11 Phase 2 no-order paper-price reconciliation. "
+            "This reads quote artifacts only and never places broker orders."
+        )
+        run_tb11_options_phase2_no_order_paper_price_reconciliation(
+            output_prefix="tb11_phase2_no_order_paper_price_reconciliation"
+        )
+        raise SystemExit(0)
+
     if run_mode == "signal_baseline_tb11_phase2_runbook_template_contract_audit":
         main_logger.info(
             "Starting TB11 Phase 2 runbook template contract audit. "
@@ -28262,6 +28759,14 @@ if __name__ == "__main__":
             "This tests passive-core overwrite assumptions with local stock closes and F&O bhavcopy calls, with no broker orders."
         )
         run_tb17_covered_call_overwrite_readiness(output_prefix="tb17_covered_call_overwrite_readiness")
+        raise SystemExit(0)
+
+    if run_mode == "signal_fetch_tb18_earnings_and_nifty_weights":
+        main_logger.info(
+            "Starting TB18 external data fetch. "
+            "This fetches earnings-calendar and NIFTY weight data only; broker orders remain blocked."
+        )
+        run_tb18_fetch_earnings_and_nifty_weights(output_prefix="tb18_external_data_fetch")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb18_earnings_overlay_readiness":

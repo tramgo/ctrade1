@@ -206,6 +206,12 @@ Next action: keep scheduled T28 chain-band collection alive and rerun T30 after 
 
 ## TB18 Earnings-Avoidance Overlay Readiness
 
+Fetch mode:
+
+```powershell
+python -B ssell1.py --mode signal_fetch_tb18_earnings_and_nifty_weights
+```
+
 Implemented mode:
 
 ```powershell
@@ -214,6 +220,12 @@ python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_readiness
 
 Artifacts:
 
+- `data/earnings_calendar.csv`
+- `data/earnings_calendar_nse_raw.csv`
+- `data/nifty50_constituents.csv`
+- `data/nifty50_index_weights.csv`
+- `data/nifty50_index_weights_smart_investing_raw.csv`
+- `results/signal_baseline/tb18_external_data_fetch.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_summary.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv`
@@ -221,20 +233,25 @@ Artifacts:
 
 Current result:
 
-- status: `blocked_missing_earnings_axis_data`
+- status: `ready_for_tb18_overlay_backtest`
 - earnings calendar path: `data/earnings_calendar.csv`
-- earnings status: `template_only`
-- earnings rows: `0`
-- TB15 symbol coverage: `0 / 8`
-- NIFTY weight status: `missing`
-- TB11 overlay ready: `False`
-- TB15 overlay ready: `False`
+- earnings source: NSE event calendar plus NSE quarterly financial-results filings
+- earnings status: `ready`
+- earnings rows: `2324`
+- event range: `2025-01-07` / `2026-08-13`
+- TB15 symbol coverage: `8 / 8`
+- NIFTY constituent source: official NSE/Nifty constituent CSV, `50` rows
+- NIFTY weight source: Smart-Investing NIFTY weightage table mapped to official constituent symbols
+- NIFTY weight rows: `49`, sum `100%`, all source weight rows mapped
+- NIFTY weight status: `ready`
+- TB11 overlay ready: `True`
+- TB15 overlay ready: `True`
 - broker orders allowed: `False`
-- blockers: `earnings_calendar_template_only|tb15_symbol_earnings_coverage_incomplete|nifty_index_weight_file_missing`
+- blockers: `none`
 
-Inference: TB18 is not runnable yet. The repo has the schema placeholder for earnings dates, but no actual event rows, and it also lacks the NIFTY index-weight/constituent file required to compute the TB11 "heavy earnings week" veto.
+Inference: TB18 is no longer data-blocked. The fetched earnings calendar covers every TB15 symbol, and the NIFTY weights file satisfies the TB11 index-heavy-earnings veto input requirement.
 
-Next action: populate `data/earnings_calendar.csv` with non-Zerodha earnings dates and add a NIFTY constituent/weight file with symbol and weight columns before running any TB18 overlay backtest.
+Next action: run TB18 earnings overlay backtests for TB11 and TB15 under no-order research mode.
 
 ## TB16 Defined-Risk NIFTY Bull Put Spread
 

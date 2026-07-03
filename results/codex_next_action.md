@@ -1883,6 +1883,12 @@ Keep collecting fresh T28 chain-band rows during market hours; rerun T30 after t
 
 ## `TB18_EarningsOverlayReadiness`
 
+Fetch command:
+
+```powershell
+python -B ssell1.py --mode signal_fetch_tb18_earnings_and_nifty_weights
+```
+
 Command:
 
 ```powershell
@@ -1891,6 +1897,12 @@ python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_readiness
 
 Artifacts:
 
+- `data/earnings_calendar.csv`
+- `data/earnings_calendar_nse_raw.csv`
+- `data/nifty50_constituents.csv`
+- `data/nifty50_index_weights.csv`
+- `data/nifty50_index_weights_smart_investing_raw.csv`
+- `results/signal_baseline/tb18_external_data_fetch.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_summary.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv`
@@ -1898,24 +1910,60 @@ Artifacts:
 
 Current read:
 
-- status: `blocked_missing_earnings_axis_data`
+- status: `ready_for_tb18_overlay_backtest`
 - earnings calendar: `data/earnings_calendar.csv`
-- earnings status: `template_only`
-- earnings rows: `0`
-- TB15 symbol coverage: `0 / 8`
-- NIFTY weight status: `missing`
-- TB11 overlay ready: `False`
-- TB15 overlay ready: `False`
+- earnings source: NSE event calendar plus NSE quarterly financial-results filings
+- earnings status: `ready`
+- earnings rows: `2324`
+- event range: `2025-01-07` / `2026-08-13`
+- TB15 symbol coverage: `8 / 8`
+- NIFTY constituent source: official NSE/Nifty constituent CSV, `50` rows
+- NIFTY weight source: Smart-Investing NIFTY weightage table mapped to official constituent symbols
+- NIFTY weight rows: `49`, sum `100%`, all source weight rows mapped
+- NIFTY weight status: `ready`
+- TB11 overlay ready: `True`
+- TB15 overlay ready: `True`
 - broker orders allowed: `False`
-- blockers: `earnings_calendar_template_only|tb15_symbol_earnings_coverage_incomplete|nifty_index_weight_file_missing`
+- blockers: `none`
 
 Inference:
 
-TB18 cannot be backtested yet. The repo has the earnings-calendar schema placeholder, but no announcement rows and no NIFTY constituent/weight file for the TB11 index-heavy-earnings veto.
+TB18 is no longer data-blocked. The remaining work is the no-order overlay backtest itself; the fetched data is suitable for readiness because it covers all TB15 symbols and provides a symbol/weight NIFTY file for the TB11 heavy-earnings-week veto.
 
 Next action:
 
-Populate `data/earnings_calendar.csv` from a non-Zerodha source and add `data/nifty50_index_weights.csv` or an equivalent symbol/weight file before running TB18.
+Run TB18 earnings overlay backtests for TB11 and TB15 under no-order research mode.
+
+## `TB11_Phase2_NoOrderPaperPriceReconciliation`
+
+Command:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation
+```
+
+Artifacts:
+
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_detail_20260703.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_summary.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_ledger.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_metadata.csv`
+- `results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_decision.md`
+
+Current read:
+
+- status: `phase2_no_order_reconciliation_passed`
+- Phase 1 latest weighted credit: `8.25`
+- Phase 2 T28 weighted credit: `8.175`
+- drift versus latest Phase 1: `-0.91%`
+- selected legs OK: `4 / 4`
+- within 10% / 15% adverse tolerance: `True` / `True`
+- broker block violations: `0`
+- broker orders allowed: `False`
+
+Next action:
+
+Continue no-order Phase 2 paper-price observations. Do not place broker orders.
 
 ## `TB16_DefinedRiskNiftyBullPutSpread`
 

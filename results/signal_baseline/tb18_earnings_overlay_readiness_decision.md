@@ -1,17 +1,17 @@
 # TB18 Earnings Overlay Readiness
 
-Status: `blocked_missing_earnings_axis_data`
+Status: `ready_for_tb18_overlay_backtest`
 
 - earnings calendar: `C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\earnings_calendar.csv`
-- earnings status: `template_only`
-- earnings rows: `0`
-- event date range: `` / ``
-- TB15 symbol coverage: `0` / `8`
-- NIFTY weight status: `missing`
-- NIFTY weight path: ``
-- TB11 overlay ready: `False`
-- TB15 overlay ready: `False`
+- earnings status: `ready`
+- earnings rows: `2324`
+- event date range: `2025-01-07` / `2026-08-13`
+- TB15 symbol coverage: `8` / `8`
+- NIFTY weight status: `ready`
+- NIFTY weight path: `C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty50_index_weights.csv`
+- TB11 overlay ready: `True`
+- TB15 overlay ready: `True`
 - broker orders allowed: `False`
-- blockers: `earnings_calendar_template_only|tb15_symbol_earnings_coverage_incomplete|nifty_index_weight_file_missing`
+- blockers: `none`
 
-Next action: Populate earnings calendar and NIFTY index-weight data before running TB18.
+Next action: Run TB18 earnings overlay backtests for TB11 and TB15 under no-order research mode.
