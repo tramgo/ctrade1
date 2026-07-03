@@ -1805,7 +1805,7 @@ Current read:
 - resolved spreads: `5 / 5`
 - quote-ready spreads: `5 / 5`
 - clean quote-ready spreads: `4 / 5`
-- mean executable credit: `6.47`
+- mean executable credit: `6.52`
 - minimum executable credit: `3.40`
 - dirty spread: `LT`, due to wide/stale long-put quote with max leg spread percentage `1.2669`
 - broker block violations: `0`
@@ -1835,9 +1835,10 @@ Current read:
 
 - status: `collecting_quote_only_observations`
 - latest clean quote spreads: `4`
-- clean observations: `8 / 10`
+- clean observations: `12 / 10`
 - unique observation dates: `1 / 5`
-- remaining: `2` clean observations and `4` unique dates
+- clean-observation sub-gate: `passed`
+- remaining: `0` clean observations and `4` unique dates
 - broker block violations: `0`
 - broker orders allowed: `False`
 
