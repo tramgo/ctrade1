@@ -26281,6 +26281,465 @@ def run_tb18_earnings_overlay_readiness(
     return summary_df
 
 
+def run_tb18_earnings_overlay_backtest(
+    output_prefix: str = "tb18_earnings_overlay_backtest",
+) -> pd.DataFrame:
+    baseline_dir = RESULTS_DIR / "signal_baseline"
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    detail_csv = baseline_dir / f"{output_prefix}_detail.csv"
+    summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
+    metadata_csv = baseline_dir / f"{output_prefix}_metadata.csv"
+    decision_md = baseline_dir / f"{output_prefix}_decision.md"
+
+    generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
+    earnings_csv = DATA_DIR / "earnings_calendar.csv"
+    weights_csv = DATA_DIR / "nifty50_index_weights.csv"
+    tb11_detail_csv = baseline_dir / "tb11_options_conditional_overlay_frontier_detail.csv"
+    tb15_detail_csv = baseline_dir / "tb15_t04_defined_risk_bull_put_redesign_detail.csv"
+    selected_tb11_allocation = "def_full_resg0_ovg50"
+    tb11_warmup_drop_first_trade = True
+
+    output_columns = [
+        "strategy",
+        "variant",
+        "scenario",
+        "status",
+        "baseline_trade_count",
+        "kept_trade_count",
+        "vetoed_trade_count",
+        "veto_rate",
+        "baseline_mean_return",
+        "kept_mean_return",
+        "baseline_worst_return",
+        "kept_worst_return",
+        "baseline_sum_return",
+        "kept_sum_return",
+        "mean_return_delta",
+        "worst_return_delta",
+        "event_min_date",
+        "event_max_date",
+        "trade_min_date",
+        "trade_max_date",
+        "overlap_trade_count",
+        "overlap_trade_rate",
+        "max_event_weight_pct",
+        "decision",
+        "broker_orders_allowed",
+    ]
+    detail_rows: list[dict] = []
+    summary_rows: list[dict] = []
+    blockers: list[str] = []
+
+    def _safe_float(value: object) -> float:
+        numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+        return float(numeric) if pd.notna(numeric) else 0.0
+
+    def _append_empty(strategy: str, variant: str, scenario: str, status: str, decision: str) -> None:
+        summary_rows.append(
+            {
+                "strategy": strategy,
+                "variant": variant,
+                "scenario": scenario,
+                "status": status,
+                "baseline_trade_count": 0,
+                "kept_trade_count": 0,
+                "vetoed_trade_count": 0,
+                "veto_rate": 0.0,
+                "baseline_mean_return": 0.0,
+                "kept_mean_return": 0.0,
+                "baseline_worst_return": 0.0,
+                "kept_worst_return": 0.0,
+                "baseline_sum_return": 0.0,
+                "kept_sum_return": 0.0,
+                "mean_return_delta": 0.0,
+                "worst_return_delta": 0.0,
+                "event_min_date": "",
+                "event_max_date": "",
+                "trade_min_date": "",
+                "trade_max_date": "",
+                "overlap_trade_count": 0,
+                "overlap_trade_rate": 0.0,
+                "max_event_weight_pct": 0.0,
+                "decision": decision,
+                "broker_orders_allowed": False,
+            }
+        )
+
+    if not earnings_csv.exists():
+        blockers.append("missing_earnings_calendar")
+    if not weights_csv.exists():
+        blockers.append("missing_nifty50_index_weights")
+    if not tb11_detail_csv.exists():
+        blockers.append("missing_tb11_overlay_detail")
+    if not tb15_detail_csv.exists():
+        blockers.append("missing_tb15_t04_detail")
+
+    earnings = pd.DataFrame(columns=["Ticker", "EventDate", "Source", "Purpose", "Company", "SourceUrl"])
+    if earnings_csv.exists():
+        earnings = pd.read_csv(earnings_csv)
+    weights = pd.DataFrame(columns=["Symbol", "Weight"])
+    if weights_csv.exists():
+        weights = pd.read_csv(weights_csv)
+
+    if not {"Ticker", "EventDate"}.issubset(earnings.columns):
+        blockers.append("earnings_calendar_schema_mismatch")
+    if not {"Symbol", "Weight"}.issubset(weights.columns):
+        blockers.append("nifty50_weight_schema_mismatch")
+
+    if blockers:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "strategy": "TB18",
+                    "variant": "data_precheck",
+                    "scenario": "all",
+                    "status": "blocked_missing_required_inputs",
+                    "baseline_trade_count": 0,
+                    "kept_trade_count": 0,
+                    "vetoed_trade_count": 0,
+                    "veto_rate": 0.0,
+                    "baseline_mean_return": 0.0,
+                    "kept_mean_return": 0.0,
+                    "baseline_worst_return": 0.0,
+                    "kept_worst_return": 0.0,
+                    "baseline_sum_return": 0.0,
+                    "kept_sum_return": 0.0,
+                    "mean_return_delta": 0.0,
+                    "worst_return_delta": 0.0,
+                    "event_min_date": "",
+                    "event_max_date": "",
+                    "trade_min_date": "",
+                    "trade_max_date": "",
+                    "overlap_trade_count": 0,
+                    "overlap_trade_rate": 0.0,
+                    "max_event_weight_pct": 0.0,
+                    "decision": "|".join(blockers),
+                    "broker_orders_allowed": False,
+                }
+            ]
+        )
+        pd.DataFrame(detail_rows).to_csv(detail_csv, index=False)
+        summary_df.to_csv(summary_csv, index=False)
+        pd.DataFrame(
+            [
+                {
+                    "output_prefix": output_prefix,
+                    "generated_at_ist": generated_at_ist,
+                    "status": "blocked_missing_required_inputs",
+                    "blockers": "|".join(blockers),
+                    "broker_orders_allowed": False,
+                }
+            ]
+        ).to_csv(metadata_csv, index=False)
+        decision_md.write_text(
+            "\n".join(
+                [
+                    "# TB18 Earnings Overlay Backtest",
+                    "",
+                    "Status: `blocked_missing_required_inputs`",
+                    "",
+                    f"- blockers: `{'|'.join(blockers)}`",
+                    "- broker orders allowed: `False`",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        print(f"[TB18-BACKTEST] blocked summary saved: {summary_csv}", flush=True)
+        return summary_df
+
+    earnings = earnings.copy()
+    earnings["_ticker"] = earnings["Ticker"].astype(str).str.strip().str.upper()
+    earnings["_event_date"] = pd.to_datetime(earnings["EventDate"], errors="coerce").dt.normalize()
+    earnings = earnings.dropna(subset=["_ticker", "_event_date"]).copy()
+    weights = weights.copy()
+    weights["_symbol"] = weights["Symbol"].astype(str).str.strip().str.upper()
+    weights["_weight_pct"] = pd.to_numeric(weights["Weight"], errors="coerce").fillna(0.0)
+    weights_by_symbol = weights.groupby("_symbol")["_weight_pct"].sum().to_dict()
+    earnings["_nifty_weight_pct"] = earnings["_ticker"].map(weights_by_symbol).fillna(0.0)
+    event_min = earnings["_event_date"].min().date().isoformat() if not earnings.empty else ""
+    event_max = earnings["_event_date"].max().date().isoformat() if not earnings.empty else ""
+
+    def _events_for_window(symbols: set[str] | None, start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
+        mask = earnings["_event_date"].between(start_date, end_date, inclusive="both")
+        if symbols is not None:
+            mask &= earnings["_ticker"].isin(symbols)
+        return earnings.loc[mask].copy()
+
+    def _summarize(
+        strategy: str,
+        variant: str,
+        scenario: str,
+        trade_df: pd.DataFrame,
+        return_col: str,
+        veto_col: str,
+        event_weight_col: str,
+        eligible_col: str,
+        sparse_min_vetoes: int,
+    ) -> None:
+        baseline_returns = pd.to_numeric(trade_df[return_col], errors="coerce").dropna()
+        kept_returns = pd.to_numeric(trade_df.loc[~trade_df[veto_col], return_col], errors="coerce").dropna()
+        baseline_count = int(len(baseline_returns))
+        kept_count = int(len(kept_returns))
+        vetoed_count = int(trade_df[veto_col].sum())
+        overlap_count = int(trade_df[eligible_col].sum())
+        veto_rate = vetoed_count / max(len(trade_df), 1)
+        overlap_rate = overlap_count / max(len(trade_df), 1)
+        baseline_mean = float(baseline_returns.mean()) if not baseline_returns.empty else 0.0
+        kept_mean = float(kept_returns.mean()) if not kept_returns.empty else 0.0
+        baseline_worst = float(baseline_returns.min()) if not baseline_returns.empty else 0.0
+        kept_worst = float(kept_returns.min()) if not kept_returns.empty else 0.0
+        max_event_weight = float(pd.to_numeric(trade_df[event_weight_col], errors="coerce").max()) if len(trade_df) else 0.0
+
+        if overlap_count == 0:
+            status = "not_historically_testable_no_event_overlap"
+            decision = "do_not_promote_until_deeper_earnings_history"
+        elif vetoed_count < sparse_min_vetoes:
+            status = "research_preview_sparse_event_vetoes"
+            decision = "do_not_promote_observe_more_or_backfill_earnings_history"
+        elif kept_count == 0:
+            status = "overlay_rejects_all_trades"
+            decision = "do_not_promote"
+        elif kept_mean > baseline_mean and kept_worst >= baseline_worst:
+            status = "overlay_candidate_improves_mean_without_worse_tail"
+            decision = "candidate_for_paper_observation_not_live"
+        else:
+            status = "overlay_not_promoted"
+            decision = "do_not_promote"
+
+        summary_rows.append(
+            {
+                "strategy": strategy,
+                "variant": variant,
+                "scenario": scenario,
+                "status": status,
+                "baseline_trade_count": baseline_count,
+                "kept_trade_count": kept_count,
+                "vetoed_trade_count": vetoed_count,
+                "veto_rate": veto_rate,
+                "baseline_mean_return": baseline_mean,
+                "kept_mean_return": kept_mean,
+                "baseline_worst_return": baseline_worst,
+                "kept_worst_return": kept_worst,
+                "baseline_sum_return": float(baseline_returns.sum()) if not baseline_returns.empty else 0.0,
+                "kept_sum_return": float(kept_returns.sum()) if not kept_returns.empty else 0.0,
+                "mean_return_delta": kept_mean - baseline_mean,
+                "worst_return_delta": kept_worst - baseline_worst,
+                "event_min_date": event_min,
+                "event_max_date": event_max,
+                "trade_min_date": trade_df["_entry_date"].min().date().isoformat() if len(trade_df) else "",
+                "trade_max_date": trade_df["_entry_date"].max().date().isoformat() if len(trade_df) else "",
+                "overlap_trade_count": overlap_count,
+                "overlap_trade_rate": overlap_rate,
+                "max_event_weight_pct": max_event_weight,
+                "decision": decision,
+                "broker_orders_allowed": False,
+            }
+        )
+
+    if tb15_detail_csv.exists():
+        tb15 = pd.read_csv(tb15_detail_csv)
+        required = {"symbol", "trade_date", "expiry_date", "return_on_cash_equivalent"}
+        if required.issubset(tb15.columns):
+            tb15 = tb15.copy()
+            tb15["_symbol"] = tb15["symbol"].astype(str).str.strip().str.upper()
+            tb15["_entry_date"] = pd.to_datetime(tb15["trade_date"], errors="coerce").dt.normalize()
+            tb15["_expiry_date"] = pd.to_datetime(tb15["expiry_date"], errors="coerce").dt.normalize()
+            tb15 = tb15.dropna(subset=["_symbol", "_entry_date", "_expiry_date"]).copy()
+            tb15_variants = [
+                ("symbol_event_entry_to_expiry", 0),
+                ("symbol_event_pm1d_window", 1),
+            ]
+            for variant, buffer_days in tb15_variants:
+                evaluated = []
+                for _, row in tb15.iterrows():
+                    start_date = row["_entry_date"] - pd.Timedelta(days=buffer_days)
+                    end_date = row["_expiry_date"] + pd.Timedelta(days=buffer_days)
+                    events = _events_for_window({row["_symbol"]}, start_date, end_date)
+                    event_symbols = sorted(events["_ticker"].dropna().unique().tolist())
+                    event_dates = sorted({date.date().isoformat() for date in events["_event_date"].dropna()})
+                    event_sources = sorted(events.get("Source", pd.Series(dtype=str)).astype(str).dropna().unique().tolist())
+                    veto = not events.empty
+                    event_record = row.to_dict()
+                    event_record.update(
+                        {
+                            "strategy": "TB15_T04",
+                            "variant": variant,
+                            "scenario": "stock_symbol",
+                            "event_window_start": start_date.date().isoformat(),
+                            "event_window_end": end_date.date().isoformat(),
+                            "event_count": int(len(events)),
+                            "event_symbols": "|".join(event_symbols),
+                            "event_dates": "|".join(event_dates),
+                            "event_sources": "|".join(event_sources),
+                            "event_weight_pct": float(events["_nifty_weight_pct"].sum()) if not events.empty else 0.0,
+                            "event_overlap_eligible": bool(
+                                start_date <= earnings["_event_date"].max() and end_date >= earnings["_event_date"].min()
+                            )
+                            if not earnings.empty
+                            else False,
+                            "vetoed_by_overlay": veto,
+                            "broker_orders_allowed": False,
+                        }
+                    )
+                    evaluated.append(event_record)
+                    detail_rows.append(event_record)
+                evaluated_df = pd.DataFrame(evaluated)
+                _summarize(
+                    "TB15_T04",
+                    variant,
+                    "stock_symbol",
+                    evaluated_df,
+                    "return_on_cash_equivalent",
+                    "vetoed_by_overlay",
+                    "event_weight_pct",
+                    "event_overlap_eligible",
+                    sparse_min_vetoes=5,
+                )
+        else:
+            _append_empty("TB15_T04", "symbol_event_entry_to_expiry", "stock_symbol", "blocked_schema_mismatch", "do_not_promote")
+
+    if tb11_detail_csv.exists():
+        tb11 = pd.read_csv(tb11_detail_csv)
+        required = {"scenario", "allocation", "entry_date", "expiry_date", "weighted_return_on_margin"}
+        if required.issubset(tb11.columns):
+            tb11 = tb11.loc[tb11["allocation"].astype(str).eq(selected_tb11_allocation)].copy()
+            tb11["_entry_date"] = pd.to_datetime(tb11["entry_date"], errors="coerce").dt.normalize()
+            tb11["_expiry_date"] = pd.to_datetime(tb11["expiry_date"], errors="coerce").dt.normalize()
+            tb11 = tb11.dropna(subset=["_entry_date", "_expiry_date"]).copy()
+            tb11 = tb11.sort_values(["scenario", "_entry_date", "_expiry_date"]).copy()
+            if tb11_warmup_drop_first_trade and not tb11.empty:
+                first_index_by_scenario = tb11.groupby("scenario").head(1).index
+                tb11 = tb11.drop(first_index_by_scenario).copy()
+            thresholds = [10.0, 15.0, 20.0]
+            for scenario, scenario_df in tb11.groupby("scenario", dropna=False):
+                for threshold in thresholds:
+                    variant = f"nifty_event_weight_ge_{int(threshold)}pct"
+                    evaluated = []
+                    for _, row in scenario_df.iterrows():
+                        start_date = row["_entry_date"] - pd.Timedelta(days=1)
+                        end_date = row["_expiry_date"] + pd.Timedelta(days=1)
+                        events = _events_for_window(set(weights_by_symbol.keys()), start_date, end_date)
+                        event_weight = float(events.groupby("_ticker")["_nifty_weight_pct"].max().sum()) if not events.empty else 0.0
+                        event_symbols = sorted(events["_ticker"].dropna().unique().tolist())
+                        event_dates = sorted({date.date().isoformat() for date in events["_event_date"].dropna()})
+                        event_sources = sorted(events.get("Source", pd.Series(dtype=str)).astype(str).dropna().unique().tolist())
+                        event_record = row.to_dict()
+                        event_record.update(
+                            {
+                                "strategy": "TB11",
+                                "variant": variant,
+                                "scenario": str(scenario),
+                                "event_window_start": start_date.date().isoformat(),
+                                "event_window_end": end_date.date().isoformat(),
+                                "event_count": int(len(events)),
+                                "event_symbols": "|".join(event_symbols),
+                                "event_dates": "|".join(event_dates),
+                                "event_sources": "|".join(event_sources),
+                                "event_weight_pct": event_weight,
+                                "event_overlap_eligible": bool(
+                                    start_date <= earnings["_event_date"].max() and end_date >= earnings["_event_date"].min()
+                                )
+                                if not earnings.empty
+                                else False,
+                                "vetoed_by_overlay": event_weight >= threshold,
+                                "broker_orders_allowed": False,
+                            }
+                        )
+                        evaluated.append(event_record)
+                        detail_rows.append(event_record)
+                    evaluated_df = pd.DataFrame(evaluated)
+                    _summarize(
+                        "TB11",
+                        variant,
+                        str(scenario),
+                        evaluated_df,
+                        "weighted_return_on_margin",
+                        "vetoed_by_overlay",
+                        "event_weight_pct",
+                        "event_overlap_eligible",
+                        sparse_min_vetoes=3,
+                    )
+        else:
+            _append_empty("TB11", "nifty_event_weight_ge_15pct", "all", "blocked_schema_mismatch", "do_not_promote")
+
+    detail_df = pd.DataFrame(detail_rows)
+    if detail_df.empty:
+        detail_df = pd.DataFrame(columns=["strategy", "variant", "scenario", "event_count", "event_weight_pct", "vetoed_by_overlay"])
+    detail_df.to_csv(detail_csv, index=False)
+    summary_df = pd.DataFrame(summary_rows)
+    if summary_df.empty:
+        summary_df = pd.DataFrame(columns=output_columns)
+    else:
+        summary_df = summary_df.reindex(columns=output_columns)
+    summary_df.to_csv(summary_csv, index=False)
+
+    candidate_count = int(summary_df["decision"].astype(str).str.contains("candidate_for_paper_observation", na=False).sum()) if not summary_df.empty else 0
+    sparse_count = int(summary_df["status"].astype(str).str.contains("sparse|not_historically_testable", na=False).sum()) if not summary_df.empty else 0
+    overall_status = (
+        "overlay_candidate_for_paper_observation"
+        if candidate_count
+        else "no_earnings_overlay_promoted_sparse_or_no_improvement"
+    )
+    pd.DataFrame(
+        [
+            {
+                "output_prefix": output_prefix,
+                "generated_at_ist": generated_at_ist,
+                "overall_status": overall_status,
+                "earnings_calendar_path": str(earnings_csv),
+                "nifty_weight_path": str(weights_csv),
+                "tb11_detail_path": str(tb11_detail_csv),
+                "tb15_detail_path": str(tb15_detail_csv),
+                "event_min_date": event_min,
+                "event_max_date": event_max,
+                "selected_tb11_allocation": selected_tb11_allocation,
+                "tb11_warmup_drop_first_trade": tb11_warmup_drop_first_trade,
+                "candidate_summary_rows": candidate_count,
+                "sparse_or_not_testable_summary_rows": sparse_count,
+                "broker_orders_allowed": False,
+            }
+        ]
+    ).to_csv(metadata_csv, index=False)
+
+    top_rows = summary_df.sort_values(["decision", "mean_return_delta"], ascending=[True, False]).head(8)
+    decision_lines = [
+        "# TB18 Earnings Overlay Backtest",
+        "",
+        f"Status: `{overall_status}`",
+        "",
+        f"- earnings event range: `{event_min}` / `{event_max}`",
+        f"- TB11 selected allocation: `{selected_tb11_allocation}`",
+        f"- candidate summary rows: `{candidate_count}`",
+        f"- sparse or not-testable summary rows: `{sparse_count}`",
+        "- broker orders allowed: `False`",
+        "",
+        "## Best Observed Variants",
+        "",
+    ]
+    for _, row in top_rows.iterrows():
+        decision_lines.append(
+            "- "
+            + f"{row['strategy']} `{row['variant']}` / `{row['scenario']}`: "
+            + f"status `{row['status']}`, vetoes `{int(row['vetoed_trade_count'])}`, "
+            + f"mean delta `{_safe_float(row['mean_return_delta']):.6f}`, "
+            + f"worst delta `{_safe_float(row['worst_return_delta']):.6f}`, "
+            + f"decision `{row['decision']}`"
+        )
+    decision_lines.extend(
+        [
+            "",
+            "Next action: do not promote an earnings overlay to live sizing until historical earnings coverage is deeper or repeated paper observations show stable benefit.",
+            "",
+        ]
+    )
+    decision_md.write_text("\n".join(decision_lines), encoding="utf-8")
+    print(f"[TB18-BACKTEST] detail saved: {detail_csv}", flush=True)
+    print(f"[TB18-BACKTEST] summary saved: {summary_csv}", flush=True)
+    print(f"[TB18-BACKTEST] decision saved: {decision_md}", flush=True)
+    return summary_df
+
+
 def run_tb16_defined_risk_nifty_bull_put_spread(
     output_prefix: str = "tb16_defined_risk_nifty_bull_put_spread",
 ) -> pd.DataFrame:
@@ -27900,6 +28359,7 @@ if __name__ == "__main__":
             "signal_baseline_tb17_covered_call_overwrite_readiness",
             "signal_fetch_tb18_earnings_and_nifty_weights",
             "signal_baseline_tb18_earnings_overlay_readiness",
+            "signal_baseline_tb18_earnings_overlay_backtest",
             "signal_baseline_tb19_oi_positioning_readiness",
             "signal_fetch_tb20_defensive_assets_from_zerodha",
             "signal_baseline_tb20_cross_asset_defensive_tilt",
@@ -28775,6 +29235,14 @@ if __name__ == "__main__":
             "This checks local earnings-calendar and index-weight coverage without broker calls or orders."
         )
         run_tb18_earnings_overlay_readiness(output_prefix="tb18_earnings_overlay_readiness")
+        raise SystemExit(0)
+
+    if run_mode == "signal_baseline_tb18_earnings_overlay_backtest":
+        main_logger.info(
+            "Starting TB18 earnings overlay backtest. "
+            "This evaluates earnings-event vetoes for TB11 and TB15 from local data only; broker orders remain blocked."
+        )
+        run_tb18_earnings_overlay_backtest(output_prefix="tb18_earnings_overlay_backtest")
         raise SystemExit(0)
 
     if run_mode == "signal_baseline_tb19_oi_positioning_readiness":

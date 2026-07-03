@@ -218,6 +218,12 @@ Implemented mode:
 python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_readiness
 ```
 
+Backtest mode:
+
+```powershell
+python -B ssell1.py --mode signal_baseline_tb18_earnings_overlay_backtest
+```
+
 Artifacts:
 
 - `data/earnings_calendar.csv`
@@ -230,6 +236,10 @@ Artifacts:
 - `results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv`
 - `results/signal_baseline/tb18_earnings_overlay_readiness_decision.md`
+- `results/signal_baseline/tb18_earnings_overlay_backtest_detail.csv`
+- `results/signal_baseline/tb18_earnings_overlay_backtest_summary.csv`
+- `results/signal_baseline/tb18_earnings_overlay_backtest_metadata.csv`
+- `results/signal_baseline/tb18_earnings_overlay_backtest_decision.md`
 
 Current result:
 
@@ -248,10 +258,16 @@ Current result:
 - TB15 overlay ready: `True`
 - broker orders allowed: `False`
 - blockers: `none`
+- backtest status: `no_earnings_overlay_promoted_sparse_or_no_improvement`
+- TB15 `entry_to_expiry` vetoes: `4 / 523`, mean return delta `-0.0000199322`, worst return delta `0.0`, decision `do_not_promote_observe_more_or_backfill_earnings_history`
+- TB15 `±1d` vetoes: `5 / 523`, mean return delta `-0.0000209959`, worst return delta `0.0`, decision `do_not_promote`
+- TB11 selected allocation: `def_full_resg0_ovg50`
+- TB11 event-weight veto variants: `10%`, `15%`, `20%`
+- TB11 historical event overlap: `0` trades because selected TB11 detail spans `2019-02-25` / `2024-05-15` while fetched earnings events start `2025-01-07`
 
-Inference: TB18 is no longer data-blocked. The fetched earnings calendar covers every TB15 symbol, and the NIFTY weights file satisfies the TB11 index-heavy-earnings veto input requirement.
+Inference: TB18 is no longer data-blocked, but the no-order backtest does not promote an earnings overlay. TB15 has too few overlapping earnings vetoes and the veto slightly lowers mean return; TB11 cannot be historically tested against the current NSE earnings file because the selected TB11 backtest window ends before the fetched earnings window begins.
 
-Next action: run TB18 earnings overlay backtests for TB11 and TB15 under no-order research mode.
+Next action: do not apply TB18 earnings vetoes to live or paper sizing yet. Backfill older earnings history or collect repeated paper observations before reconsidering the overlay.
 
 ## TB16 Defined-Risk NIFTY Bull Put Spread
 
