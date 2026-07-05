@@ -13,6 +13,18 @@ properties:
     secrets:
       - name: acr-password
         value: "__ACR_PASSWORD__"
+      - name: api-key
+        value: "__API_KEY__"
+      - name: api-secret
+        value: "__API_SECRET__"
+      - name: kite-username
+        value: "__USERNAME__"
+      - name: kite-password
+        value: "__PASSWORD__"
+      - name: totp-key
+        value: "__TOTP_KEY__"
+      - name: github-token
+        value: "__GITHUB_TOKEN__"
     registries:
       - server: __ACR_SERVER__
         username: __ACR_USERNAME__
@@ -30,6 +42,26 @@ properties:
             value: "1"
           - name: PYTHONPYCACHEPREFIX
             value: "/tmp/codex_pycache"
+          - name: API_KEY
+            secretRef: api-key
+          - name: API_SECRET
+            secretRef: api-secret
+          - name: USERNAME
+            secretRef: kite-username
+          - name: PASSWORD
+            secretRef: kite-password
+          - name: TOTP_KEY
+            secretRef: totp-key
+          - name: GITHUB_TOKEN
+            secretRef: github-token
+          - name: GITHUB_OUTPUT_PUSH_ENABLED
+            value: "__GITHUB_OUTPUT_PUSH_ENABLED__"
+          - name: GITHUB_REPO_URL
+            value: "__GITHUB_REPO_URL__"
+          - name: GITHUB_BRANCH
+            value: "__GITHUB_BRANCH__"
+          - name: GENERATED_OUTPUT_PATHS
+            value: "__GENERATED_OUTPUT_PATHS__"
         resources:
           cpu: 1.0
           memory: 2Gi
@@ -41,7 +73,7 @@ properties:
     volumes:
       - name: ctrade1-results
         storageType: AzureFile
-        storageName: ctrade1state
+        storageName: ctrade1results
       - name: ctrade1-data
         storageType: AzureFile
-        storageName: ctrade1state
+        storageName: ctrade1data

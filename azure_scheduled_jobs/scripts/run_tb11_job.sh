@@ -5,6 +5,12 @@ JOB_KIND="${1:-phase1}"
 APP_DIR="${APP_DIR:-/app}"
 LOG_DIR="${LOG_DIR:-${APP_DIR}/results/log_runs}"
 PYTHON_EXE="${PYTHON_EXE:-python}"
+GITHUB_OUTPUT_PUSH_ENABLED="${GITHUB_OUTPUT_PUSH_ENABLED:-0}"
+GITHUB_BRANCH="${GITHUB_BRANCH:-main}"
+GITHUB_REPO_URL="${GITHUB_REPO_URL:-https://github.com/tramgo/ctrade1.git}"
+GITHUB_COMMIT_NAME="${GITHUB_COMMIT_NAME:-ctrade1-azure-jobs}"
+GITHUB_COMMIT_EMAIL="${GITHUB_COMMIT_EMAIL:-ctrade1-azure-jobs@users.noreply.github.com}"
+GENERATED_OUTPUT_PATHS="${GENERATED_OUTPUT_PATHS:-results data}"
 
 PHASE1_MODE="signal_baseline_tb11_options_phase1_auto_quote_observation"
 COLLECTOR_MODE="signal_baseline_tb11_options_nifty_chain_band_quote_collector"
@@ -26,6 +32,53 @@ run_mode() {
     local exit_code="${PIPESTATUS[0]}"
     echo "[AzureJob] mode=${mode} exit=${exit_code}" | tee -a "${LOG_FILE}"
     return "${exit_code}"
+}
+
+push_generated_outputs() {
+    if [[ "${GITHUB_OUTPUT_PUSH_ENABLED}" != "1" ]]; then
+        echo "[AzureJob] github output push disabled" | tee -a "${LOG_FILE}"
+        return 0
+    fi
+
+    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    if [[ -z "${token}" ]]; then
+        echo "[AzureJob] github output push requested but GITHUB_TOKEN/GH_TOKEN is not set" | tee -a "${LOG_FILE}"
+        return 65
+    fi
+
+    local work_dir="/tmp/ctrade1-output-push"
+    rm -rf "${work_dir}"
+    git -c http.extraheader="AUTHORIZATION: bearer ${token}" \
+        clone --depth 1 --branch "${GITHUB_BRANCH}" "${GITHUB_REPO_URL}" "${work_dir}" 2>&1 | tee -a "${LOG_FILE}"
+
+    for relative_path in ${GENERATED_OUTPUT_PATHS}; do
+        if [[ -e "${APP_DIR}/${relative_path}" ]]; then
+            mkdir -p "${work_dir}/$(dirname "${relative_path}")"
+            rm -rf "${work_dir}/${relative_path}"
+            cp -a "${APP_DIR}/${relative_path}" "${work_dir}/${relative_path}"
+            echo "[AzureJob] staged generated path ${relative_path}" | tee -a "${LOG_FILE}"
+        else
+            echo "[AzureJob] generated path missing, skipped ${relative_path}" | tee -a "${LOG_FILE}"
+        fi
+    done
+
+    cd "${work_dir}"
+    git config user.name "${GITHUB_COMMIT_NAME}"
+    git config user.email "${GITHUB_COMMIT_EMAIL}"
+    git add ${GENERATED_OUTPUT_PATHS}
+
+    if git diff --cached --quiet; then
+        echo "[AzureJob] no generated output changes to commit" | tee -a "${LOG_FILE}"
+        cd "${APP_DIR}"
+        return 0
+    fi
+
+    git commit -m "Record Azure scheduled job outputs" \
+        -m "Job kind: ${JOB_KIND}" \
+        -m "Run timestamp UTC: ${RUN_TS}" 2>&1 | tee -a "${LOG_FILE}"
+    git -c http.extraheader="AUTHORIZATION: bearer ${token}" \
+        push origin "${GITHUB_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"
+    cd "${APP_DIR}"
 }
 
 echo "[AzureJob] started_utc=${RUN_TS}" | tee -a "${LOG_FILE}"
@@ -55,5 +108,7 @@ case "${JOB_KIND}" in
         exit 64
         ;;
 esac
+
+push_generated_outputs
 
 echo "[AzureJob] completed_utc=$(date -u +%Y%m%d_%H%M%S)" | tee -a "${LOG_FILE}"

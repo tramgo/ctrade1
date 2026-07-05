@@ -30,14 +30,14 @@ The repo-level Python code is not modified by this scaffold.
 ## Details Needed Before First Deploy
 
 1. `subscriptionId`
-2. `resourceGroup`
-3. `location` such as `centralindia` or `southindia`
+2. `resourceGroup`; current default is `MyRG`
+3. `location`; current default is `southindia`, even if the resource group metadata location is elsewhere
 4. globally unique ACR name
 5. Container Apps environment name
 6. Log Analytics workspace name
-7. storage account name and file share name for persisted `data/`, `results/`, and logs
-8. Zerodha/Kite secret names and values
-9. GitHub token or deploy key only if the jobs should push generated artifacts back to GitHub
+7. storage account name and file share prefix for persisted `data/`, `results`, and logs
+8. Zerodha/Kite values in the repo `.env`: `API_KEY`, `API_SECRET`, `USERNAME`, `PASSWORD`, `TOTP_KEY`
+9. `GITHUB_TOKEN` or `GH_TOKEN` in `.env` if the jobs should push generated artifacts back to GitHub
 10. alert target for failures, such as email, Teams webhook, or Azure Monitor action group
 
 ## Build Locally
@@ -56,18 +56,39 @@ docker run --rm --env SSELL1_NONINTERACTIVE=1 ctrade1-tb11-jobs:local phase1
 
 ## Deploy
 
-The deployment helper is parameterized and does not assume your subscription details:
+Current selected target:
+
+- Subscription: `0896829f-ea22-46cd-ae31-02ab40195c2c`
+- Resource group: `MyRG`
+- Resource location for new Container Apps resources: `southindia`
+- Schedule basis: India market times, converted to UTC cron in the table above
+
+The resource group may have metadata location `eastus2`; Azure still permits resources in another region inside that group. The deploy script defaults new resources to `southindia`.
+
+The deployment helper is parameterized:
 
 ```powershell
 .\azure_scheduled_jobs\scripts\deploy_container_jobs.ps1 `
-  -SubscriptionId "<subscription-id>" `
-  -ResourceGroup "rg-ctrade1-jobs" `
-  -Location "centralindia" `
   -AcrName "<globally-unique-acr-name>" `
   -EnvironmentName "cae-ctrade1-jobs" `
   -LogAnalyticsName "law-ctrade1-jobs" `
   -StorageAccountName "<globallyuniquestorage>" `
-  -FileShareName "ctrade1state"
+  -FileShareName "ctrade1state" `
+  -EnableGitHubOutputPush
+```
+
+Defaults are `SubscriptionId=0896829f-ea22-46cd-ae31-02ab40195c2c`, `ResourceGroup=MyRG`, and `Location=southindia`.
+
+For GitHub output commits, add one of these keys to the local `.env` before deployment:
+
+```text
+GITHUB_TOKEN=<fine-grained-token-with-contents-read-write>
+```
+
+or:
+
+```text
+GH_TOKEN=<fine-grained-token-with-contents-read-write>
 ```
 
 After deployment, run the manual smoke job first:
@@ -86,6 +107,7 @@ az containerapp job logs show --name tb11-phase1-0940 --resource-group rg-ctrade
 ## Operational Notes
 
 - Broker orders remain blocked by the existing `ssell1.py` controls; this scaffold does not enable live orders.
-- Persisted output should be mounted at `/app/results` and `/app/data` through Azure Files before relying on the jobs operationally.
+- Persisted output is mounted through Azure Files as two shares: `<FileShareName>results` at `/app/results` and `<FileShareName>data` at `/app/data`.
 - If the storage mount is not configured, Container Apps job filesystem writes are ephemeral.
+- When `-EnableGitHubOutputPush` is used, the job clones `https://github.com/tramgo/ctrade1.git`, copies `results` and `data`, and commits/pushes changed generated outputs to `main`.
 - NSE holiday skipping should stay inside the Python gate or be added as a small guard before calling `ssell1.py`.
