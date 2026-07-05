@@ -1,0 +1,47 @@
+location: __LOCATION__
+name: __JOB_NAME__
+properties:
+  environmentId: __ENVIRONMENT_ID__
+  configuration:
+    triggerType: Schedule
+    replicaTimeout: 3600
+    replicaRetryLimit: 0
+    scheduleTriggerConfig:
+      cronExpression: "__CRON__"
+      parallelism: 1
+      replicaCompletionCount: 1
+    secrets:
+      - name: acr-password
+        value: "__ACR_PASSWORD__"
+    registries:
+      - server: __ACR_SERVER__
+        username: __ACR_USERNAME__
+        passwordSecretRef: acr-password
+  template:
+    containers:
+      - name: ctrade1
+        image: __IMAGE__
+        args:
+          - "__JOB_KIND__"
+        env:
+          - name: SSELL1_NONINTERACTIVE
+            value: "1"
+          - name: PYTHONDONTWRITEBYTECODE
+            value: "1"
+          - name: PYTHONPYCACHEPREFIX
+            value: "/tmp/codex_pycache"
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        volumeMounts:
+          - mountPath: /app/results
+            volumeName: ctrade1-results
+          - mountPath: /app/data
+            volumeName: ctrade1-data
+    volumes:
+      - name: ctrade1-results
+        storageType: AzureFile
+        storageName: ctrade1state
+      - name: ctrade1-data
+        storageType: AzureFile
+        storageName: ctrade1state
