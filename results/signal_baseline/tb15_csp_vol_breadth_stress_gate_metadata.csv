@@ -1,2 +1,0 @@
-output_prefix,generated_at_ist,source_detail_csv,source_trade_count,nifty_context_available,indiavix_context_available,stock_context_symbols,mode_scope,broker_orders_allowed
-tb15_csp_vol_breadth_stress_gate,2026-06-30T11:42:04.990428+05:30,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb15_cash_secured_put_large_caps_detail.csv,522,True,True,7,tb15_t02_csp_vol_breadth_stress_gate_local_research_only,False

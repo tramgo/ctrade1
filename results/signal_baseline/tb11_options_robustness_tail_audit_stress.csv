@@ -1,3 +1,0 @@
-bucket,label,trade_count,first_entry,last_expiry,total_pnl_points,mean_pnl_points,worst_trade_points,max_drawdown_points,win_rate,total_return_on_margin,annualized_return_on_margin
-worst_trade_window_only,TB11_spot_3pct_ret5_m1_sma_0,1,2022-06-08,2022-06-16,-611.0275,-611.0275,-611.0275,0.0,0.0,-0.763281086533567,-1.0
-exclude_worst_trade_window,TB11_spot_3pct_ret5_m1_sma_0,497,2016-07-18,2024-06-27,3187.010000000002,6.412494969818917,-535.74,-1390.7124999999994,0.7625754527162978,4.717641183327204,0.20012342512311587

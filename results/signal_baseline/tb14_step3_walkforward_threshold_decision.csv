@@ -1,2 +1,0 @@
-audit_id,fit_folds,holdout_folds,candidate_quantiles,selected_quantile,selected_threshold,holdout_folds_beating_rebalanced_benchmark,kill_switch_min_holdout_folds,decision
-TB14_step3_walkforward_threshold,1-5,6-10,0.20|0.25|0.33|0.40|0.50,0.4,0.5037037037037037,4,4,step3_survives

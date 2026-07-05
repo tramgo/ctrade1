@@ -1,4 +1,0 @@
-experiment_id,portfolio_style,rebalance_rule,top_k,fold_count,mean_of_fold_returns,min_fold_return,max_fold_return,std_fold_return,mean_of_fold_turnover,folds_beating_flat,folds_beating_benchmark,max_top_contributor_share,all_folds_positive,all_folds_beat_benchmark,walkforward_verdict
-E1006,long_only,every_5_session_open,3,3,0.004820384210557235,-0.0036714641393993087,0.01015299766092213,0.007434010349753024,1.7697940287226002,2,2,0.24920541935870075,False,False,walkforward_fragile
-E1002,long_only,every_5_session_open,3,3,0.003442518378763792,0.0013169615681371876,0.004590421979448843,0.0018427534059900512,1.7781084656084654,3,3,0.14606318105654958,True,True,walkforward_validated
-E1003,long_only,every_5_session_open,3,3,0.0017549878643327713,-0.002810290323985319,0.0057066955437007115,0.004291516473774848,1.7326625094482238,2,2,0.23471544735893377,False,False,walkforward_fragile

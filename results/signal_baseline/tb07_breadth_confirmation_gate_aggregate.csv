@@ -1,5 +1,0 @@
-experiment_id,variant,fold_count,mean_strategy_annualized,min_strategy_annualized,mean_buyhold_annualized,folds_beating_buyhold,mean_gate_pass_rate,all_folds_beat_buyhold
-E1006,ungated,10,0.052040911734397524,-0.48129678022747513,0.16961856354830834,3,1.0,False
-E1006,breadth_strong,10,0.026666117607721685,-0.16858881357154598,0.16961856354830834,1,0.336,False
-E1006,breadth_trend_up,10,0.016109350494179477,-0.22840643890721846,0.16961856354830834,1,0.504,False
-E1006,breadth_expanding,10,-0.010372284634600982,-0.1017210567233906,0.16961856354830834,1,0.328,False

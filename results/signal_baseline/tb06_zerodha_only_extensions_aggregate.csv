@@ -1,4 +1,0 @@
-thesis_id,fold_count,mean_strategy_annualized,min_strategy_annualized,mean_buyhold_annualized,folds_beating_buyhold,all_folds_beat_buyhold
-TB06_Z01_BuyHoldMomentumThrottle,10,0.1400590111088337,-0.2632515918641991,0.17117675082778339,4,False
-TB06_Z02_WinnerRetentionRotation,10,0.0700083012151909,-0.4336967246820834,0.17117675082778339,3,False
-TB06_Z03_LoserAvoidanceOverlay,10,0.08951392705138296,-0.20707038927401156,0.17117675082778339,0,False

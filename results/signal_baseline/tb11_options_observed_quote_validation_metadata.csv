@@ -1,2 +1,0 @@
-output_prefix,template_source,stale_quote_seconds,max_leg_spread_pct,adverse_tolerance_10,adverse_tolerance_15,mode_scope,note
-tb11_options_observed_quote_validation,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_observed_quote_capture_template.csv,300.0,0.5,0.1,0.15,tb11_phase1_observed_quote_reconciliation_validator,Scores filled-in observed quote rows. No broker calls and no orders.

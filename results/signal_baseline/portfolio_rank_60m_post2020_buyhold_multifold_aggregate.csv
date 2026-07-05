@@ -1,3 +1,0 @@
-experiment_id,strategy_variant,rebalance_rule,fold_count,mean_of_fold_returns,mean_of_fold_annualized,min_fold_annualized,mean_buyhold_annualized,min_buyhold_annualized,folds_beating_buyhold,all_folds_beat_buyhold
-E1006,score_weighted_top3_ungated,every_10_session_open,6,0.006482745343056071,0.20553883161093478,-0.06355360397012222,0.20072899427524424,-0.016258711949918125,3,False
-E1006,score_weighted_top3_dispersion_sized,every_10_session_open,6,0.005730360004110275,0.18997870421647653,-0.15408887769250612,0.20072899427524424,-0.016258711949918125,3,False

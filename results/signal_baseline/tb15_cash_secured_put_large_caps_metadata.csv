@@ -1,2 +1,0 @@
-output_prefix,generated_at_ist,symbols,min_dte,max_dte,otm_pct,min_contracts,worst_trade_budget_pct,max_half_kelly_fraction,mode_scope,note
-tb15_cash_secured_put_large_caps,2026-06-30T11:26:00.756731+05:30,RELIANCE|HDFCBANK|ICICIBANK|INFY|TCS|SBIN|LT|BHARTIARTL,7,35,0.05,1,0.05,0.25,tb15_cash_secured_put_large_caps_local_research_only,Local historical F&O bhavcopy replay. Research only; no broker calls and no orders.

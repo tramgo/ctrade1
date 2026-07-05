@@ -1,8 +1,0 @@
-metric,initial_value,fresh_value,exact_match,notes
-benchmark_policy,SIGNAL_E211_BANDED_68,SIGNAL_E211_BANDED_68,True,Confirmed incumbent baseline policy
-test_return,0.0001012555869542606,0.0001012555869542606,True,Mean test return from baseline_policy_summary.csv
-test_drawdown,0.00026512389373354515,0.00026512389373354515,True,Mean test drawdown from baseline_policy_summary.csv
-test_sharpe,-5.567773919304102,-5.567773919304102,True,Mean test Sharpe from baseline_policy_summary.csv
-test_turnover,0.7253086414654063,0.7253086414654063,True,Mean test turnover from baseline_policy_summary.csv
-test_trades,1.2222222222222223,1.2222222222222223,True,Mean test trades from baseline_policy_summary.csv
-rank_among_current_baselines,1,1,True,Still the top policy in the refreshed baseline suite

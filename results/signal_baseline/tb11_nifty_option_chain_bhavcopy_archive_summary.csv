@@ -1,2 +1,0 @@
-generated_at_ist,zip_files_found,zip_files_read_ok,daily_summary_rows,expiry_summary_rows,liquid_detail_rows,latest_chain_rows,first_trade_date,last_trade_date,latest_chain_trade_date,latest_chain_traded_rows,archive_status,broker_orders_allowed,data_kind
-2026-06-24T14:24:30.866990+05:30,2346,2346,2346,82062,630897,1634,2015-01-01,2024-07-05,2024-07-05,799,local_bhavcopy_archive_ready,False,historical_eod_bhavcopy_not_live_bid_ask

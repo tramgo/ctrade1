@@ -1,2 +1,0 @@
-output_prefix,collection_date_ist,generated_at_ist,mode_scope,min_symbol_trades,max_candidates,short_otm_pct,target_width_pct,max_leg_spread_pct,note
-tb15_t05_zerodha_quote_only_readiness,2026-07-03,2026-07-03T14:26:23.830438+05:30,tb15_t05_zerodha_quote_only_readiness,30,5,0.05,0.04,0.5,Resolves and quotes current stock-option bull put spreads with Zerodha market-data endpoints only. No broker orders.

@@ -1,2 +1,0 @@
-output_prefix,dry_run_log_source,lot_size,adverse_premium_tolerance,stale_quote_seconds,required_observed_trade_count,mode_scope,note
-tb11_options_observed_quote_capture,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_dry_run_signal_log.csv,65,0.15,300,10-15,tb11_phase1_observed_quote_capture_template,No broker calls and no orders. Creates a manual/observed quote capture schema for Phase 1 dry-run reconciliation.

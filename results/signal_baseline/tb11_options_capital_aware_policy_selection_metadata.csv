@@ -1,2 +1,0 @@
-output_prefix,calibration_source,profile_count,required_scenarios,lot_sizes,mode_scope,note
-tb11_options_capital_aware_policy_selection,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_lot_capital_risk_calibration_summary.csv,4,base|moderate_stress|harsh_stress,50|65|75,tb11_options_capital_aware_profile_selection,Ranks candidate overlays by profile-specific return and rupee-risk constraints across base/moderate/harsh scenarios and lot-size sensitivity.

@@ -1,3 +1,0 @@
-ticker,status,rows,first_date,last_date,cache_path,broker_orders_allowed,generated_at_ist
-GOLDBEES,fetched,2471,2016-07-05,2026-07-02,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_GOLDBEES_day_3650d.csv,False,2026-07-03T09:13:42.179820+05:30
-LIQUIDBEES,fetched,2473,2016-07-05,2026-07-03,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_LIQUIDBEES_day_3650d.csv,False,2026-07-03T09:13:42.179820+05:30

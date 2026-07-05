@@ -1,2 +1,0 @@
-fold_set,quantile,threshold,normal_active_weight,hedge_active_weight,borrow_annual,short_slippage_bps,fold_count,mean_strategy_annualized,mean_rebalanced_benchmark_annualized,mean_excess_vs_rebalanced_benchmark_annualized,folds_beating_rebalanced_benchmark,min_excess_vs_rebalanced_benchmark_annualized
-oos_folds_9_10,0.25,0.4074074074074073,0.2,-0.3,0.05,25.0,2,0.023954075400579256,0.030619425028513336,-0.006665349627934081,1,-0.0161033295341817

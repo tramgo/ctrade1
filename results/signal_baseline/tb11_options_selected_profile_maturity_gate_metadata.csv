@@ -1,2 +1,0 @@
-output_prefix,overlay_detail_source,selected_allocation,scenarios,warmup_trade_counts,start_years,mode_scope,note
-tb11_options_selected_profile_maturity_gate,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_conditional_overlay_frontier_detail.csv,def_full_resg0_ovg50,base|moderate_stress|harsh_stress,0|1|2|3|5,none|2019|2020,tb11_selected_profile_maturity_warmup_gate,Tests simple maturity gates for the selected capital-aware profile after T14 found a one-trade negative 2017 sparse-year failure.

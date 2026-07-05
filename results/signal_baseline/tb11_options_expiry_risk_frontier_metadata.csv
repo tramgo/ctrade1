@@ -1,2 +1,0 @@
-output_prefix,spot_path,spot_status,vix_path,vix_status,bhavcopy_root,variant_count,mode_scope,design_note
-tb11_options_expiry_risk_frontier,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_NIFTY_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_INDIAVIX_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_fno_bhavcopy,22,real_chain_options_expiry_risk_frontier_research_only,narrow DTE cap and 5-day momentum frontier around T06/T07 candidate

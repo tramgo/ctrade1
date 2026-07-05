@@ -1,2 +1,0 @@
-profile,phase,lot_size,source_mode,signals_logged,simulated_signals,skipped_signals,maturity_warmup_skips,broker_orders_allowed,first_signal_date,last_signal_date,mean_modeled_credit_points,mean_itemized_entry_cost_points,max_itemized_entry_cost_points,min_modeled_net_after_entry_cost_points,passes_phase1_schema_gate
-def_full_resg0_ovg50,phase_1_dry_run,65,historical_replay_no_order,51,50,1,1,False,2017-04-24,2024-05-15,46.796099999999996,2.248530206705538,2.619324976661538,1.9338744266884635,True

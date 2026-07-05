@@ -1,2 +1,0 @@
-output_prefix,growth_detail_source,defensive_detail_source,scenario_count,allocation_count,mode_scope,note
-tb11_options_allocation_sizing_frontier,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_harsh_cost_validation_detail.csv,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_low_loss_harsh_cost_detail.csv,3,7,real_chain_options_growth_defensive_fixed_risk_allocation_frontier,Combines growth and defensive candidate returns by allocation weight on trade dates; no broker execution.

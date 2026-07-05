@@ -1,2 +1,0 @@
-output_prefix,collection_date_ist,capture_source,ledger_output,required_clean_observations,required_unique_dates,mode_scope,note
-tb15_t06_quote_only_observation_ledger,2026-07-03,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb15_t05_zerodha_quote_only_readiness_detail_20260703.csv,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb15_t06_quote_only_observation_ledger.csv,10,5,tb15_t06_append_only_quote_observation_ledger,Appends TB15 T05 Zerodha quote-only captures. No broker orders.

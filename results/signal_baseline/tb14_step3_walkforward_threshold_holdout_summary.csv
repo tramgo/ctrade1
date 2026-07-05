@@ -1,2 +1,0 @@
-fold_set,quantile,threshold,fold_count,mean_strategy_annualized,mean_rebalanced_benchmark_annualized,mean_excess_vs_rebalanced_benchmark_annualized,folds_beating_rebalanced_benchmark,min_excess_vs_rebalanced_benchmark_annualized
-holdout_folds_6_10,0.4,0.5037037037037037,5,0.11850388522855075,0.11141840233336545,0.007085482895185314,4,-0.005994702227627435

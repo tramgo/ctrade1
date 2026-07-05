@@ -1,2 +1,0 @@
-audit_id,source_rows,threshold,full_tb14_mean_excess,core_only_mean_excess,pure_active_mean_excess,rebalance_bonus_share_of_full_excess,kill_switch_threshold,decision
-TB14_step1_alpha_decomposition,463104,0.3703703703703703,0.017011975844630333,0.0007906926000521453,0.01629450348699878,0.04647858704206424,0.6,step1_survives

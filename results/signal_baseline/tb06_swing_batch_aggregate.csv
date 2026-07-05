@@ -1,3 +1,0 @@
-thesis_id,thesis_name,fold_count,mean_strategy_annualized,min_strategy_annualized,mean_buyhold_annualized,folds_beating_buyhold,all_folds_beat_buyhold
-TB06_T03_LowVolPortfolioRank,LowVolPortfolioRank,10,0.0957241825413341,-0.13013765167731528,0.1691468721562887,3,False
-TB06_T05_IndexRelativeMomentum,IndexRelativeMomentum,10,0.0852999465540021,-0.14392180777064645,0.1691468721562887,3,False

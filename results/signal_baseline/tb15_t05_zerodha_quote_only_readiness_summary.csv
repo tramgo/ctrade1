@@ -1,2 +1,0 @@
-collection_date_ist,candidate_symbols,candidate_rows,resolved_spreads,quote_ready_spreads,clean_quote_spreads,min_clean_quote_spreads_required,broker_block_violations,broker_orders_allowed,mean_executable_credit_points,min_executable_credit_points,max_leg_spread_pct_seen,readiness_status,blocker,spot_quote_error,leg_quote_error,nfo_instrument_error
-2026-07-03,SBIN|ICICIBANK|LT|TCS|BHARTIARTL,5,5,5,4,4,0,False,6.5200000000000005,3.4000000000000004,1.2669322709163346,quote_only_readiness_passed,,,,

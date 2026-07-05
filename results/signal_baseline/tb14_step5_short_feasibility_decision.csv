@@ -1,2 +1,0 @@
-audit_id,hedge_window_count,unique_short_symbols,symbols_with_historical_futstk_coverage,symbols_missing_historical_futstk_coverage,base_borrow_annual,base_short_slippage_bps,base_folds_beating_rebalanced_benchmark,base_mean_excess_vs_rebalanced_benchmark_annualized,decision,note
-TB14_step5_short_feasibility,25,27,27,,0.05,25,7,0.012184577603961522,short_cost_stress_survives,Historical FUTSTK coverage is not the same as live SLB borrow availability.
