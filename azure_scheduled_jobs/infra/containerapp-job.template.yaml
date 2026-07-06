@@ -63,6 +63,10 @@ properties:
             value: "__GITHUB_BRANCH__"
           - name: GENERATED_OUTPUT_PATHS
             value: "__GENERATED_OUTPUT_PATHS__"
+          - name: LOG_RETENTION_DAYS
+            value: "__LOG_RETENTION_DAYS__"
+          - name: LOG_RETENTION_MIN_FILES
+            value: "__LOG_RETENTION_MIN_FILES__"
         resources:
           cpu: 1.0
           memory: 2Gi

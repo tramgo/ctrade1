@@ -13,6 +13,8 @@ param(
     [string] $GitHubRepoUrl = "https://github.com/tramgo/ctrade1.git",
     [string] $GitHubBranch = "main",
     [string] $GeneratedOutputPaths = "results data",
+    [int] $LogRetentionDays = 3,
+    [int] $LogRetentionMinFiles = 6,
     [string] $IdentityName = "id-ctrade1-jobs"
 )
 
@@ -134,6 +136,12 @@ function Read-DotEnvFile {
 }
 
 $envValues = Read-DotEnvFile -Path $envPath
+if ($LogRetentionDays -lt 1) {
+    throw "LogRetentionDays must be at least 1."
+}
+if ($LogRetentionMinFiles -lt 1) {
+    throw "LogRetentionMinFiles must be at least 1."
+}
 $requiredEnvKeys = @("API_KEY", "API_SECRET", "USERNAME", "PASSWORD", "TOTP_KEY")
 foreach ($key in $requiredEnvKeys) {
     if (-not $envValues.ContainsKey($key) -or [string]::IsNullOrWhiteSpace($envValues[$key])) {
@@ -294,6 +302,8 @@ foreach ($job in $jobs) {
         Replace("__GITHUB_REPO_URL__", $GitHubRepoUrl).
         Replace("__GITHUB_BRANCH__", $GitHubBranch).
         Replace("__GENERATED_OUTPUT_PATHS__", $GeneratedOutputPaths).
+        Replace("__LOG_RETENTION_DAYS__", [string]$LogRetentionDays).
+        Replace("__LOG_RETENTION_MIN_FILES__", [string]$LogRetentionMinFiles).
         Replace("__IMAGE__", $imageName).
         Replace("__CRON__", $job.Cron).
         Replace("__JOB_KIND__", $job.Kind)

@@ -11,6 +11,8 @@ GITHUB_REPO_URL="${GITHUB_REPO_URL:-https://github.com/tramgo/ctrade1.git}"
 GITHUB_COMMIT_NAME="${GITHUB_COMMIT_NAME:-ctrade1-azure-jobs}"
 GITHUB_COMMIT_EMAIL="${GITHUB_COMMIT_EMAIL:-ctrade1-azure-jobs@users.noreply.github.com}"
 GENERATED_OUTPUT_PATHS="${GENERATED_OUTPUT_PATHS:-results data}"
+LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-3}"
+LOG_RETENTION_MIN_FILES="${LOG_RETENTION_MIN_FILES:-6}"
 
 PHASE1_MODE="signal_baseline_tb11_options_phase1_auto_quote_observation"
 COLLECTOR_MODE="signal_baseline_tb11_options_nifty_chain_band_quote_collector"
@@ -32,6 +34,39 @@ run_mode() {
     local exit_code="${PIPESTATUS[0]}"
     echo "[AzureJob] mode=${mode} exit=${exit_code}" | tee -a "${LOG_FILE}"
     return "${exit_code}"
+}
+
+prune_old_logs() {
+    if [[ ! -d "${LOG_DIR}" ]]; then
+        return 0
+    fi
+
+    local days="${LOG_RETENTION_DAYS}"
+    local min_files="${LOG_RETENTION_MIN_FILES}"
+    if ! [[ "${days}" =~ ^[0-9]+$ ]]; then
+        days="3"
+    fi
+    if ! [[ "${min_files}" =~ ^[0-9]+$ ]]; then
+        min_files="6"
+    fi
+    if (( days < 1 )); then
+        days="1"
+    fi
+    if (( min_files < 1 )); then
+        min_files="1"
+    fi
+
+    echo "[AzureJob] pruning logs older than ${days} day(s), preserving at least ${min_files} per pattern" | tee -a "${LOG_FILE}"
+    find "${LOG_DIR}" -mindepth 1 -maxdepth 1 -type d -name 'run_*' -mtime +"${days}" -printf '%T@ %p\0' \
+        | sort -znr \
+        | tail -zn +"$((min_files + 1))" \
+        | cut -z -d' ' -f2- \
+        | xargs -0 -r rm -rf
+    find "${LOG_DIR}" -maxdepth 1 -type f -name 'tb11_*_azure.log' -mtime +"${days}" -printf '%T@ %p\0' \
+        | sort -znr \
+        | tail -zn +"$((min_files + 1))" \
+        | cut -z -d' ' -f2- \
+        | xargs -0 -r rm -f
 }
 
 push_generated_outputs() {
@@ -117,6 +152,7 @@ case "${JOB_KIND}" in
         ;;
 esac
 
+prune_old_logs
 push_generated_outputs
 
 echo "[AzureJob] completed_utc=$(date -u +%Y%m%d_%H%M%S)" | tee -a "${LOG_FILE}"

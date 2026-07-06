@@ -74,6 +74,8 @@ The deployment helper is parameterized:
   -LogAnalyticsName "law-ctrade1-jobs" `
   -StorageAccountName "<globallyuniquestorage>" `
   -FileShareName "ctrade1state" `
+  -LogRetentionDays 3 `
+  -LogRetentionMinFiles 6 `
   -EnableGitHubOutputPush
 ```
 
@@ -110,5 +112,6 @@ az containerapp job logs show --name tb11-phase1-0940 --resource-group rg-ctrade
 - Persisted output is mounted through Azure Files as two shares: `<FileShareName>results` at `/app/results` and `<FileShareName>data` at `/app/data`.
 - If the storage mount is not configured, Container Apps job filesystem writes are ephemeral.
 - When `-EnableGitHubOutputPush` is used, the job clones `https://github.com/tramgo/ctrade1.git`, merges generated `results` and `data` files into the clone without deleting existing artifacts, and commits/pushes changed generated outputs to `main`.
+- The wrapper prunes `results/log_runs/run_*` directories and `results/log_runs/tb11_*_azure.log` files before each output push. Defaults keep files from the last 3 days and always preserve at least the 6 newest entries per log pattern.
 - Existing ACR `HeldC1` is used with user-assigned managed identity `id-ctrade1-jobs` and `AcrPull`; the script does not enable the ACR admin user.
 - NSE holiday skipping should stay inside the Python gate or be added as a small guard before calling `ssell1.py`.
