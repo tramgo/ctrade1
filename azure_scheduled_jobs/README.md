@@ -2,6 +2,8 @@
 
 This folder is intentionally isolated from the trading code and generated result folders. It contains the Azure deployment wrapper for the existing Windows scheduled jobs:
 
+For the step-by-step packaging and deployment record, see [DEPLOYMENT_PROCESS.md](DEPLOYMENT_PROCESS.md).
+
 | Local task | IST schedule | UTC cron | Azure job name |
 | --- | ---: | ---: | --- |
 | `TB11_Phase1_QuoteObservation_0940` | 09:40 Mon-Fri | `10 4 * * 1-5` | `tb11-phase1-0940` |
