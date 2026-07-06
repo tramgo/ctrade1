@@ -45,17 +45,24 @@ push_generated_outputs() {
         echo "[AzureJob] github output push requested but GITHUB_TOKEN/GH_TOKEN is not set" | tee -a "${LOG_FILE}"
         return 65
     fi
+    local git_auth
+    git_auth="$(printf 'x-access-token:%s' "${token}" | base64 | tr -d '\n')"
+    export GIT_TERMINAL_PROMPT=0
 
     local work_dir="/tmp/ctrade1-output-push"
     rm -rf "${work_dir}"
-    git -c http.extraheader="AUTHORIZATION: bearer ${token}" \
+    git -c http.extraheader="AUTHORIZATION: basic ${git_auth}" \
         clone --depth 1 --branch "${GITHUB_BRANCH}" "${GITHUB_REPO_URL}" "${work_dir}" 2>&1 | tee -a "${LOG_FILE}"
 
     for relative_path in ${GENERATED_OUTPUT_PATHS}; do
         if [[ -e "${APP_DIR}/${relative_path}" ]]; then
-            mkdir -p "${work_dir}/$(dirname "${relative_path}")"
-            rm -rf "${work_dir}/${relative_path}"
-            cp -a "${APP_DIR}/${relative_path}" "${work_dir}/${relative_path}"
+            if [[ -d "${APP_DIR}/${relative_path}" ]]; then
+                mkdir -p "${work_dir}/${relative_path}"
+                cp -a "${APP_DIR}/${relative_path}/." "${work_dir}/${relative_path}/"
+            else
+                mkdir -p "${work_dir}/$(dirname "${relative_path}")"
+                cp -a "${APP_DIR}/${relative_path}" "${work_dir}/${relative_path}"
+            fi
             echo "[AzureJob] staged generated path ${relative_path}" | tee -a "${LOG_FILE}"
         else
             echo "[AzureJob] generated path missing, skipped ${relative_path}" | tee -a "${LOG_FILE}"
@@ -65,7 +72,8 @@ push_generated_outputs() {
     cd "${work_dir}"
     git config user.name "${GITHUB_COMMIT_NAME}"
     git config user.email "${GITHUB_COMMIT_EMAIL}"
-    git add ${GENERATED_OUTPUT_PATHS}
+    git config core.fileMode false
+    git add -f ${GENERATED_OUTPUT_PATHS}
 
     if git diff --cached --quiet; then
         echo "[AzureJob] no generated output changes to commit" | tee -a "${LOG_FILE}"
@@ -76,7 +84,7 @@ push_generated_outputs() {
     git commit -m "Record Azure scheduled job outputs" \
         -m "Job kind: ${JOB_KIND}" \
         -m "Run timestamp UTC: ${RUN_TS}" 2>&1 | tee -a "${LOG_FILE}"
-    git -c http.extraheader="AUTHORIZATION: bearer ${token}" \
+    git -c http.extraheader="AUTHORIZATION: basic ${git_auth}" \
         push origin "${GITHUB_BRANCH}" 2>&1 | tee -a "${LOG_FILE}"
     cd "${APP_DIR}"
 }

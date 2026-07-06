@@ -1,7 +1,7 @@
 param(
     [string] $SubscriptionId = "0896829f-ea22-46cd-ae31-02ab40195c2c",
     [string] $ResourceGroup = "MyRG",
-    [string] $Location = "southindia",
+    [string] $Location = "eastus2",
     [Parameter(Mandatory = $true)] [string] $AcrName,
     [Parameter(Mandatory = $true)] [string] $EnvironmentName,
     [Parameter(Mandatory = $true)] [string] $LogAnalyticsName,
@@ -12,14 +12,97 @@ param(
     [switch] $EnableGitHubOutputPush,
     [string] $GitHubRepoUrl = "https://github.com/tramgo/ctrade1.git",
     [string] $GitHubBranch = "main",
-    [string] $GeneratedOutputPaths = "results data"
+    [string] $GeneratedOutputPaths = "results data",
+    [string] $IdentityName = "id-ctrade1-jobs"
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$imageName = "${AcrName}.azurecr.io/ctrade1/${ImageTag}:latest"
 $envPath = Join-Path $repoRoot $EnvFile
+
+function New-SanitizedBuildContext {
+    param([string] $SourceRoot)
+
+    $buildRoot = Join-Path $env:TEMP ("ctrade1_azure_build_" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force $buildRoot | Out-Null
+
+    $excludePrefixes = @(
+        "data/",
+        "plots/",
+        "results/",
+        "results1/",
+        "results2/",
+        "results3/",
+        "results4/",
+        "results5/",
+        "results6_m1/",
+        "tensorboard_logs/",
+        "tensorboard_logs1/",
+        "tensorboard_logs2/",
+        "tensorboard_logs3/",
+        "tensorboard_logs4/",
+        "tensorboard_logs5/",
+        "tensorboard_logs6_m1/"
+    )
+    $excludeExact = @(
+        ".env",
+        ".env.example",
+        "access_token_cache.txt",
+        "optuna_study.db"
+    )
+
+    $trackedFiles = & git -C $SourceRoot ls-files
+    if ($LASTEXITCODE -ne 0) {
+        throw "git ls-files failed while creating sanitized Azure build context."
+    }
+
+    foreach ($relativePath in $trackedFiles) {
+        $normalized = $relativePath.Replace("\", "/")
+        if ($excludeExact -contains $normalized) {
+            continue
+        }
+        $skip = $false
+        foreach ($prefix in $excludePrefixes) {
+            if ($normalized.StartsWith($prefix)) {
+                $skip = $true
+                break
+            }
+        }
+        if ($skip) {
+            continue
+        }
+
+        $sourcePath = Join-Path $SourceRoot $relativePath
+        $targetPath = Join-Path $buildRoot $relativePath
+        $targetDir = Split-Path -Parent $targetPath
+        if (-not (Test-Path $targetDir)) {
+            New-Item -ItemType Directory -Force $targetDir | Out-Null
+        }
+        Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Force
+    }
+
+    $azureTarget = Join-Path $buildRoot "azure_scheduled_jobs"
+    Remove-Item -LiteralPath $azureTarget -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item `
+      -LiteralPath (Join-Path $SourceRoot "azure_scheduled_jobs") `
+      -Destination $azureTarget `
+      -Recurse `
+      -Force
+
+    return $buildRoot
+}
+
+function Invoke-Az {
+    if (-not [string]::IsNullOrWhiteSpace($env:AZURE_CLI_PYTHON_EXE)) {
+        & $env:AZURE_CLI_PYTHON_EXE -m azure.cli @args
+    } else {
+        & az @args
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Azure CLI failed with exit code ${LASTEXITCODE}: az $($args -join ' ')"
+    }
+}
 
 function Read-DotEnvFile {
     param([string] $Path)
@@ -70,64 +153,82 @@ if ($EnableGitHubOutputPush -and [string]::IsNullOrWhiteSpace($githubToken)) {
 }
 $githubTokenSecretValue = if ([string]::IsNullOrWhiteSpace($githubToken)) { "unused" } else { $githubToken }
 
-az account set --subscription $SubscriptionId
-az group create --name $ResourceGroup --location $Location | Out-Null
-az provider register --namespace Microsoft.App --wait
-az provider register --namespace Microsoft.OperationalInsights --wait
+Invoke-Az account set --subscription $SubscriptionId
+$groupExists = (Invoke-Az group exists --name $ResourceGroup --output tsv).Trim()
+if ($groupExists -ne "true") {
+  Invoke-Az group create --name $ResourceGroup --location $Location | Out-Null
+}
+Invoke-Az provider register --namespace Microsoft.App --wait
+Invoke-Az provider register --namespace Microsoft.OperationalInsights --wait
 
-az acr create `
+$acr = Invoke-Az acr show `
   --resource-group $ResourceGroup `
   --name $AcrName `
-  --sku Basic `
-  --admin-enabled true | Out-Null
+  --query "{id:id, loginServer:loginServer}" `
+  --output json | ConvertFrom-Json
+$acrId = $acr.id
+$imageName = "$($acr.loginServer)/ctrade1/${ImageTag}:latest"
+$buildContext = New-SanitizedBuildContext -SourceRoot $repoRoot
 
-$acrUser = az acr credential show `
-  --name $AcrName `
-  --query username `
+$identity = Invoke-Az identity create `
+  --name $IdentityName `
+  --resource-group $ResourceGroup `
+  --location $Location `
+  --query "{id:id, principalId:principalId}" `
+  --output json | ConvertFrom-Json
+
+$existingAcrPullAssignments = Invoke-Az role assignment list `
+  --assignee $identity.principalId `
+  --role AcrPull `
+  --scope $acrId `
+  --query "[].id" `
   --output tsv
 
-$acrPassword = az acr credential show `
-  --name $AcrName `
-  --query "passwords[0].value" `
-  --output tsv
+if ([string]::IsNullOrWhiteSpace($existingAcrPullAssignments)) {
+    Invoke-Az role assignment create `
+      --assignee $identity.principalId `
+      --role AcrPull `
+      --scope $acrId | Out-Null
+}
 
-az acr build `
+Invoke-Az acr build `
   --registry $AcrName `
   --image "ctrade1/${ImageTag}:latest" `
-  --file (Join-Path $repoRoot "azure_scheduled_jobs\Dockerfile") `
-  $repoRoot
+  --file (Join-Path $buildContext "azure_scheduled_jobs\Dockerfile") `
+  --no-logs `
+  $buildContext
 
-az monitor log-analytics workspace create `
+Invoke-Az monitor log-analytics workspace create `
   --resource-group $ResourceGroup `
   --workspace-name $LogAnalyticsName `
   --location $Location | Out-Null
 
-$workspaceId = az monitor log-analytics workspace show `
+$workspaceId = Invoke-Az monitor log-analytics workspace show `
   --resource-group $ResourceGroup `
   --workspace-name $LogAnalyticsName `
   --query customerId `
   --output tsv
 
-$workspaceKey = az monitor log-analytics workspace get-shared-keys `
+$workspaceKey = Invoke-Az monitor log-analytics workspace get-shared-keys `
   --resource-group $ResourceGroup `
   --workspace-name $LogAnalyticsName `
   --query primarySharedKey `
   --output tsv
 
-az containerapp env create `
+Invoke-Az containerapp env create `
   --name $EnvironmentName `
   --resource-group $ResourceGroup `
   --location $Location `
   --logs-workspace-id $workspaceId `
   --logs-workspace-key $workspaceKey | Out-Null
 
-az storage account create `
+Invoke-Az storage account create `
   --resource-group $ResourceGroup `
   --name $StorageAccountName `
   --location $Location `
   --sku Standard_LRS | Out-Null
 
-$storageKey = az storage account keys list `
+$storageKey = Invoke-Az storage account keys list `
   --resource-group $ResourceGroup `
   --account-name $StorageAccountName `
   --query "[0].value" `
@@ -136,19 +237,19 @@ $storageKey = az storage account keys list `
 $resultsShareName = "${FileShareName}results"
 $dataShareName = "${FileShareName}data"
 
-az storage share-rm create `
+Invoke-Az storage share-rm create `
   --resource-group $ResourceGroup `
   --storage-account $StorageAccountName `
   --name $resultsShareName `
   --quota 20 | Out-Null
 
-az storage share-rm create `
+Invoke-Az storage share-rm create `
   --resource-group $ResourceGroup `
   --storage-account $StorageAccountName `
   --name $dataShareName `
   --quota 20 | Out-Null
 
-az containerapp env storage set `
+Invoke-Az containerapp env storage set `
   --name $EnvironmentName `
   --resource-group $ResourceGroup `
   --storage-name ctrade1results `
@@ -157,7 +258,7 @@ az containerapp env storage set `
   --azure-file-share-name $resultsShareName `
   --access-mode ReadWrite | Out-Null
 
-az containerapp env storage set `
+Invoke-Az containerapp env storage set `
   --name $EnvironmentName `
   --resource-group $ResourceGroup `
   --storage-name ctrade1data `
@@ -181,9 +282,8 @@ foreach ($job in $jobs) {
         Replace("__JOB_NAME__", $job.Name).
         Replace("__LOCATION__", $Location).
         Replace("__ENVIRONMENT_ID__", $environmentId).
-        Replace("__ACR_SERVER__", "${AcrName}.azurecr.io").
-        Replace("__ACR_USERNAME__", $acrUser).
-        Replace("__ACR_PASSWORD__", $acrPassword).
+        Replace("__USER_ASSIGNED_IDENTITY_ID__", $identity.id).
+        Replace("__ACR_SERVER__", $acr.loginServer).
         Replace("__API_KEY__", $envValues["API_KEY"]).
         Replace("__API_SECRET__", $envValues["API_SECRET"]).
         Replace("__USERNAME__", $envValues["USERNAME"]).
@@ -201,16 +301,42 @@ foreach ($job in $jobs) {
     $yamlPath = Join-Path $env:TEMP "$($job.Name).containerapp-job.yaml"
     Set-Content -Path $yamlPath -Value $yaml -Encoding UTF8
 
-    az containerapp job create `
-      --name $job.Name `
-      --resource-group $ResourceGroup `
-      --yaml $yamlPath | Out-Null
+    $jobExists = $false
+    try {
+        Invoke-Az containerapp job show `
+          --name $job.Name `
+          --resource-group $ResourceGroup `
+          --query name `
+          --output tsv | Out-Null
+        $jobExists = $true
+    } catch {
+        $jobExists = $false
+    }
+
+    if ($jobExists) {
+        Invoke-Az containerapp job delete `
+          --name $job.Name `
+          --resource-group $ResourceGroup `
+          --yes | Out-Null
+    }
+
+    try {
+        Invoke-Az containerapp job create `
+          --name $job.Name `
+          --resource-group $ResourceGroup `
+          --yaml $yamlPath | Out-Null
+    } finally {
+        Remove-Item -LiteralPath $yamlPath -Force -ErrorAction SilentlyContinue
+    }
+
 }
 
 Write-Host "Created Azure Container Apps jobs:"
 $jobs | ForEach-Object { Write-Host " - $($_.Name) cron=$($_.Cron) kind=$($_.Kind)" }
 Write-Host "Resource group: $ResourceGroup"
 Write-Host "Location: $Location"
+Write-Host "ACR: $AcrName"
+Write-Host "Managed identity: $IdentityName"
 Write-Host "Azure Files shares: $resultsShareName, $dataShareName"
 Write-Host "GitHub output push enabled: $($EnableGitHubOutputPush.IsPresent)"
 Write-Host "Run a smoke execution with:"

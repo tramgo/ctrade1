@@ -1,5 +1,9 @@
 location: __LOCATION__
 name: __JOB_NAME__
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    __USER_ASSIGNED_IDENTITY_ID__: {}
 properties:
   environmentId: __ENVIRONMENT_ID__
   configuration:
@@ -11,8 +15,6 @@ properties:
       parallelism: 1
       replicaCompletionCount: 1
     secrets:
-      - name: acr-password
-        value: "__ACR_PASSWORD__"
       - name: api-key
         value: "__API_KEY__"
       - name: api-secret
@@ -27,8 +29,7 @@ properties:
         value: "__GITHUB_TOKEN__"
     registries:
       - server: __ACR_SERVER__
-        username: __ACR_USERNAME__
-        passwordSecretRef: acr-password
+        identity: __USER_ASSIGNED_IDENTITY_ID__
   template:
     containers:
       - name: ctrade1

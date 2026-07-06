@@ -31,7 +31,7 @@ The repo-level Python code is not modified by this scaffold.
 
 1. `subscriptionId`
 2. `resourceGroup`; current default is `MyRG`
-3. `location`; current default is `southindia`, even if the resource group metadata location is elsewhere
+3. `location`; current default is `eastus2`
 4. globally unique ACR name
 5. Container Apps environment name
 6. Log Analytics workspace name
@@ -60,16 +60,16 @@ Current selected target:
 
 - Subscription: `0896829f-ea22-46cd-ae31-02ab40195c2c`
 - Resource group: `MyRG`
-- Resource location for new Container Apps resources: `southindia`
+- Resource location for new Container Apps resources: `eastus2`
 - Schedule basis: India market times, converted to UTC cron in the table above
 
-The resource group may have metadata location `eastus2`; Azure still permits resources in another region inside that group. The deploy script defaults new resources to `southindia`.
+The deploy script defaults new resources to `eastus2`.
 
 The deployment helper is parameterized:
 
 ```powershell
 .\azure_scheduled_jobs\scripts\deploy_container_jobs.ps1 `
-  -AcrName "<globally-unique-acr-name>" `
+  -AcrName "HeldC1" `
   -EnvironmentName "cae-ctrade1-jobs" `
   -LogAnalyticsName "law-ctrade1-jobs" `
   -StorageAccountName "<globallyuniquestorage>" `
@@ -77,7 +77,7 @@ The deployment helper is parameterized:
   -EnableGitHubOutputPush
 ```
 
-Defaults are `SubscriptionId=0896829f-ea22-46cd-ae31-02ab40195c2c`, `ResourceGroup=MyRG`, and `Location=southindia`.
+Defaults are `SubscriptionId=0896829f-ea22-46cd-ae31-02ab40195c2c`, `ResourceGroup=MyRG`, and `Location=eastus2`.
 
 For GitHub output commits, add one of these keys to the local `.env` before deployment:
 
@@ -109,5 +109,6 @@ az containerapp job logs show --name tb11-phase1-0940 --resource-group rg-ctrade
 - Broker orders remain blocked by the existing `ssell1.py` controls; this scaffold does not enable live orders.
 - Persisted output is mounted through Azure Files as two shares: `<FileShareName>results` at `/app/results` and `<FileShareName>data` at `/app/data`.
 - If the storage mount is not configured, Container Apps job filesystem writes are ephemeral.
-- When `-EnableGitHubOutputPush` is used, the job clones `https://github.com/tramgo/ctrade1.git`, copies `results` and `data`, and commits/pushes changed generated outputs to `main`.
+- When `-EnableGitHubOutputPush` is used, the job clones `https://github.com/tramgo/ctrade1.git`, merges generated `results` and `data` files into the clone without deleting existing artifacts, and commits/pushes changed generated outputs to `main`.
+- Existing ACR `HeldC1` is used with user-assigned managed identity `id-ctrade1-jobs` and `AcrPull`; the script does not enable the ACR admin user.
 - NSE holiday skipping should stay inside the Python gate or be added as a small guard before calling `ssell1.py`.
