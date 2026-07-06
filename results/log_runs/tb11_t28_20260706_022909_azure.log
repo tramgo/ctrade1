@@ -23,3 +23,15 @@ Python 3.13.14
 [TB11-PHASE2-TRANSITION] next action saved: /app/results/signal_baseline/tb11_phase2_transition_controller_next_action.md
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 Cloning into '/tmp/ctrade1-output-push'...
+[AzureJob] staged generated path results
+[AzureJob] staged generated path data
+[main 0854837] Record Azure scheduled job outputs
+ 20 files changed, 180 insertions(+), 120 deletions(-)
+ create mode 100644 results/log_runs/run_20260706_022914/main.log
+ create mode 100644 results/log_runs/run_20260706_022924/main.log
+ create mode 100644 results/log_runs/run_20260706_022929/main.log
+ create mode 100644 results/log_runs/run_20260706_022934/main.log
+ create mode 100644 results/log_runs/tb11_t28_20260706_022909_azure.log
+To https://github.com/tramgo/ctrade1.git
+   7754c26..0854837  main -> main
+[AzureJob] completed_utc=20260706_022941
