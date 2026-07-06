@@ -1,0 +1,11 @@
+Rank,ThesisID,ThesisName,Interval,Status,ResearchOwner,BaselineEligible,Notes
+1,TB01_T01,Native15mFailedBreakout,15m,completed_research_only,codex,False,Research alive but executable baseline failed to beat FLAT
+2,TB01_T02,Native15mOpenDrive,15m,completed_research_only,codex,False,Research alive and baseline active, but best executable policy stayed net negative after costs
+3,TB01_T03,Native15mSessionPhase,15m,completed_research_only,codex,False,Research alive but baseline stayed below FLAT; strongest classifier was economically weak
+4,TB01_T04,Native15mHoldingHorizon,15m,completed_research_only,codex,False,Research alive but baseline stayed clearly below FLAT even after fixing the execution wiring
+5,TB01_T05,Native15mTopKEventRank,15m,completed_research_only,codex,False,Research alive but live baseline stop showed E2003/E2004 broadly negative and only marginal life in E2002_LONGONLY
+6,TB01_T06,Native15mMeanReversionExhaustion,15m,completed_research_only,codex,False,Research alive and first compare positive, but wider validation turned negative with 8 positive vs 19 negative tickers
+7,TB01_T07,SixtyMinuteDailyContext,60m+daily,completed_research_only,codex,False,Research alive through E2201 but executable baseline was negative and concentrated
+8,TB01_T08,Native15mBreadthEvent,15m,completed_research_only,codex,False,E2302 survived research but all tested executable policies stayed below FLAT
+9,TB01_T09,EventConditionedSizingVeto,60m+15m,completed_research_only,codex,False,E2403 improved incumbent drawdown and turnover but failed to beat E211 return
+10,TB01_T10,NewDataAxisIfAvailable,TBD,not_opened_no_new_data,codex,False,No concrete new local data axis found; carry this requirement into Batch 02 rather than opening a placeholder

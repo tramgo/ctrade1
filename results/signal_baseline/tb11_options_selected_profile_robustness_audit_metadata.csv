@@ -1,0 +1,2 @@
+output_prefix,overlay_detail_source,selected_allocation,control_allocations,scenarios,mode_scope,note
+tb11_options_selected_profile_robustness_audit,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb11_options_conditional_overlay_frontier_detail.csv,def_full_resg0_ovg50,def_full_resg0_ovg0|def_full_resg50_ovg50|def_full_resg100_ovg50,base|moderate_stress|harsh_stress,tb11_selected_capital_aware_profile_robustness_audit,"Audits selected TB11 profile by year, chronological fold, worst trades, and consecutive loss clusters; no broker execution."

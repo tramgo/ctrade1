@@ -1,0 +1,5 @@
+thesis_id,data_axis,status,path,row_count,required_columns,present_columns,missing_columns,reason
+TB07_T01_DeliveryPercentRegime,NSE delivery percentage,ready,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_delivery_bhavcopy.csv,1494255,date|symbol|deliv_pct,date|symbol|total_qty|deliv_qty|deliv_pct,,tests whether high-delivery accumulation improves swing selection quality
+TB07_T02_FOOpenInterestPositioning,F&O open interest,ready,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_fno_bhavcopy_oi.csv,103027505,date|symbol|oi|chg_in_oi,date|instrument|symbol|expiry|oi|chg_in_oi,,tests whether positioning confirms or vetoes OHLCV momentum
+TB07_T03_EarningsEventRisk,earnings calendar,template_only,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\earnings_calendar.csv,0,Date|Ticker|EventDate,Date|Ticker|EventDate,,drops or de-risks names near earnings events
+TB07_T04_BreadthConfirmationGate,market breadth,ready,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty500_daily_ohlcv.csv,151876,Date|Ticker|Close,Date|Ticker|Open|High|Low|Close|Volume,,builds an advance-decline regime gate from broad-market participation

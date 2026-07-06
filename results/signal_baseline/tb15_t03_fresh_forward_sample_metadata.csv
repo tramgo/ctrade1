@@ -1,0 +1,2 @@
+output_prefix,generated_at_ist,source_detail_csv,source_trade_count,source_first_trade_date,source_last_expiry_date,fno_zip_count,archive_min_date,archive_max_date,fresh_archive_after_source_last_expiry,mode_scope,broker_orders_allowed
+tb15_t03_fresh_forward_sample,2026-07-03T09:42:27.906206+05:30,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\results\signal_baseline\tb15_cash_secured_put_large_caps_detail.csv,522,2016-05-09,2024-07-25,2467,2015-01-01,2024-12-31,True,tb15_t03_fresh_forward_sample_local_research_only,False

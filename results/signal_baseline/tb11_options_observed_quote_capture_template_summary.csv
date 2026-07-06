@@ -1,0 +1,2 @@
+template_rows,source_signals,broker_orders_allowed,adverse_premium_tolerance,stale_quote_seconds,required_phase2_trade_count,required_columns_present,blank_observation_fields_ready,passes_template_gate
+50,50,False,0.15,300,10-15,True,True,True

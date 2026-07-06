@@ -1,0 +1,5 @@
+path,exists,row_count,columns,has_symbol_column,has_weight_column,status
+C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty50_index_weights.csv,True,49,Symbol|Company|Weight|WeightPct|Source|SourceUrl|FetchedAtIST|MappingStatus,True,True,ready
+C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty_index_weights.csv,False,0,,False,False,missing
+C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty50_constituents.csv,True,50,Company Name|Industry|Symbol|Series|ISIN Code,True,False,schema_or_empty_blocked
+C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nifty_constituents.csv,False,0,,False,False,missing

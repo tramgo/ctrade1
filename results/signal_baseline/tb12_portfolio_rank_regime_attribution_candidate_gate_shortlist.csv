@@ -1,0 +1,16 @@
+experiment_id,gate_name,top_k,rebalance_every_sessions,promotion_grade_source,event_count,allowed_event_count,gate_pass_rate,mean_event_return,win_rate,diagnostic_verdict
+E1006,ungated,3,10,True,250,250,1.0,0.0015600127208195858,0.524,candidate_gate
+E1006,nifty_trend_up,3,10,True,250,137,0.548,0.007247731369866047,0.5401459854014599,candidate_gate
+E1006,breadth_supportive,3,10,True,250,142,0.568,0.005575388951631178,0.5774647887323944,candidate_gate
+E1006,vol_not_stressed,3,10,True,250,250,1.0,0.0015600127208195858,0.524,candidate_gate
+E1006,composite_ohlcv_support,3,10,True,250,83,0.332,0.009684675726988556,0.5783132530120482,candidate_gate
+E1002,ungated,3,15,False,50,50,1.0,0.014124447587725646,0.52,candidate_gate
+E1002,nifty_trend_up,3,15,False,50,30,0.6,0.016381862694940488,0.5333333333333333,candidate_gate
+E1002,breadth_supportive,3,15,False,50,24,0.48,0.012319386345625629,0.5,candidate_gate
+E1002,vol_not_stressed,3,15,False,50,50,1.0,0.014124447587725646,0.52,candidate_gate
+E1002,composite_ohlcv_support,3,15,False,50,15,0.3,0.035501939804151825,0.5333333333333333,candidate_gate
+E1003,ungated,3,21,False,36,36,1.0,0.013149085249849186,0.6666666666666666,candidate_gate
+E1003,nifty_trend_up,3,21,False,36,19,0.5277777777777778,0.01620302276353415,0.6842105263157895,candidate_gate
+E1003,breadth_supportive,3,21,False,36,21,0.5833333333333334,0.017008038304781686,0.6666666666666666,candidate_gate
+E1003,vol_not_stressed,3,21,False,36,36,1.0,0.013149085249849186,0.6666666666666666,candidate_gate
+E1003,composite_ohlcv_support,3,21,False,36,13,0.3611111111111111,0.0151710687307946,0.6923076923076923,candidate_gate

@@ -1,0 +1,2 @@
+output_prefix,generated_at_ist,bhavcopy_root,zip_files_found,min_contracts_for_liquid_subset,top_liquid_rows_per_day,mode_scope,note
+tb11_nifty_option_chain_bhavcopy_archive,2026-06-24T14:24:30.866990+05:30,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_fno_bhavcopy,2346,1,300,tb11_local_nifty_option_chain_bhavcopy_archive,"Local-only NIFTY option-chain archive from NSE F&O bhavcopy. EOD OHLC/OI data, not live bid/ask."

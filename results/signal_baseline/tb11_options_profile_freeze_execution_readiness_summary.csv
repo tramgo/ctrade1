@@ -1,0 +1,5 @@
+phase,duration,mode,minimum_trades,gate_to_pass,promotion_rule,status
+1_dry_run,1-2 months,no_broker_orders_signal_log_and_simulated_fills,0,"Log every signal; simulate fills; confirm algo triggers and skip reasons are reproducible","Advance only if logging is complete and there are no unexplained triggers",next_gate
+2_paper_real_prices,3-6 months,paper_at_captured_real_option_prices,10-15,"Actual available premiums within 10-15 percent adverse tolerance of modeled premium; no surprise costs","Advance only if fills, costs, and skipped trades match model",blocked_until_phase_1_passes
+3_tiny_live,3-6 months,human_approved_minimum_size_real_money_only,10,"One lot only; confirm broker mechanics, execution friction, charges, and psychology","Advance only if mechanics and behavior match paper read",blocked_requires_future_human_approval
+4_scale_to_target,ongoing,gradual_size_increase_after_revalidation,0,"Phases 1-3 continue to hold; costs, slippage, and drawdown stay inside guardrails","Scale only after target budget is revalidated",blocked_until_phases_1_to_3_pass

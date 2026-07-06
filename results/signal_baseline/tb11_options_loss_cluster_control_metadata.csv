@@ -1,0 +1,2 @@
+output_prefix,spot_path,spot_status,vix_path,vix_status,bhavcopy_root,variant_count,mode_scope,design_note
+tb11_options_loss_cluster_control,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_NIFTY_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\data_fetched_INDIAVIX_day_3650d.csv,ok,C:\Ramgo\Business\Trading\India2026\Gitrade1\ctrade1\data\nse_fno_bhavcopy,9,real_chain_options_loss_cluster_max_risk_control_research_only,"narrow variants only: stronger 5d spot momentum, narrower wings, margin caps, and liquidity floor"

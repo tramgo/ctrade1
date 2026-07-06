@@ -1,0 +1,2 @@
+audit_id,seed_count,event_count,actual_hedge_count,actual_mean_excess_vs_rebalanced_benchmark_annualized,actual_folds_beating_rebalanced_benchmark,null_p75_mean_excess,null_p90_mean_excess,actual_percentile_vs_null,kill_switch_threshold_percentile,decision
+TB14_step4_random_hedge_null,1000,90,25,0.016471503014186484,10,0.004192834417304617,0.007922589214448493,0.999,0.75,step4_survives

@@ -1,0 +1,2 @@
+output_prefix,generated_at_ist,t03_status,symbols,symbols_with_spot,fno_zip_count,short_otm_pct,target_max_loss_pct,broker_orders_allowed
+tb15_t04_defined_risk_bull_put_redesign,2026-07-03T09:53:29.884428+05:30,t03_passed_unlock_tb15_t04,RELIANCE|HDFCBANK|ICICIBANK|INFY|TCS|SBIN|LT|BHARTIARTL,BHARTIARTL|HDFCBANK|ICICIBANK|INFY|LT|RELIANCE|SBIN|TCS,2467,0.05,0.04,False
