@@ -23,3 +23,60 @@ Python 3.13.14
 [TB11-PHASE2-TRANSITION] next action saved: /app/results/signal_baseline/tb11_phase2_transition_controller_next_action.md
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 Cloning into '/tmp/ctrade1-output-push'...
+[AzureJob] staged generated path results
+[AzureJob] staged generated path data
+[main 39ef0d2] Record Azure scheduled job outputs
+ 50 files changed, 846 insertions(+), 66 deletions(-)
+ create mode 100755 results/.__main.lock
+ create mode 100755 results/log_runs/latest_mode_log.txt
+ create mode 100755 results/log_runs/latest_run_dir.txt
+ create mode 100755 results/log_runs/run_20260705_200023/main.log
+ create mode 100755 results/log_runs/run_20260705_200029/main.log
+ create mode 100755 results/log_runs/run_20260705_201025/main.log
+ create mode 100755 results/log_runs/run_20260705_201036/main.log
+ create mode 100755 results/log_runs/run_20260705_201041/main.log
+ create mode 100755 results/log_runs/run_20260705_202201/main.log
+ create mode 100755 results/log_runs/run_20260705_202212/main.log
+ create mode 100755 results/log_runs/run_20260705_202218/main.log
+ create mode 100755 results/log_runs/run_20260706_020608/main.log
+ create mode 100755 results/log_runs/run_20260706_020618/main.log
+ create mode 100755 results/log_runs/run_20260706_020624/main.log
+ create mode 100755 results/log_runs/run_20260706_020629/main.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_193616_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_194709_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_200008_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_201020_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_202155_azure.log
+ create mode 100755 results/log_runs/tb11_t28_20260706_020603_azure.log
+ create mode 100755 results/main.log
+ create mode 100755 results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260706.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_nifty_chain_band_quote_collector_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv
+ create mode 100755 results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260706.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
+ create mode 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260706.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_auto_quote_observation_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_latest_detail.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv
+ create mode 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260706.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv
+ create mode 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260706.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_next_action.md
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_t28_freshness_gate_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_t28_freshness_gate_next_action.md
+ mode change 100644 => 100755 results/signal_baseline/tb11_t28_freshness_gate_summary.csv
+To https://github.com/tramgo/ctrade1.git
+   e53821f..39ef0d2  main -> main
+[AzureJob] completed_utc=20260706_020636
