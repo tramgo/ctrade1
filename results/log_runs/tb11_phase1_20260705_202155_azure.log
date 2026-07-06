@@ -1,0 +1,495 @@
+[AzureJob] started_utc=20260705_202155
+[AzureJob] job_kind=phase1
+[AzureJob] app_dir=/app
+Python 3.13.14
+[AzureJob] running mode=signal_baseline_tb11_options_phase1_auto_quote_observation
+[Attempt 1] Getting access token...
+[Success] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
+[TB11-T25] template saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
+[TB11-T25] unresolved saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260706.csv
+[TB11-T25] summary saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
+[TB11-T24] captured saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260706.csv
+[TB11-T24] unresolved saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260706.csv
+[TB11-T24] summary saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv
+[TB11-T26] latest detail saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger_latest_detail.csv
+[TB11-T26] ledger saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger.csv
+[TB11-T26] summary saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv
+[TB11-T26-AUTO] summary saved: /app/results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
+[AzureJob] mode=signal_baseline_tb11_options_phase1_auto_quote_observation exit=0
+[AzureJob] running mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+[TB11-PHASE2-READINESS] detail saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv
+[TB11-PHASE2-READINESS] summary saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv
+[TB11-PHASE2-READINESS] next action saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md
+[AzureJob] mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness exit=0
+[AzureJob] running mode=signal_baseline_tb11_options_phase2_transition_controller
+[TB11-PHASE2-TRANSITION] summary saved: /app/results/signal_baseline/tb11_phase2_transition_controller_summary.csv
+[TB11-PHASE2-TRANSITION] next action saved: /app/results/signal_baseline/tb11_phase2_transition_controller_next_action.md
+[AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
+Cloning into '/tmp/ctrade1-output-push'...
+[AzureJob] staged generated path results
+[AzureJob] staged generated path data
+[main 763c14e] Record Azure scheduled job outputs
+ 457 files changed, 219 insertions(+), 362575 deletions(-)
+ delete mode 100644 data/data_fetched_APOLLOTYRE.NS.csv
+ delete mode 100644 data/data_fetched_ASIANPAINT.NS.csv
+ delete mode 100644 data/data_fetched_AXISBANK.NS.csv
+ delete mode 100644 data/data_fetched_GABRIEL.NS.csv
+ delete mode 100644 data/data_fetched_GOLDBEES_day_3650d.csv
+ delete mode 100644 data/data_fetched_ICICIBANK.NS.csv
+ delete mode 100644 data/data_fetched_ITC.NS.csv
+ delete mode 100644 data/data_fetched_JYOTHYLAB.NS.csv
+ delete mode 100644 data/data_fetched_KOTAKBANK.NS.csv
+ delete mode 100644 data/data_fetched_KPIL.NS.csv
+ delete mode 100644 data/data_fetched_LIQUIDBEES_day_3650d.csv
+ delete mode 100644 data/data_fetched_LT.NS.csv
+ delete mode 100644 data/data_fetched_NTPC.NS.csv
+ delete mode 100644 data/data_fetched_SBIN.NS.csv
+ delete mode 100644 data/data_fetched_TATVA.NS.csv
+ delete mode 100644 data/earnings_calendar.csv
+ delete mode 100644 data/earnings_calendar_nse_raw.csv
+ delete mode 100644 data/nifty500_daily_ohlcv.csv
+ delete mode 100644 data/nifty500_tickers.csv
+ delete mode 100644 data/nifty50_constituents.csv
+ delete mode 100644 data/nifty50_index_weights.csv
+ delete mode 100644 data/nifty50_index_weights_smart_investing_raw.csv
+ create mode 100755 results/.__main.lock
+ delete mode 100644 results/PLAN.md
+ delete mode 100644 results/automation_state.json
+ delete mode 100644 results/branch_decision_scoreboard.csv
+ delete mode 100644 results/codex_next_action.md
+ delete mode 100644 results/cresp01_20260428_195040.md
+ delete mode 100644 results/current_layer_decision_memo.md
+ delete mode 100644 results/e211_revalidation_summary.csv
+ delete mode 100644 results/experiment_branch_registry.csv
+ delete mode 100644 results/experiment_performance_master.csv
+ delete mode 100644 results/experiment_strategy_guide.md
+ delete mode 100644 results/grand_plan.md
+ delete mode 100644 results/grand_plan_tracker.md
+ create mode 100755 results/log_runs/latest_mode_log.txt
+ create mode 100755 results/log_runs/latest_run_dir.txt
+ delete mode 100644 results/log_runs/run_20260429_010123/main.log
+ create mode 100755 results/log_runs/run_20260705_200023/main.log
+ create mode 100755 results/log_runs/run_20260705_200029/main.log
+ create mode 100755 results/log_runs/run_20260705_201025/main.log
+ create mode 100755 results/log_runs/run_20260705_201036/main.log
+ create mode 100755 results/log_runs/run_20260705_201041/main.log
+ create mode 100755 results/log_runs/run_20260705_202201/main.log
+ create mode 100755 results/log_runs/run_20260705_202212/main.log
+ create mode 100755 results/log_runs/run_20260705_202218/main.log
+ delete mode 100644 results/log_runs/signal_baseline_futures_cost_profile_20260428_183244.log
+ delete mode 100644 results/log_runs/signal_baseline_portfolio_rank_60m_long_only_20260428_175805.log
+ delete mode 100644 results/log_runs/signal_baseline_portfolio_rank_60m_long_only_cadence_sweep_20260428_205749.log
+ delete mode 100644 results/log_runs/signal_baseline_portfolio_rank_60m_long_only_sweep_20260428_184640.log
+ delete mode 100644 results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260701_133548_scheduled.log
+ delete mode 100644 results/log_runs/signal_baseline_tb11_options_phase1_auto_quote_observation_20260702_203939_scheduled.log
+ delete mode 100644 results/log_runs/signal_diagnostic_bucket_quality_20260428_184350.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_193616_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_194709_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_200008_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_201020_azure.log
+ create mode 100755 results/log_runs/tb11_phase1_20260705_202155_azure.log
+ delete mode 100644 results/log_runs/tb11_t28_chain_band_freshness_gate_20260630_200240_scheduled.log
+ delete mode 100644 results/log_runs/tb11_t28_chain_band_freshness_gate_20260701_133548_scheduled.log
+ delete mode 100644 results/log_runs/tb11_t28_chain_band_freshness_gate_20260702_203939_scheduled.log
+ create mode 100755 results/main.log
+ delete mode 100644 results/milestone_log.md
+ delete mode 100644 results/post_tb12_iterative_goal.md
+ delete mode 100644 results/project_state_checkpoint_2026-03-17.md
+ delete mode 100644 results/research_continuation_progress_20260702.md
+ delete mode 100644 results/revalidation_matrix_2026-04-28.csv
+ delete mode 100644 results/roadmap_status_20260630_equity_csp_pairs.md
+ delete mode 100644 results/run_lock.json
+ delete mode 100644 results/run_monitor_log.md
+ delete mode 100644 results/signal_baseline/composite_plan_gate_audit_detail.csv
+ delete mode 100644 results/signal_baseline/composite_plan_gate_audit_memo.md
+ delete mode 100644 results/signal_baseline/composite_plan_gate_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/composite_plan_gate_audit_summary.csv
+ delete mode 100644 results/signal_baseline/cost_sensitivity_detail.csv
+ delete mode 100644 results/signal_baseline/cost_sensitivity_summary.csv
+ delete mode 100644 results/signal_baseline/futures_cost_profile_detail.csv
+ delete mode 100644 results/signal_baseline/futures_cost_profile_summary.csv
+ delete mode 100644 results/signal_baseline/native_15m_holding_horizon_policy_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_buyhold_benchmark_walkforward_aggregate.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_buyhold_benchmark_walkforward_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_buyhold_benchmark_walkforward_manifest.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_buyhold_benchmark_walkforward_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_gate_sweep_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_gate_sweep_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_sizing_walkforward_aggregate.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_sizing_walkforward_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_sizing_walkforward_manifest.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_dispersion_sizing_walkforward_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r1_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r1_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r1_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r2_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r2_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r2_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r3_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r3_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r3_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r4_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r4_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r4_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r5_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r5_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k3_r5_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r1_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r1_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r1_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r2_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r2_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r2_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r3_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r3_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r3_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r4_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r4_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r4_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r5_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r5_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_k5_r5_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_cadence_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r10_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r10_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r10_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r15_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r15_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r15_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r21_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r21_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r21_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r5_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r5_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r5_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r7_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r7_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_k3_r7_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_sweep_best_by_experiment.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_hold_sweep_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r1_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r1_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r1_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r5_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r5_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k3_r5_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r1_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r1_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r1_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r5_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r5_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_k5_r5_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_sweep_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_walkforward_aggregate.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_walkforward_manifest.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_long_only_walkforward_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_portfolio_baseline_summary.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_post2020_buyhold_multifold_aggregate.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_post2020_buyhold_multifold_history.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_post2020_buyhold_multifold_manifest.csv
+ delete mode 100644 results/signal_baseline/portfolio_rank_60m_post2020_buyhold_multifold_summary.csv
+ delete mode 100644 results/signal_baseline/tb06_guardrail_overlay_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb06_guardrail_overlay_events.csv
+ delete mode 100644 results/signal_baseline/tb06_guardrail_overlay_summary.csv
+ delete mode 100644 results/signal_baseline/tb06_swing_batch_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb06_swing_batch_events.csv
+ delete mode 100644 results/signal_baseline/tb06_swing_batch_summary.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_etf_rotation_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_etf_rotation_events.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_etf_rotation_summary.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_only_extensions_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_only_extensions_events.csv
+ delete mode 100644 results/signal_baseline/tb06_zerodha_only_extensions_summary.csv
+ delete mode 100644 results/signal_baseline/tb07_breadth_confirmation_gate_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb07_breadth_confirmation_gate_summary.csv
+ delete mode 100644 results/signal_baseline/tb07_breadth_fetch_inventory.csv
+ delete mode 100644 results/signal_baseline/tb07_breadth_ticker_template_inventory.csv
+ delete mode 100644 results/signal_baseline/tb07_delivery_filtered_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb07_delivery_filtered_summary.csv
+ delete mode 100644 results/signal_baseline/tb07_earnings_template_status.csv
+ delete mode 100644 results/signal_baseline/tb07_external_data_readiness.csv
+ delete mode 100644 results/signal_baseline/tb07_oi_filtered_aggregate.csv
+ delete mode 100644 results/signal_baseline/tb07_oi_filtered_summary.csv
+ delete mode 100644 results/signal_baseline/tb08_pairs_relative_value_scan_best.csv
+ delete mode 100644 results/signal_baseline/tb08_pairs_relative_value_scan_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260701.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260702.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260701.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260702.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_daily_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_expiry_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_latest_chain.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_manifest.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_nifty_option_chain_bhavcopy_archive_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_no_order_endpoint_static_audit_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_no_order_endpoint_static_audit_memo.md
+ delete mode 100644 results/signal_baseline/tb11_no_order_endpoint_static_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_no_order_endpoint_static_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_allocation_sizing_frontier_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_allocation_sizing_frontier_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_broader_validation_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_broader_validation_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_capital_aware_policy_selection_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_capital_aware_policy_selection_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_conditional_overlay_frontier_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_conditional_overlay_frontier_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
+ delete mode 100644 results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260701.csv
+ delete mode 100644 results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260702.csv
+ rename results/signal_baseline/{tb11_options_current_nfo_leg_resolver_unresolved_20260624.csv => tb11_options_current_nfo_leg_resolver_unresolved_20260706.csv} (100%)
+ mode change 100644 => 100755
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_observation_collection_20260623.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_observation_collection_ledger.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_observation_collection_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_observation_collection_runbook.md
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_observation_collection_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_reconciliation.md
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_signal_log.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_signal_log_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_dry_run_signal_log_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_expiry_risk_frontier_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_expiry_risk_frontier_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_frontier_optimization_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_frontier_optimization_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_harsh_cost_validation_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_harsh_cost_validation_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itemized_fno_cost_audit_legs.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itemized_fno_cost_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itemized_fno_cost_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itemized_fno_cost_audit_trades.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itm_expiry_stt_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itm_expiry_stt_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_itm_expiry_stt_audit_trades.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_audit_folds.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_audit_years.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_loss_cluster_control_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_lot_capital_risk_calibration_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_options_lot_capital_risk_calibration_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_lot_capital_risk_calibration_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_low_loss_harsh_cost_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_low_loss_harsh_cost_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_maturity_adjusted_rupee_profile_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_capture_template.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_capture_template_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_capture_template_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_reconciliation.md
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_validation_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_validation_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_observed_quote_validation_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_auto_quote_observation_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_latest_detail.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_profile_freeze_execution_readiness.md
+ delete mode 100644 results/signal_baseline/tb11_options_profile_freeze_execution_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_robustness_tail_audit_folds.csv
+ delete mode 100644 results/signal_baseline/tb11_options_robustness_tail_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_robustness_tail_audit_stress.csv
+ delete mode 100644 results/signal_baseline/tb11_options_robustness_tail_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_robustness_tail_audit_years.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_maturity_gate_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_maturity_gate_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_folds.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_loss_clusters.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_worst_trades.csv
+ delete mode 100644 results/signal_baseline/tb11_options_selected_profile_robustness_audit_years.csv
+ delete mode 100644 results/signal_baseline/tb11_options_spot_regime_tail_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_spot_regime_tail_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_tail_control_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_options_tail_control_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260624.csv
+ delete mode 100644 results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260702.csv
+ rename results/signal_baseline/{tb11_options_zerodha_quote_only_collector_20260701.csv => tb11_options_zerodha_quote_only_collector_20260706.csv} (69%)
+ mode change 100644 => 100755
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260701.csv
+ delete mode 100644 results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260702.csv
+ rename results/signal_baseline/{tb11_options_zerodha_quote_only_collector_unresolved_20260624.csv => tb11_options_zerodha_quote_only_collector_unresolved_20260706.csv} (100%)
+ mode change 100644 => 100755
+ delete mode 100644 results/signal_baseline/tb11_phase1_to_phase2_transition_closeout_memo.md
+ delete mode 100644 results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_decision.md
+ delete mode 100644 results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_detail_20260703.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_ledger.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_no_order_paper_price_reconciliation_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md
+ delete mode 100644 results/signal_baseline/tb11_phase2_runbook_template_contract_audit_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_runbook_template_contract_audit_memo.md
+ delete mode 100644 results/signal_baseline/tb11_phase2_runbook_template_contract_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_phase2_runbook_template_contract_audit_summary.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_metadata.csv
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_next_action.md
+ mode change 100644 => 100755 results/signal_baseline/tb11_phase2_transition_controller_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_scheduled_jobs_20260702_inference.md
+ delete mode 100644 results/signal_baseline/tb11_t28_freshness_gate_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_t28_freshness_gate_next_action.md
+ delete mode 100644 results/signal_baseline/tb11_t28_freshness_gate_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_latest_snapshot.csv
+ delete mode 100644 results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_t30_iv_conditioned_sizing_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_skipped.csv
+ delete mode 100644 results/signal_baseline/tb11_t31_staggered_multi_expiry_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_task_scheduler_readiness_audit_detail.csv
+ delete mode 100644 results/signal_baseline/tb11_task_scheduler_readiness_audit_memo.md
+ delete mode 100644 results/signal_baseline/tb11_task_scheduler_readiness_audit_metadata.csv
+ delete mode 100644 results/signal_baseline/tb11_task_scheduler_readiness_audit_summary.csv
+ delete mode 100644 results/signal_baseline/tb11_task_scheduler_snapshot.txt
+ delete mode 100644 results/signal_baseline/tb12_ohlcv_regime_conditioned_portfolio_rank_benchmark_comparison.csv
+ delete mode 100644 results/signal_baseline/tb12_ohlcv_regime_conditioned_portfolio_rank_metadata.csv
+ delete mode 100644 results/signal_baseline/tb12_ohlcv_regime_conditioned_portfolio_rank_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/tb12_ohlcv_regime_conditioned_portfolio_rank_summary.csv
+ delete mode 100644 results/signal_baseline/tb12_ohlcv_regime_conditioned_portfolio_rank_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/tb12_portfolio_rank_regime_attribution_candidate_gate_shortlist.csv
+ delete mode 100644 results/signal_baseline/tb12_portfolio_rank_regime_attribution_detail.csv
+ delete mode 100644 results/signal_baseline/tb12_portfolio_rank_regime_attribution_folds.csv
+ delete mode 100644 results/signal_baseline/tb12_portfolio_rank_regime_attribution_metadata.csv
+ delete mode 100644 results/signal_baseline/tb12_portfolio_rank_regime_attribution_summary.csv
+ delete mode 100644 results/signal_baseline/tb13_core_active_tilt_portfolio_rank_folds.csv
+ delete mode 100644 results/signal_baseline/tb13_core_active_tilt_portfolio_rank_metadata.csv
+ delete mode 100644 results/signal_baseline/tb13_core_active_tilt_portfolio_rank_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/tb13_core_active_tilt_portfolio_rank_summary.csv
+ delete mode 100644 results/signal_baseline/tb13_core_active_tilt_portfolio_rank_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/tb14_all_fold_dynamic_hedge_portfolio_rank_folds.csv
+ delete mode 100644 results/signal_baseline/tb14_all_fold_dynamic_hedge_portfolio_rank_metadata.csv
+ delete mode 100644 results/signal_baseline/tb14_all_fold_dynamic_hedge_portfolio_rank_rebalance_history.csv
+ delete mode 100644 results/signal_baseline/tb14_all_fold_dynamic_hedge_portfolio_rank_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_all_fold_dynamic_hedge_portfolio_rank_ticker_contributions.csv
+ delete mode 100644 results/signal_baseline/tb14_alt_universe_mid_small_frozen_rule_events.csv
+ delete mode 100644 results/signal_baseline/tb14_alt_universe_mid_small_frozen_rule_folds.csv
+ delete mode 100644 results/signal_baseline/tb14_alt_universe_mid_small_frozen_rule_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step1_alpha_decomposition_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step1_alpha_decomposition_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step1_alpha_decomposition_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step2_rebalanced_benchmark_benchmark_folds.csv
+ delete mode 100644 results/signal_baseline/tb14_step2_rebalanced_benchmark_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step2_rebalanced_benchmark_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step2_rebalanced_benchmark_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step3_walkforward_threshold_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step3_walkforward_threshold_fit_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step3_walkforward_threshold_fit_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step3_walkforward_threshold_holdout_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step3_walkforward_threshold_holdout_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step4_random_hedge_null_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step4_random_hedge_null_distribution.csv
+ delete mode 100644 results/signal_baseline/tb14_step5_short_feasibility_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step5_short_feasibility_hedge_names.csv
+ delete mode 100644 results/signal_baseline/tb14_step5_short_feasibility_stress_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_oos_window_sensitivity_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_oos_window_sensitivity_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_strict_oos_replay_decision.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_strict_oos_replay_fit_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_strict_oos_replay_fit_summary.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_strict_oos_replay_oos_detail.csv
+ delete mode 100644 results/signal_baseline/tb14_step6_strict_oos_replay_oos_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_cash_secured_put_large_caps_decision.md
+ delete mode 100644 results/signal_baseline/tb15_cash_secured_put_large_caps_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_cash_secured_put_large_caps_kelly_sizing.csv
+ delete mode 100644 results/signal_baseline/tb15_cash_secured_put_large_caps_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_cash_secured_put_large_caps_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_csp_vol_breadth_stress_gate_decision.md
+ delete mode 100644 results/signal_baseline/tb15_csp_vol_breadth_stress_gate_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_csp_vol_breadth_stress_gate_kelly_sizing.csv
+ delete mode 100644 results/signal_baseline/tb15_csp_vol_breadth_stress_gate_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_csp_vol_breadth_stress_gate_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_decision.md
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_full_replay_decision.md
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_full_replay_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_full_replay_kelly_sizing.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_full_replay_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_full_replay_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_t03_fresh_forward_sample_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_decision.md
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_kelly_sizing.csv
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_skipped.csv
+ delete mode 100644 results/signal_baseline/tb15_t04_defined_risk_bull_put_redesign_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_detail_20260703.csv
+ delete mode 100644 results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_t05_zerodha_quote_only_readiness_template_20260703.csv
+ delete mode 100644 results/signal_baseline/tb15_t06_quote_only_observation_ledger.csv
+ delete mode 100644 results/signal_baseline/tb15_t06_quote_only_observation_ledger_decision.md
+ delete mode 100644 results/signal_baseline/tb15_t06_quote_only_observation_ledger_latest_detail.csv
+ delete mode 100644 results/signal_baseline/tb15_t06_quote_only_observation_ledger_metadata.csv
+ delete mode 100644 results/signal_baseline/tb15_t06_quote_only_observation_ledger_summary.csv
+ delete mode 100644 results/signal_baseline/tb15_udiff_fno_bhavcopy_forward_fetch.csv
+ delete mode 100644 results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_decision.md
+ delete mode 100644 results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_detail.csv
+ delete mode 100644 results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_metadata.csv
+ delete mode 100644 results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_skipped.csv
+ delete mode 100644 results/signal_baseline/tb16_defined_risk_nifty_bull_put_spread_summary.csv
+ delete mode 100644 results/signal_baseline/tb17_covered_call_overwrite_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb17_covered_call_overwrite_readiness_detail.csv
+ delete mode 100644 results/signal_baseline/tb17_covered_call_overwrite_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb17_covered_call_overwrite_readiness_skipped.csv
+ delete mode 100644 results/signal_baseline/tb17_covered_call_overwrite_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_backtest_decision.md
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_backtest_detail.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_backtest_metadata.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_backtest_summary.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_readiness_detail.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb18_earnings_overlay_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb18_external_data_fetch.csv
+ delete mode 100644 results/signal_baseline/tb19_oi_positioning_readiness_decision.md
+ delete mode 100644 results/signal_baseline/tb19_oi_positioning_readiness_detail.csv
+ delete mode 100644 results/signal_baseline/tb19_oi_positioning_readiness_metadata.csv
+ delete mode 100644 results/signal_baseline/tb19_oi_positioning_readiness_summary.csv
+ delete mode 100644 results/signal_baseline/tb20_cross_asset_defensive_tilt_decision.md
+ delete mode 100644 results/signal_baseline/tb20_cross_asset_defensive_tilt_detail.csv
+ delete mode 100644 results/signal_baseline/tb20_cross_asset_defensive_tilt_folds.csv
+ delete mode 100644 results/signal_baseline/tb20_cross_asset_defensive_tilt_metadata.csv
+ delete mode 100644 results/signal_baseline/tb20_cross_asset_defensive_tilt_summary.csv
+ delete mode 100644 results/signal_baseline/tb20_defensive_assets_zerodha_fetch.csv
+ delete mode 100644 results/signal_research/signal_bucket_quality_summary.csv
+ delete mode 100644 results/tb07_earnings_calendar_note.md
+ delete mode 100644 results/thesis_batch_01.md
+ delete mode 100644 results/thesis_batch_01_closeout.md
+ delete mode 100644 results/thesis_batch_01_ranked.csv
+ delete mode 100644 results/thesis_batch_02.md
+ delete mode 100644 results/thesis_batch_02_closeout.md
+ delete mode 100644 results/thesis_batch_02_ranked.csv
+ delete mode 100644 results/thesis_batch_04.md
+ delete mode 100644 results/thesis_batch_04_closeout.md
+ delete mode 100644 results/thesis_batch_04_ranked.csv
+ delete mode 100644 results/thesis_batch_05_closeout.md
+ delete mode 100644 results/thesis_batch_06.md
+ delete mode 100644 results/thesis_batch_09.md
+ delete mode 100644 results/thesis_batch_11.md
+ delete mode 100644 results/thesis_batch_12.md
+ delete mode 100644 results/thesis_batch_13.md
+ delete mode 100644 results/thesis_batch_14.md
+To https://github.com/tramgo/ctrade1.git
+   795fe73..763c14e  main -> main
+[AzureJob] completed_utc=20260705_202223

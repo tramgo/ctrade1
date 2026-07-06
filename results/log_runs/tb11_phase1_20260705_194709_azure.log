@@ -1,0 +1,16 @@
+[AzureJob] started_utc=20260705_194709
+[AzureJob] job_kind=phase1
+[AzureJob] app_dir=/app
+Python 3.13.14
+[AzureJob] running mode=signal_baseline_tb11_options_phase1_auto_quote_observation
+Traceback (most recent call last):
+  File "/app/ssell1.py", line 45, in <module>
+    from concurrent_log_handler import ConcurrentRotatingFileHandler
+ModuleNotFoundError: No module named 'concurrent_log_handler'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/ssell1.py", line 47, in <module>
+    raise ImportError("Please install 'concurrent-log-handler' package via pip: pip install concurrent-log-handler")
+ImportError: Please install 'concurrent-log-handler' package via pip: pip install concurrent-log-handler
