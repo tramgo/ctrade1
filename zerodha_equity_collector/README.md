@@ -81,6 +81,8 @@ The L2 restart plan is implemented as a separate command path and config:
 python -m zerodha_equity_collector.collector --config zerodha_equity_collector\config\l2_collector_config.json l2-live
 ```
 
+Azure ACI packaging and deployment notes are in [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md). The Azure path defaults to private ACR `HeldC1`, repository `zerodha-12-c011ector`, a dedicated resource group `rg-12-c011ector-shakedown-cin`, and a dedicated storage account `st12c011ectorramic`.
+
 Run preflight before each shakedown start:
 
 ```powershell

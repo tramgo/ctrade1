@@ -90,6 +90,9 @@ def get_totp_key() -> str:
 
 def token_cache_candidates(config_dir: Path | None = None) -> list[Path]:
     candidates = []
+    env_cache = os.getenv("KITE_ACCESS_TOKEN_CACHE") or os.getenv("ZERODHA_ACCESS_TOKEN_CACHE")
+    if env_cache:
+        candidates.append(Path(env_cache))
     if config_dir is not None:
         candidates.append(config_dir / "access_token_cache.txt")
     candidates.extend(
