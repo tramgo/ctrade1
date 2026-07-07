@@ -1,0 +1,22 @@
+{
+  "exchanges": ["NSE", "BSE"],
+  "universe": "nifty50",
+  "symbols_file": "config/nifty50_symbols.csv",
+  "output_dir": "data",
+  "timezone": "Asia/Kolkata",
+  "rate_limit_sleep_seconds": 0.35,
+  "historical": {
+    "interval": "minute",
+    "from": "2026-07-01 09:15:00",
+    "to": "2026-07-07 15:30:00",
+    "chunk_days": 60,
+    "append": true
+  },
+  "live": {
+    "mode": "quote",
+    "flush_seconds": 5,
+    "raw_tick_jsonl": true,
+    "minute_bars_csv": true
+  }
+}
+

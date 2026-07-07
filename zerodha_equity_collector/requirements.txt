@@ -1,0 +1,6 @@
+pandas>=2.0
+kiteconnect>=5.0
+pyotp>=2.9
+requests>=2.31
+truststore>=0.9
+pyarrow>=16.0
