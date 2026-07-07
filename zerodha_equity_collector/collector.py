@@ -50,9 +50,29 @@ def output_root(config: dict[str, Any]) -> Path:
     return path
 
 
+def enforce_symbol_cap(config: dict[str, Any], symbol_table: pd.DataFrame) -> None:
+    plan = config.get("plan", {})
+    cap = plan.get("max_symbols_before_interim_gate")
+    if cap is None:
+        return
+    symbol_count = int(symbol_table["symbol"].nunique())
+    cap = int(cap)
+    if symbol_count <= cap:
+        return
+    if bool(config.get("_allow_symbol_cap_override", False)):
+        print(f"[resolve] symbol cap override: configured_symbols={symbol_count} cap={cap}")
+        return
+    raise RuntimeError(
+        "Configured symbol universe exceeds the plan cap: "
+        f"configured_symbols={symbol_count} cap={cap}. "
+        "Trim the symbols file or rerun with --allow-symbol-cap-override for a deliberate exception."
+    )
+
+
 def resolve_configured_instruments(kite, config: dict[str, Any]) -> list[ResolvedInstrument]:
     exchanges = [str(x).upper() for x in config.get("exchanges", ["NSE"])]
     symbol_table = load_symbol_table(config_path(config, config.get("symbols_file", "config/nifty50_symbols.csv")))
+    enforce_symbol_cap(config, symbol_table)
     symbols = symbol_table["symbol"].tolist()
     aliases = dict(zip(symbol_table["symbol"], symbol_table["zerodha_symbol"]))
     instruments = load_instruments(kite, exchanges)
@@ -408,9 +428,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="For l2-live only: allow a deliberate WebSocket test outside configured market hours.",
     )
+    parser.add_argument(
+        "--allow-symbol-cap-override",
+        action="store_true",
+        help="For L2-plan configs only: deliberately allow a symbols file above the configured plan cap.",
+    )
     args = parser.parse_args(argv)
 
     config = load_config(Path(args.config))
+    config["_allow_symbol_cap_override"] = bool(args.allow_symbol_cap_override)
     if args.command == "historical":
         run_historical(config)
     elif args.command == "live":

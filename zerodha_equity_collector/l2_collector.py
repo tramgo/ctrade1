@@ -22,6 +22,7 @@ from .auth import get_kite_client, get_ticker
 from .auth import kite_call_with_retry
 from .collector import load_config, output_root, resolve_configured_instruments
 from .collector import config_path
+from .collector import enforce_symbol_cap
 from .instruments import ResolvedInstrument
 
 
@@ -1005,6 +1006,16 @@ def run_l2_self_test(config: dict[str, Any]) -> None:
         hardkill = run_l2_verify_hardkill(local_config, mark_hardkill_tested=True)
         if not hardkill.get("hardkill_verified"):
             raise RuntimeError("l2-self-test failed: hardkill readability verification did not pass.")
+        cap_config = {"plan": {"max_symbols_before_interim_gate": 2}, "_allow_symbol_cap_override": False}
+        cap_table = pd.DataFrame({"symbol": ["AAA", "BBB", "CCC"]})
+        try:
+            enforce_symbol_cap(cap_config, cap_table)
+        except RuntimeError:
+            pass
+        else:
+            raise RuntimeError("l2-self-test failed: symbol cap did not reject oversized universe.")
+        cap_config["_allow_symbol_cap_override"] = True
+        enforce_symbol_cap(cap_config, cap_table)
         print("[l2-self-test] passed")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

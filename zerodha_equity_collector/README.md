@@ -25,7 +25,7 @@ $env:KITE_API_KEY="..."
 $env:KITE_ACCESS_TOKEN="..."
 ```
 
-The collector also accepts the repo's existing `API_KEY` name. If `KITE_ACCESS_TOKEN` is omitted, it tries `access_token_cache.txt` in this folder and then the repo root.
+The collector accepts the modern `KITE_*` names shown in `.env.example`, and also accepts the repo's existing `API_KEY`, `API_SECRET`, `USERNAME`, `PASSWORD`, and `TOTP_KEY` names for compatibility. If `KITE_ACCESS_TOKEN` is omitted, it tries `access_token_cache.txt` in this folder and then the repo root.
 
 ## Historical minute backfill
 
@@ -110,6 +110,14 @@ Default L2 universe:
 - E1006 equity universe from `ssell1.py` / `NSE_LIQUID_UNIVERSE`
 - ETF context slice: `NIFTYBEES`, `BANKBEES`, `ITBEES`, `JUNIORBEES`, `GOLDBEES`
 - Default exchange: `NSE`
+
+`TATAMOTORS` is deliberately omitted from the L2 shakedown list instead of being aliased to `TMPV`. The post-demerger Kite symbol and the pre-demerger Tata Motors history should not be treated as one continuous economic asset for the collector clock.
+
+The L2 plan cap is enforced at runtime. If `plan.max_symbols_before_interim_gate` is set, commands that resolve instruments refuse a symbols file above that cap. A deliberate exception requires:
+
+```powershell
+--allow-symbol-cap-override
+```
 
 L2 outputs are written below `zerodha_equity_collector/data_l2/`:
 
