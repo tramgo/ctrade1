@@ -1,2 +1,2 @@
 collection_date_ist,input_source,input_rows,quote_symbols_requested,quote_packets_received,captured_rows,unresolved_rows,broker_orders_allowed,quote_fetch_error,collector_status
-2026-07-06,/app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv,1,4,4,1,0,False,,captured_quotes
+2026-07-07,/app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv,1,4,4,1,0,False,,captured_quotes
