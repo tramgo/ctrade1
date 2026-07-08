@@ -4,3 +4,6 @@ pyotp>=2.9
 requests>=2.31
 truststore>=0.9
 pyarrow>=16.0
+azure-identity>=1.17
+azure-keyvault-secrets>=4.8
+azure-storage-blob>=12.20

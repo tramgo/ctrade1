@@ -1367,8 +1367,12 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
     out = out.copy()
     return out
 
+def env_flag_enabled(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "n", "off"}
+
+
 # --- Place these at the top of your script (after BASE_DIR is defined) ---
-TOKEN_CACHE_FILE = BASE_DIR / "access_token_cache.txt"
+TOKEN_CACHE_FILE = Path(os.getenv("KITE_TOKEN_CACHE_FILE", str(BASE_DIR / "access_token_cache.txt")))
 
 def load_cached_token():
     if TOKEN_CACHE_FILE.exists():
@@ -1378,6 +1382,7 @@ def load_cached_token():
     return None
 
 def save_token_to_cache(token):
+    TOKEN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(TOKEN_CACHE_FILE, "w") as f:
         f.write(token)
 
@@ -1396,6 +1401,9 @@ def get_valid_kite_session():
             print(f"[Cached] Token invalid or expired: {e}. Fetching new token...")
 
     # If no valid cached token, get a new token.
+    if not env_flag_enabled("KITE_ALLOW_TOTP_LOGIN", "1"):
+        raise RuntimeError("No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.")
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             print(f"[Attempt {attempt}] Getting access token...")
@@ -1616,6 +1624,9 @@ def prompt_manual_request_token(login_url: str) -> str:
     return extract_request_token_from_input(raw_value)
 
 def get_access_token():
+    if not env_flag_enabled("KITE_ALLOW_TOTP_LOGIN", "1"):
+        raise RuntimeError("No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.")
+
     session = requests.Session()
     login_url = f"https://kite.trade/connect/login?api_key={API_KEY}"
 
@@ -1642,6 +1653,7 @@ def get_access_token():
             requires_manual = captcha_required or ("captcha" in message_text)
         if requires_manual:
             manual_request_token = prompt_manual_request_token(login_url)
+            main_logger.warning("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, manual_request_token, api_secret=API_SECRET)
             return data["access_token"]
         raise RuntimeError(
@@ -1680,6 +1692,7 @@ def get_access_token():
             request_token = qs["request_token"][0]
             # 4. Generate the access token
             # Revised caller for generate_session using the utility function:
+            main_logger.warning("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, request_token, api_secret=API_SECRET)
             return data["access_token"]
         if not location:

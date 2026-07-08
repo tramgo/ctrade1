@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+set -eu
+
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
+export ZERODHA_COLLECTOR_NONINTERACTIVE="${ZERODHA_COLLECTOR_NONINTERACTIVE:-1}"
+export KITE_TOKEN_CACHE_DIR="${KITE_TOKEN_CACHE_DIR:-/kite-token}"
+export KITE_TOKEN_CACHE_FILE="${KITE_TOKEN_CACHE_FILE:-${KITE_TOKEN_CACHE_DIR}/access_token_cache.txt}"
+export KITE_ACCESS_TOKEN_CACHE="${KITE_ACCESS_TOKEN_CACHE:-${KITE_TOKEN_CACHE_FILE}}"
+export KITE_ALLOW_TOTP_LOGIN="${KITE_ALLOW_TOTP_LOGIN:-0}"
+
+mkdir -p "${KITE_TOKEN_CACHE_DIR}"
+
+exec python -m zerodha_equity_collector.azure_entrypoint "$@"

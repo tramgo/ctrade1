@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import sys
 import time
@@ -17,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover
     from backports.zoneinfo import ZoneInfo
 
-from .auth import get_kite_client, get_ticker, kite_call_with_retry
+from .auth import env_flag_enabled, get_kite_client, get_ticker, kite_call_with_retry, token_cache_candidates, token_cache_dir
 from .instruments import ResolvedInstrument, load_instruments, load_symbol_table, load_symbols, resolve_equities
 
 
@@ -48,6 +49,14 @@ def output_root(config: dict[str, Any]) -> Path:
         path = ROOT / path
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def kite_token_config_dir(config: dict[str, Any]) -> Path:
+    return token_cache_dir(Path(config["_config_dir"])) or Path(config["_config_dir"])
+
+
+def kite_allow_totp_login(default: str = "1") -> bool:
+    return env_flag_enabled("KITE_ALLOW_TOTP_LOGIN", default)
 
 
 def enforce_symbol_cap(config: dict[str, Any], symbol_table: pd.DataFrame) -> None:
@@ -143,7 +152,7 @@ def append_dedup_csv(path: Path, df: pd.DataFrame, keys: list[str]) -> None:
 
 
 def run_historical(config: dict[str, Any]) -> None:
-    kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+    kite = get_kite_client(config_dir=kite_token_config_dir(config), allow_login=kite_allow_totp_login())
     resolved = resolve_configured_instruments(kite, config)
     hist = config.get("historical", {})
     interval = hist.get("interval", "minute")
@@ -326,9 +335,11 @@ class LiveMinuteAggregator:
 
 
 def run_live(config: dict[str, Any]) -> None:
-    kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+    token_dir = kite_token_config_dir(config)
+    allow_login = kite_allow_totp_login()
+    kite = get_kite_client(config_dir=token_dir, allow_login=allow_login)
     resolved = resolve_configured_instruments(kite, config)
-    ticker = get_ticker(config_dir=Path(config["_config_dir"]))
+    ticker = get_ticker(config_dir=token_dir, allow_login=allow_login)
     aggregator = LiveMinuteAggregator(config, resolved)
     tokens = [item.instrument_token for item in resolved]
     mode_name = str(config.get("live", {}).get("mode", "quote")).lower()
@@ -367,7 +378,7 @@ def run_live(config: dict[str, Any]) -> None:
 
 
 def run_smoke(config: dict[str, Any]) -> None:
-    kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+    kite = get_kite_client(config_dir=kite_token_config_dir(config), allow_login=kite_allow_totp_login())
     profile = kite_call_with_retry(kite.profile)
     print(f"[smoke] profile ok: {profile.get('user_name', 'user')} ({profile.get('user_id', 'id')})")
 
@@ -391,6 +402,39 @@ def run_smoke(config: dict[str, Any]) -> None:
     print(f"[smoke] historical minute candles: {len(candles)} for {first.key}")
 
 
+def run_refresh_token(config: dict[str, Any]) -> None:
+    token_dir = kite_token_config_dir(config)
+    token_paths = token_cache_candidates(token_dir)
+    token_path = token_paths[0] if token_paths else token_dir / "access_token_cache.txt"
+    backup_path = token_path.with_suffix(token_path.suffix + ".bak")
+    for name in ("KITE_ACCESS_TOKEN", "ACCESS_TOKEN"):
+        os.environ.pop(name, None)
+    if token_path.exists():
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.replace(backup_path)
+    try:
+        kite = get_kite_client(config_dir=token_dir, allow_login=True)
+    except Exception:
+        if backup_path.exists() and not token_path.exists():
+            backup_path.replace(token_path)
+        raise
+    profile = kite_call_with_retry(kite.profile)
+    if backup_path.exists():
+        backup_path.unlink()
+    meta_path = token_path.with_name("access_token_cache.meta.json")
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "generated_utc": datetime.now(ZoneInfo("UTC")).isoformat(),
+        "generated_by": "refresh-token-job",
+        "kite_user_id": profile.get("user_id"),
+        "kite_user_name": profile.get("user_name"),
+        "token_cache_file": str(token_path),
+    }
+    meta_path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"[refresh-token] token cache -> {token_path}")
+    print(f"[refresh-token] metadata -> {meta_path}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Zerodha NSE/BSE equity minute collector")
     parser.add_argument(
@@ -400,6 +444,7 @@ def main(argv: list[str] | None = None) -> int:
             "live",
             "resolve",
             "smoke",
+            "refresh-token",
             "l2-live",
             "l2-audit",
             "l2-shakedown-report",
@@ -442,10 +487,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "live":
         run_live(config)
     elif args.command == "resolve":
-        kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+        kite = get_kite_client(config_dir=kite_token_config_dir(config), allow_login=kite_allow_totp_login())
         resolve_configured_instruments(kite, config)
     elif args.command == "smoke":
         run_smoke(config)
+    elif args.command == "refresh-token":
+        run_refresh_token(config)
     elif args.command == "l2-live":
         from .l2_collector import run_l2_live
 

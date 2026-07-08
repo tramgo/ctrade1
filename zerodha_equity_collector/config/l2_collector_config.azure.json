@@ -1,0 +1,37 @@
+{
+  "exchanges": ["NSE"],
+  "universe": "e1006_l2_restart",
+  "symbols_file": "l2_e1006_symbols.csv",
+  "output_dir": "/data",
+  "timezone": "Asia/Kolkata",
+  "market_session": {
+    "enabled": true,
+    "start": "09:10",
+    "end": "15:35",
+    "weekdays": [0, 1, 2, 3, 4],
+    "holidays_file": "nse_holidays.csv"
+  },
+  "l2": {
+    "mode": "full",
+    "flush_seconds": 10,
+    "max_buffer_rows": 25000,
+    "heartbeat_seconds": 60,
+    "compression": "zstd",
+    "reconnect_interval_seconds": 5,
+    "reconnect_tries": 50,
+    "tick_count_suspect_ratio": 0.60,
+    "rolling_median_days": 7,
+    "shakedown_min_stable_days": 15,
+    "shakedown_max_reconnect_gap_minutes_per_symbol_day": 5.0
+  },
+  "plan": {
+    "current_phase": "phase1_collector_shakedown",
+    "shakedown_calendar_days": 28,
+    "feature_work_allowed_before_shakedown_pass": false,
+    "vendor_l2_backfill_allowed": false,
+    "max_symbols_before_interim_gate": 33,
+    "interim_signal_readout_months": 9,
+    "interim_gap_ic_kill_below": 0.01,
+    "interim_gap_ic_continue_threshold": 0.02
+  }
+}

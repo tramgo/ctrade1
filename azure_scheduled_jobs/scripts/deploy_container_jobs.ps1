@@ -15,7 +15,9 @@ param(
     [string] $GeneratedOutputPaths = "results data",
     [int] $LogRetentionDays = 3,
     [int] $LogRetentionMinFiles = 6,
-    [string] $IdentityName = "id-ctrade1-jobs"
+    [string] $IdentityName = "id-ctrade1-jobs",
+    [string] $KiteTokenShareName = "ctrade1-kite-token",
+    [string] $KiteTokenStorageName = "ctrade1kitetoken"
 )
 
 $ErrorActionPreference = "Stop"
@@ -257,6 +259,34 @@ Invoke-Az storage share-rm create `
   --name $dataShareName `
   --quota 20 | Out-Null
 
+Invoke-Az storage share-rm create `
+  --resource-group $ResourceGroup `
+  --storage-account $StorageAccountName `
+  --name $KiteTokenShareName `
+  --quota 1 `
+  --access-tier TransactionOptimized | Out-Null
+
+$storageAccountId = Invoke-Az storage account show `
+  --resource-group $ResourceGroup `
+  --name $StorageAccountName `
+  --query id `
+  --output tsv
+
+$kiteTokenShareScope = "${storageAccountId}/fileServices/default/shares/${KiteTokenShareName}"
+$existingKiteTokenAssignments = Invoke-Az role assignment list `
+  --assignee $identity.principalId `
+  --role "Storage File Data SMB Share Contributor" `
+  --scope $kiteTokenShareScope `
+  --query "[].id" `
+  --output tsv
+
+if ([string]::IsNullOrWhiteSpace($existingKiteTokenAssignments)) {
+    Invoke-Az role assignment create `
+      --assignee $identity.principalId `
+      --role "Storage File Data SMB Share Contributor" `
+      --scope $kiteTokenShareScope | Out-Null
+}
+
 Invoke-Az containerapp env storage set `
   --name $EnvironmentName `
   --resource-group $ResourceGroup `
@@ -273,6 +303,15 @@ Invoke-Az containerapp env storage set `
   --azure-file-account-name $StorageAccountName `
   --azure-file-account-key $storageKey `
   --azure-file-share-name $dataShareName `
+  --access-mode ReadWrite | Out-Null
+
+Invoke-Az containerapp env storage set `
+  --name $EnvironmentName `
+  --resource-group $ResourceGroup `
+  --storage-name $KiteTokenStorageName `
+  --azure-file-account-name $StorageAccountName `
+  --azure-file-account-key $storageKey `
+  --azure-file-share-name $KiteTokenShareName `
   --access-mode ReadWrite | Out-Null
 
 $yamlTemplate = Get-Content (Join-Path $repoRoot "azure_scheduled_jobs\infra\containerapp-job.template.yaml") -Raw
@@ -347,7 +386,8 @@ Write-Host "Resource group: $ResourceGroup"
 Write-Host "Location: $Location"
 Write-Host "ACR: $AcrName"
 Write-Host "Managed identity: $IdentityName"
-Write-Host "Azure Files shares: $resultsShareName, $dataShareName"
+Write-Host "Azure Files shares: $resultsShareName, $dataShareName, $KiteTokenShareName"
+Write-Host "Container Apps token storage name: $KiteTokenStorageName"
 Write-Host "GitHub output push enabled: $($EnableGitHubOutputPush.IsPresent)"
 Write-Host "Run a smoke execution with:"
 Write-Host "az containerapp job start --name tb11-phase1-0940 --resource-group $ResourceGroup"

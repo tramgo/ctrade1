@@ -88,8 +88,39 @@ def get_totp_key() -> str:
     return value.strip()
 
 
+def env_flag_enabled(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "n", "off"}
+
+
+def token_cache_dir(default: Path | None = None) -> Path | None:
+    value = os.getenv("KITE_TOKEN_CACHE_DIR") or os.getenv("ZERODHA_TOKEN_CACHE_DIR")
+    if value:
+        return Path(value)
+    return default
+
+
+def shared_token_cache_configured() -> bool:
+    return bool(
+        os.getenv("KITE_TOKEN_CACHE_FILE")
+        or os.getenv("KITE_TOKEN_CACHE_DIR")
+        or os.getenv("ZERODHA_TOKEN_CACHE_DIR")
+    )
+
+
 def token_cache_candidates(config_dir: Path | None = None) -> list[Path]:
     candidates = []
+    env_cache = (
+        os.getenv("KITE_TOKEN_CACHE_FILE")
+        or os.getenv("KITE_ACCESS_TOKEN_CACHE")
+        or os.getenv("ZERODHA_ACCESS_TOKEN_CACHE")
+    )
+    if env_cache:
+        candidates.append(Path(env_cache))
+    env_cache_dir = token_cache_dir()
+    if env_cache_dir is not None:
+        candidates.append(env_cache_dir / "access_token_cache.txt")
+    if candidates and shared_token_cache_configured():
+        return candidates
     if config_dir is not None:
         candidates.append(config_dir / "access_token_cache.txt")
     candidates.extend(
@@ -102,9 +133,10 @@ def token_cache_candidates(config_dir: Path | None = None) -> list[Path]:
 
 
 def load_cached_access_token(config_dir: Path | None = None) -> str | None:
-    env_token = os.getenv("KITE_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
-    if env_token:
-        return env_token.strip()
+    if not shared_token_cache_configured():
+        env_token = os.getenv("KITE_ACCESS_TOKEN") or os.getenv("ACCESS_TOKEN")
+        if env_token:
+            return env_token.strip()
 
     for path in token_cache_candidates(config_dir):
         if path.exists():
@@ -120,6 +152,20 @@ def save_access_token(token: str, config_dir: Path | None = None) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(token.strip(), encoding="utf-8")
     return path
+
+
+def remember_access_token(token: str) -> None:
+    cleaned = token.strip()
+    if cleaned:
+        os.environ["KITE_ACCESS_TOKEN"] = cleaned
+        os.environ["ACCESS_TOKEN"] = cleaned
+
+
+def forget_env_access_token(token: str) -> None:
+    cleaned = token.strip()
+    for name in ("KITE_ACCESS_TOKEN", "ACCESS_TOKEN"):
+        if os.getenv(name, "").strip() == cleaned:
+            os.environ.pop(name, None)
 
 
 def kite_call_with_retry(func, *args, **kwargs):
@@ -186,6 +232,7 @@ def generate_access_token(kite) -> str:
         captcha_required = isinstance(payload_data, dict) and bool(payload_data.get("captcha"))
         if captcha_required or "captcha" in message_text:
             request_token = prompt_manual_request_token(login_url)
+            print("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, request_token, api_secret=get_api_secret())
             return data["access_token"]
         raise RuntimeError(f"Login failed before request_id. status={login_resp.status_code}, payload={login_payload}")
@@ -210,6 +257,7 @@ def generate_access_token(kite) -> str:
         qs = parse_qs(parsed.query)
         if "request_token" in qs:
             request_token = qs["request_token"][0]
+            print("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, request_token, api_secret=get_api_secret())
             return data["access_token"]
         if not location:
@@ -235,6 +283,7 @@ def get_kite_client(config_dir: Path | None = None, allow_login: bool = True):
             return kite
         except Exception as exc:
             print(f"[kite] cached token invalid or expired: {exc}")
+            forget_env_access_token(cached_token)
 
     if not allow_login:
         raise RuntimeError("No valid cached access token and allow_login=False.")
@@ -245,6 +294,7 @@ def get_kite_client(config_dir: Path | None = None, allow_login: bool = True):
             kite.set_access_token(token)
             profile = kite_call_with_retry(kite.profile)
             save_path = save_access_token(token, config_dir=config_dir)
+            remember_access_token(token)
             print(f"[kite] logged in as {profile.get('user_name', 'user')} ({profile.get('user_id', 'id')}); token cached at {save_path}")
             return kite
         except Exception as exc:
@@ -255,8 +305,8 @@ def get_kite_client(config_dir: Path | None = None, allow_login: bool = True):
     return kite
 
 
-def get_valid_access_token(config_dir: Path | None = None) -> str:
-    kite = get_kite_client(config_dir=config_dir)
+def get_valid_access_token(config_dir: Path | None = None, allow_login: bool = True) -> str:
+    kite = get_kite_client(config_dir=config_dir, allow_login=allow_login)
     token = getattr(kite, "access_token", None)
     if not token:
         token = load_cached_access_token(config_dir)
@@ -265,11 +315,11 @@ def get_valid_access_token(config_dir: Path | None = None) -> str:
     return str(token)
 
 
-def get_ticker(config_dir: Path | None = None):
+def get_ticker(config_dir: Path | None = None, allow_login: bool = True):
     load_default_env_files(config_dir)
     try:
         from kiteconnect import KiteTicker
     except ImportError as exc:
         raise RuntimeError("Install kiteconnect: python -m pip install kiteconnect") from exc
 
-    return KiteTicker(get_api_key(), get_valid_access_token(config_dir=config_dir))
+    return KiteTicker(get_api_key(), get_valid_access_token(config_dir=config_dir, allow_login=allow_login))

@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover
 
 from .auth import get_kite_client, get_ticker
 from .auth import kite_call_with_retry
-from .collector import load_config, output_root, resolve_configured_instruments
+from .collector import kite_allow_totp_login, kite_token_config_dir, load_config, output_root, resolve_configured_instruments
 from .collector import config_path
 from .collector import enforce_symbol_cap
 from .instruments import ResolvedInstrument
@@ -460,9 +460,11 @@ def run_l2_live(
             f"reason={session['reason']} now={session['now_local']}. "
             "Use --allow-outside-session for an intentional connectivity test."
         )
-    kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+    token_dir = kite_token_config_dir(config)
+    allow_login = kite_allow_totp_login()
+    kite = get_kite_client(config_dir=token_dir, allow_login=allow_login)
     resolved = resolve_configured_instruments(kite, config)
-    ticker = get_ticker(config_dir=Path(config["_config_dir"]))
+    ticker = get_ticker(config_dir=token_dir, allow_login=allow_login)
     collector = L2DepthCollector(config, resolved)
 
     if hasattr(ticker, "enable_reconnect"):
@@ -906,7 +908,7 @@ def run_l2_preflight(config: dict[str, Any]) -> pd.DataFrame:
         add_check("output_dir_writable", False, str(exc))
 
     try:
-        kite = get_kite_client(config_dir=Path(config["_config_dir"]))
+        kite = get_kite_client(config_dir=kite_token_config_dir(config), allow_login=kite_allow_totp_login())
         profile = kite_call_with_retry(kite.profile)
         add_check("kite_profile", True, f"{profile.get('user_name', 'user')} ({profile.get('user_id', 'id')})")
     except Exception as exc:
