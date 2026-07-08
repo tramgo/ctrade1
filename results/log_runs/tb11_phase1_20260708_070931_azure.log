@@ -1,10 +1,9 @@
-[AzureJob] started_utc=20260708_070114
+[AzureJob] started_utc=20260708_070931
 [AzureJob] job_kind=phase1
 [AzureJob] app_dir=/app
 Python 3.13.14
 [AzureJob] running mode=signal_baseline_tb11_options_phase1_auto_quote_observation
-[Attempt 1] Getting access token...
-[Success] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
+[Cached] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
 [TB11-T25] template saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
 [TB11-T25] unresolved saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260708.csv
 [TB11-T25] summary saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
@@ -27,14 +26,3 @@ Python 3.13.14
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 [AzureJob] pruning logs older than 3 day(s), preserving at least 6 per pattern
 Cloning into '/tmp/ctrade1-output-push'...
-[AzureJob] staged generated path results
-[AzureJob] staged generated path data
-[main 7cad9d0] Record Azure scheduled job outputs
- 22 files changed, 91 insertions(+), 29 deletions(-)
- create mode 100644 results/log_runs/run_20260708_070119/main.log
- create mode 100644 results/log_runs/run_20260708_070129/main.log
- create mode 100644 results/log_runs/run_20260708_070134/main.log
- create mode 100644 results/log_runs/tb11_phase1_20260708_070114_azure.log
-To https://github.com/tramgo/ctrade1.git
-   e40ec4e..7cad9d0  main -> main
-[AzureJob] completed_utc=20260708_070145

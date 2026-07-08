@@ -1,6 +1,6 @@
-2026-07-08 07:01:34,426 - DEBUG - Stable Baselines3 version: 2.9.0
-2026-07-08 07:01:34,468 - DEBUG - Gymnasium version: 1.3.0
-2026-07-08 07:01:34,473 - DEBUG - Optuna version: 4.9.0
-2026-07-08 07:01:34,640 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase2_transition_controller
-2026-07-08 07:01:34,643 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
-2026-07-08 07:01:34,652 - INFO - Starting TB11 Phase 2 transition controller. This writes the Phase 2 runbook and advances state only after all no-order gates pass.
+2026-07-08 07:09:48,901 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-07-08 07:09:48,937 - DEBUG - Gymnasium version: 1.3.0
+2026-07-08 07:09:48,941 - DEBUG - Optuna version: 4.9.0
+2026-07-08 07:09:49,231 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase2_transition_controller
+2026-07-08 07:09:49,233 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-07-08 07:09:49,237 - INFO - Starting TB11 Phase 2 transition controller. This writes the Phase 2 runbook and advances state only after all no-order gates pass.
