@@ -125,6 +125,20 @@ def save_access_token(token: str, config_dir: Path | None = None) -> Path:
     return path
 
 
+def remember_access_token(token: str) -> None:
+    cleaned = token.strip()
+    if cleaned:
+        os.environ["KITE_ACCESS_TOKEN"] = cleaned
+        os.environ["ACCESS_TOKEN"] = cleaned
+
+
+def forget_env_access_token(token: str) -> None:
+    cleaned = token.strip()
+    for name in ("KITE_ACCESS_TOKEN", "ACCESS_TOKEN"):
+        if os.getenv(name, "").strip() == cleaned:
+            os.environ.pop(name, None)
+
+
 def kite_call_with_retry(func, *args, **kwargs):
     last_error: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
@@ -238,6 +252,7 @@ def get_kite_client(config_dir: Path | None = None, allow_login: bool = True):
             return kite
         except Exception as exc:
             print(f"[kite] cached token invalid or expired: {exc}")
+            forget_env_access_token(cached_token)
 
     if not allow_login:
         raise RuntimeError("No valid cached access token and allow_login=False.")
@@ -248,6 +263,7 @@ def get_kite_client(config_dir: Path | None = None, allow_login: bool = True):
             kite.set_access_token(token)
             profile = kite_call_with_retry(kite.profile)
             save_path = save_access_token(token, config_dir=config_dir)
+            remember_access_token(token)
             print(f"[kite] logged in as {profile.get('user_name', 'user')} ({profile.get('user_id', 'id')}); token cached at {save_path}")
             return kite
         except Exception as exc:

@@ -157,6 +157,15 @@ Verified on 2026-07-07:
 
 The 30-minute `l2-live` Parquet proof still needs to be run during Indian market hours. The July 7 verification was after market close, so `l2-preflight` was the correct non-market proof.
 
+Verified on 2026-07-08 during market hours:
+
+- Initial `l2-live` start exposed a stale optional Key Vault `access-token`; the container refreshed successfully but later client creation still preferred the stale environment token.
+- Auth was patched to drop invalid environment tokens and promote the freshly generated token inside the process.
+- ACR remote build `ctb` produced pinned tag `20260708-1115-authfix` with digest `sha256:30ca339dc9812cf5dcf44d3598c6ad92bbca2d2101e28815e42bf3304e5cd328`.
+- Manual ACI `12-c011ector-live-20260708` ran the patched image, connected to Kite WebSocket in `full` mode, subscribed to `32` instruments, and stayed running past the 30-minute proof mark with restart count `0`.
+- Heartbeat advanced from `11:13` IST through at least `11:43` IST with `is_market_open=True`, `active_symbols=32`, and cumulative tick count rising to `48391`.
+- Parquet parts were written under `raw_l2/trade_date=2026-07-08/exchange=NSE/`, including HDFCBANK parts through at least `11:44:04` IST.
+
 ## Alerts
 
 Only two alerts are intended for phase one:
