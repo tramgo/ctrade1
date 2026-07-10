@@ -1,0 +1,6 @@
+2026-07-10 09:16:12,003 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-07-10 09:16:12,042 - DEBUG - Gymnasium version: 1.3.0
+2026-07-10 09:16:12,048 - DEBUG - Optuna version: 4.9.0
+2026-07-10 09:16:12,624 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase1_auto_quote_observation
+2026-07-10 09:16:12,626 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-07-10 09:16:12,632 - INFO - Starting TB11 Phase 1 automated quote observation. This runs T25, T24, and T26 sequentially with broker orders blocked.

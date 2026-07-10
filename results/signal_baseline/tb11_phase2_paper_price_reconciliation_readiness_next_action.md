@@ -1,13 +1,13 @@
 # TB11 Phase 2 Paper-Price Reconciliation Readiness
 
-- Status: `phase2_reconciliation_not_yet_complete`
+- Status: `phase2_paper_price_reconciliation_ready`
 - T28 freshness gate passed: `True`
 - T28 fresh quote rows: `100`
-- selected legs covered by T28 band: `3` / `4`
-- Phase 1 clean observations: `24` / `15` target
-- latest Phase 1 weighted credit: `8.399999999999999`
+- selected legs covered by T28 band: `4` / `4`
+- Phase 1 clean observations: `25` / `15` target
+- latest Phase 1 weighted credit: `8.475000000000001`
 - live modeled credit available: `True`
 - broker-block violations: `0`
-- blockers: `t28_chain_band_missing_selected_long_wing_coverage`
+- blockers: `none`
 
-Next action: Keep Phase 2 no-order; clear the listed readiness blockers before opening paper-price reconciliation.
+Next action: Open no-order Phase 2 paper-price reconciliation runbook and continue scheduled evidence collection.
