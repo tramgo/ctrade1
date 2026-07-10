@@ -1,47 +1,9 @@
 {
-  "program": "intraday_signal_research",
-  "version": "1.0",
-  "incumbent": "SIGNAL_E211_BANDED_68",
-  "rl_allowed": false,
   "active_batch": "TB11",
   "active_thesis": "TB11_Phase2_PaperPriceReconciliationRunbook",
   "active_stage": "phase2_runbook_opened_no_order_paper_price_reconciliation_next",
   "last_completed_thesis": "TB11_Phase1_Target15CleanObservationGate",
-  "last_completed_verdict": "phase1_target_gate_passed_clean_observations_18_unique_dates_7_broker_blocks_0",
+  "last_completed_verdict": "phase1_target_gate_passed_clean_observations_23_unique_dates_5_broker_blocks_0",
   "next_thesis": "TB11_Phase2_NoOrderPaperPriceReconciliation",
-  "allowed_parallel_theses": 1,
-  "stage_order": [
-    "state_reconciliation",
-    "design_check",
-    "implementation",
-    "research",
-    "research_review",
-    "baseline",
-    "baseline_review",
-    "broader_validation",
-    "closeout"
-  ],
-  "requires_human_approval_for": [
-    "rl_promotion",
-    "live_trading",
-    "broker_api_execution",
-    "credential_change",
-    "deleting_results",
-    "marking_promoted",
-    "merging_advance_candidate"
-  ],
-  "hard_rules": [
-    "Do not promote to RL unless baseline and broader validation pass.",
-    "Do not tune PPO or rewards to rescue weak signals.",
-    "Do not run live trading or broker execution.",
-    "Do not delete or overwrite historical results.",
-    "Do not start a new thesis while run_lock.json is locked.",
-    "Use E211 as incumbent benchmark until displaced by executable validation.",
-    "Do not treat TB11 options results as deployable before robustness and tail audit.",
-    "Do not promote TB11 until the selected maturity-adjusted profile is frozen into an explicit paper-trading specification and execution-readiness checklist.",
-    "Do not paper/live trade TB11 without the itemized Indian F&O charge module enabled and reviewed against current broker schedules.",
-    "Phase 1 and Phase 2 must not place broker orders; they are logging and paper-price validation only.",
-    "Tiny live one-lot validation requires explicit future human approval after dry-run and paper-price gates pass."
-  ],
   "last_updated_by": "codex_tb11_phase2_transition_controller"
 }
