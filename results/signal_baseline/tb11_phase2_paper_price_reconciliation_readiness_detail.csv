@@ -1,5 +1,5 @@
 leg_key,side,tradingsymbol,present_in_t28_chain_band,bid,ask,quote_age_seconds,spread_pct
-def_short_call,sell,NIFTY2671424800CE,True,1.45,1.5,0.56503,0.0338983050847457
-def_short_put,sell,NIFTY2671423350PE,True,3.3,3.35,0.56503,0.0150375939849624
-def_long_call,buy,NIFTY2671426000CE,True,0.55,0.6,6.56503,0.0869565217391303
-def_long_put,buy,NIFTY2671422150PE,True,0.95,1.0,0.56503,0.0512820512820513
+def_short_call,sell,NIFTY2671424900CE,True,1.25,1.3,1.56503,0.0392156862745098
+def_short_put,sell,NIFTY2671423450PE,True,4.15,4.2,1.56503,0.0119760479041915
+def_long_call,buy,NIFTY2671426100CE,False,,,,
+def_long_put,buy,NIFTY2671422250PE,False,,,,
