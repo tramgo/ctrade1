@@ -1,0 +1,23 @@
+{
+  "commands": "[{\"command\":\"l2-live\",\"exit_code\":0,\"started_utc\":\"2026-07-14T03:41:31.330487+00:00\",\"completed_utc\":\"2026-07-14T10:05:01.612604+00:00\",\"duration_seconds\":23010.282}]",
+  "completed_utc": "2026-07-14T10:05:01.612687+00:00",
+  "duration_seconds": 23010.282,
+  "exit_code": 0,
+  "heartbeat_file": "/data/heartbeat/heartbeat_2026-07-14.csv",
+  "heartbeat_rows": 374,
+  "latest_heartbeat_ist": "2026-07-14T15:34:59.647301+05:30",
+  "latest_heartbeat_utc": "2026-07-14T10:04:59.647301+00:00",
+  "mode": "l2-live",
+  "raw_l2_parquet_files": 49732,
+  "raw_l2_symbol_dirs": 32,
+  "raw_l2_trade_date": "2026-07-14",
+  "run_date_ist": "2026-07-14",
+  "run_timestamp_utc": "20260714_034131",
+  "started_utc": "2026-07-14T03:41:31.330308+00:00",
+  "status": "succeeded",
+  "ticks_since_start": "631316",
+  "token_cache_mtime_utc": "2026-07-14T03:00:34.556102+00:00",
+  "token_cache_path": "/kite-token/access_token_cache.txt",
+  "token_cache_present": true,
+  "token_cache_size_bytes": 32
+}
