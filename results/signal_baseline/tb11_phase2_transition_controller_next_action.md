@@ -2,16 +2,16 @@
 
 - Status: `blocked_phase1_transition_gate_not_met`
 - Transition passed: `False`
-- Phase 1 collection date: `2026-07-13`
+- Phase 1 collection date: `2026-07-14`
 - readiness collection date: `2026-07-13`
-- clean observations: `28` / `15`
-- unique observation dates: `6` / `5`
+- clean observations: `29` / `15`
+- unique observation dates: `7` / `5`
 - Phase 1 evidence gate passed: `True`
 - readiness Phase 2 gate passed: `True`
-- selected leg coverage: `2` / `4`
+- selected leg coverage: `4` / `4`
 - modeled credit available: `True`
 - broker-block violations: `0`
-- blockers: `t28_selected_leg_full_coverage_not_passed`
+- blockers: `readiness_collection_date_mismatch`
 - runbook written: `False`
 - automation state advanced: `False`
 
