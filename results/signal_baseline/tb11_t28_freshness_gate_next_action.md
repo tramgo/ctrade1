@@ -2,12 +2,12 @@
 
 - Gate status: `phase2_paper_price_reconciliation_ready`
 - Phase 2 gate passed: `True`
-- Quote packets received: `98`
-- Fresh quote rows: `98`
-- CE / PE rows: `49` / `49`
+- Quote packets received: `100`
+- Fresh quote rows: `100`
+- CE / PE rows: `50` / `50`
 - Unresolved rows: `0`
 - Broker-block violations: `0`
-- Median quote age seconds: `0.828973`
-- Max quote age seconds: `5.828973`
+- Median quote age seconds: `0.785482`
+- Max quote age seconds: `8.785482`
 
 Next action: Open TB11 Phase 2 paper-price reconciliation with broker orders blocked.
