@@ -1,2 +1,2 @@
 collection_date_ist,resolver_status,resolved_legs,collector_status,quote_packets_received,captured_rows,ledger_status,clean_observations,remaining_clean_observations_to_min_gate,broker_orders_allowed,automation_status
-2026-07-16,resolved_current_nfo_legs,8,captured_quotes,4,1,phase1_min_observation_count_reached,37,0,False,completed_no_order
+2026-07-17,resolved_current_nfo_legs,8,captured_quotes,4,1,phase1_min_observation_count_reached,38,0,False,completed_no_order
