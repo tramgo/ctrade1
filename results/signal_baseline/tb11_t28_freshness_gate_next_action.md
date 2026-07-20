@@ -7,7 +7,7 @@
 - CE / PE rows: `49` / `49`
 - Unresolved rows: `0`
 - Broker-block violations: `0`
-- Median quote age seconds: `1.668354`
-- Max quote age seconds: `8.668354`
+- Median quote age seconds: `1.815293`
+- Max quote age seconds: `11.815293`
 
 Next action: Open TB11 Phase 2 paper-price reconciliation with broker orders blocked.
