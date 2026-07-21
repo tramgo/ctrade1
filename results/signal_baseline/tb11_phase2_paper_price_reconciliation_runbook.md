@@ -1,11 +1,11 @@
 # TB11 Phase 2 Paper-Price Reconciliation Runbook
 
-Generated at IST: `2026-07-20T14:46:26.055241+05:30`
+Generated at IST: `2026-07-21T09:46:25.755959+05:30`
 
 ## Gate Evidence
 
-- Phase 1 clean observations: `43` / `15`
-- unique observation dates: `11`
+- Phase 1 clean observations: `44` / `15`
+- unique observation dates: `12`
 - Phase 1 evidence gate passed: `True`
 - broker-block violations: `0`
 - T28 selected-leg coverage: `4` / `4`
