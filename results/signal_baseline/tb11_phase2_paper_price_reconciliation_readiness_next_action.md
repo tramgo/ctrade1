@@ -5,7 +5,7 @@
 - T28 fresh quote rows: `98`
 - selected legs covered by T28 band: `4` / `4`
 - Phase 1 clean observations: `45` / `15` target
-- latest Phase 1 weighted credit: `0.6749999999999998`
+- latest Phase 1 weighted credit: `0.1499999999999999`
 - live modeled credit available: `True`
 - broker-block violations: `0`
 - blockers: `none`
