@@ -1,2 +1,2 @@
 collection_date_ist,latest_capture_rows,latest_clean_observations,ledger_rows,clean_observations,unique_observation_dates,broker_block_violations,mean_observed_weighted_credit_points,min_observed_weighted_credit_points,max_leg_spread_pct_seen,phase1_required_clean_observations,phase1_target_clean_observations,phase1_evidence_gate_passed,remaining_clean_observations_to_min_gate,ledger_status
-2026-07-21,1,1,45,44,12,0,9.830113636363638,0.0,0.3999999999999999,10,15,True,0,phase1_min_observation_count_reached
+2026-07-21,1,1,46,45,12,0,9.626666666666669,0.0,0.3999999999999999,10,15,True,0,phase1_min_observation_count_reached
