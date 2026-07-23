@@ -1,2 +1,2 @@
 output_prefix,generated_at_ist,collection_date_ist,underlying,spot_instrument,max_days_to_expiry,band_pct,stale_quote_seconds,max_leg_spread_pct,mode_scope,note
-tb11_nifty_chain_band_quote_collector,2026-07-22T09:46:09.158067+05:30,2026-07-22,NIFTY,NSE:NIFTY 50,8,0.05,300.0,0.5,tb11_t28_nifty_chain_band_quote_collector_no_order,Current-expiry NIFTY chain-band quote collector. Quote-only; broker orders remain blocked.
+tb11_nifty_chain_band_quote_collector,2026-07-23T09:46:43.532718+05:30,2026-07-23,NIFTY,NSE:NIFTY 50,8,0.05,300.0,0.5,tb11_t28_nifty_chain_band_quote_collector_no_order,Current-expiry NIFTY chain-band quote collector. Quote-only; broker orders remain blocked.
