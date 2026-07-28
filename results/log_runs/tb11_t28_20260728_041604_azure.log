@@ -1,0 +1,27 @@
+[AzureJob] started_utc=20260728_041604
+[AzureJob] job_kind=t28
+[AzureJob] app_dir=/app
+Python 3.13.14
+[AzureJob] running mode=signal_baseline_tb11_options_nifty_chain_band_quote_collector
+[Cached] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
+[TB11-T28] detail saved: /app/results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260728.csv
+[TB11-T28] unresolved saved: /app/results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260728.csv
+[TB11-T28] summary saved: /app/results/signal_baseline/tb11_nifty_chain_band_quote_collector_summary.csv
+[AzureJob] mode=signal_baseline_tb11_options_nifty_chain_band_quote_collector exit=0
+[AzureJob] running mode=signal_baseline_tb11_options_t28_freshness_gate
+[TB11-T28-GATE] summary saved: /app/results/signal_baseline/tb11_t28_freshness_gate_summary.csv
+[TB11-T28-GATE] next action saved: /app/results/signal_baseline/tb11_t28_freshness_gate_next_action.md
+[AzureJob] mode=signal_baseline_tb11_options_t28_freshness_gate exit=0
+[AzureJob] running mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+[TB11-PHASE2-READINESS] detail saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv
+[TB11-PHASE2-READINESS] summary saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_summary.csv
+[TB11-PHASE2-READINESS] next action saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_next_action.md
+[AzureJob] mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness exit=0
+[AzureJob] running mode=signal_baseline_tb11_options_phase2_transition_controller
+[TB11-PHASE2-TRANSITION] summary saved: /app/results/signal_baseline/tb11_phase2_transition_controller_summary.csv
+[TB11-PHASE2-TRANSITION] next action saved: /app/results/signal_baseline/tb11_phase2_transition_controller_next_action.md
+[TB11-PHASE2-TRANSITION] runbook saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_runbook.md
+[TB11-PHASE2-TRANSITION] closeout memo saved: /app/results/signal_baseline/tb11_phase1_to_phase2_transition_closeout_memo.md
+[AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
+[AzureJob] pruning logs older than 3 day(s), preserving at least 6 per pattern
+Cloning into '/tmp/ctrade1-output-push'...
