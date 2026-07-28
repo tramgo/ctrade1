@@ -1,2 +1,2 @@
 output_prefix,collection_date_ist,selected_allocation,growth_strategy,defensive_strategy,lot_size,short_call_offset,short_put_offset,wing_width_pct,max_days_to_expiry,mode_scope,note
-tb11_options_current_nfo_leg_resolver,2026-07-27,def_full_resg0_ovg50,TB11_T07_h15_c1,TB11_T09_low_loss_h15_c1,65,0.03,0.03,0.05,8,tb11_phase1_current_nfo_leg_resolver_quote_only,Resolves current NIFTY NFO symbols for Phase 1 observation only. No broker orders are placed or authorized.
+tb11_options_current_nfo_leg_resolver,2026-07-28,def_full_resg0_ovg50,TB11_T07_h15_c1,TB11_T09_low_loss_h15_c1,65,0.03,0.03,0.05,8,tb11_phase1_current_nfo_leg_resolver_quote_only,Resolves current NIFTY NFO symbols for Phase 1 observation only. No broker orders are placed or authorized.
