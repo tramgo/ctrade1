@@ -25,3 +25,17 @@ Python 3.13.14
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 [AzureJob] pruning logs older than 3 day(s), preserving at least 6 per pattern
 Cloning into '/tmp/ctrade1-output-push'...
+[AzureJob] staged generated path results
+[AzureJob] staged generated path data
+[main 867c917] Record Azure scheduled job outputs
+ 25 files changed, 203 insertions(+), 38 deletions(-)
+ create mode 100644 results/log_runs/run_20260728_041609/main.log
+ create mode 100644 results/log_runs/run_20260728_041617/main.log
+ create mode 100644 results/log_runs/run_20260728_041622/main.log
+ create mode 100644 results/log_runs/run_20260728_041627/main.log
+ create mode 100644 results/log_runs/tb11_t28_20260728_041604_azure.log
+ create mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_detail_20260728.csv
+ create mode 100644 results/signal_baseline/tb11_nifty_chain_band_quote_collector_unresolved_20260728.csv
+To https://github.com/tramgo/ctrade1.git
+   71cd80d..867c917  main -> main
+[AzureJob] completed_utc=20260728_041634
