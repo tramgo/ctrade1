@@ -2,10 +2,10 @@
 
 - Status: `phase2_runbook_opened_state_advanced`
 - Transition passed: `True`
-- Phase 1 collection date: `2026-07-31`
-- readiness collection date: `2026-07-31`
-- clean observations: `69` / `15`
-- unique observation dates: `20` / `5`
+- Phase 1 collection date: `2026-08-03`
+- readiness collection date: `2026-08-03`
+- clean observations: `70` / `15`
+- unique observation dates: `21` / `5`
 - Phase 1 evidence gate passed: `True`
 - readiness Phase 2 gate passed: `True`
 - selected leg coverage: `4` / `4`
