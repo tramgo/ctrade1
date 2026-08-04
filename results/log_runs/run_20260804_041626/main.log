@@ -1,0 +1,6 @@
+2026-08-04 04:16:20,697 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-08-04 04:16:20,731 - DEBUG - Gymnasium version: 1.3.0
+2026-08-04 04:16:20,735 - DEBUG - Optuna version: 4.9.0
+2026-08-04 04:16:21,079 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
+2026-08-04 04:16:21,081 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-08-04 04:16:21,085 - INFO - Starting TB11 Phase 2 paper-price reconciliation readiness. This checks fresh T28, Phase 1, and selected-leg coverage while keeping broker orders blocked.
