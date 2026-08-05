@@ -1,5 +1,5 @@
 leg_key,side,tradingsymbol,present_in_t28_chain_band,bid,ask,quote_age_seconds,spread_pct,selected_leg_symbol_source
-def_short_call,sell,NIFTY2680425350CE,True,0.55,0.6,1.014925,0.0869565217391303,t28_selected_profile_snapshot
-def_short_put,sell,NIFTY2680423850PE,True,0.75,0.8,1.014925,0.0645161290322581,t28_selected_profile_snapshot
-def_long_call,buy,NIFTY2680426600CE,True,0.3,0.35,3.014925,0.1538461538461538,t28_selected_profile_snapshot
-def_long_put,buy,NIFTY2680422650PE,True,0.35,0.4,8.014925,0.1333333333333334,t28_selected_profile_snapshot
+def_short_call,sell,NIFTY2681125350CE,True,4.65,4.7,2.601618,0.0106951871657753,t28_selected_profile_snapshot
+def_short_put,sell,NIFTY2681123900PE,True,7.7,7.75,1.601618,0.006472491909385,t28_selected_profile_snapshot
+def_long_call,buy,NIFTY2681126600CE,True,0.8,0.9,3.601618,0.1176470588235293,t28_selected_profile_snapshot
+def_long_put,buy,NIFTY2681122650PE,True,1.55,1.65,8.601618,0.0624999999999999,t28_selected_profile_snapshot
