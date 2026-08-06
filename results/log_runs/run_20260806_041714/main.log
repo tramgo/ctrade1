@@ -1,0 +1,6 @@
+2026-08-06 04:17:09,081 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-08-06 04:17:09,118 - DEBUG - Gymnasium version: 1.3.0
+2026-08-06 04:17:09,123 - DEBUG - Optuna version: 4.9.0
+2026-08-06 04:17:09,511 - INFO - Resolved execution mode: signal_baseline_tb11_options_t28_freshness_gate
+2026-08-06 04:17:09,514 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-08-06 04:17:09,519 - INFO - Starting TB11 T28 freshness gate. This reads chain-band artifacts and blocks Phase 2 unless fresh no-order quotes exist.
