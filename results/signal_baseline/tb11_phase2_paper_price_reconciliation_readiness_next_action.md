@@ -4,8 +4,8 @@
 - T28 freshness gate passed: `True`
 - T28 fresh quote rows: `100`
 - selected legs covered by T28 band: `4` / `4`
-- Phase 1 clean observations: `81` / `15` target
-- latest Phase 1 weighted credit: `8.55`
+- Phase 1 clean observations: `82` / `15` target
+- latest Phase 1 weighted credit: `8.625`
 - live modeled credit available: `True`
 - broker-block violations: `0`
 - blockers: `none`
