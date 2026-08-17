@@ -1,10 +1,10 @@
 # TB11 Phase 2 Paper-Price Reconciliation Runbook
 
-Generated at IST: `2026-08-17T12:31:47.162471+05:30`
+Generated at IST: `2026-08-17T13:17:50.313588+05:30`
 
 ## Gate Evidence
 
-- Phase 1 clean observations: `98` / `15`
+- Phase 1 clean observations: `99` / `15`
 - unique observation dates: `31`
 - Phase 1 evidence gate passed: `True`
 - broker-block violations: `0`
@@ -20,8 +20,10 @@ Generated at IST: `2026-08-17T12:31:47.162471+05:30`
 ## Reconciliation Tolerances
 
 - Compare observed weighted credit against live mid-quote modeled credit recorded by the Phase 1 row.
+- Require the Phase 1 observation to precede the T28 snapshot by no more than 15 minutes.
 - Maintain the existing 10% and 15% adverse tolerance flags.
 - Treat any row outside 15% adverse tolerance as review-required, not as a paper pass.
+- Collect at least 15 same-window observations across at least 10 dates and 90 calendar days before human review.
 
 ## Divergence Escalation
 
@@ -44,6 +46,8 @@ Generated at IST: `2026-08-17T12:31:47.162471+05:30`
 - `tb11_t28_freshness_gate_summary.csv`
 - `tb11_phase2_paper_price_reconciliation_readiness_summary.csv`
 - `tb11_phase2_paper_price_reconciliation_runbook.md`
+- `tb11_phase2_no_order_paper_price_reconciliation_summary.csv`
+- `tb11_phase2_no_order_paper_price_reconciliation_ledger.csv`
 
 ## Broker-Block Reaffirmation
 
