@@ -13,12 +13,14 @@ GITHUB_COMMIT_EMAIL="${GITHUB_COMMIT_EMAIL:-ctrade1-azure-jobs@users.noreply.git
 GENERATED_OUTPUT_PATHS="${GENERATED_OUTPUT_PATHS:-results data}"
 LOG_RETENTION_DAYS="${LOG_RETENTION_DAYS:-3}"
 LOG_RETENTION_MIN_FILES="${LOG_RETENTION_MIN_FILES:-6}"
+GENERATED_OUTPUT_EXCLUDE_PATTERNS="${GENERATED_OUTPUT_EXCLUDE_PATTERNS:-*.tmp *.tmp.*}"
 
 PHASE1_MODE="signal_baseline_tb11_options_phase1_auto_quote_observation"
 COLLECTOR_MODE="signal_baseline_tb11_options_nifty_chain_band_quote_collector"
 GATE_MODE="signal_baseline_tb11_options_t28_freshness_gate"
 READINESS_MODE="signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness"
 TRANSITION_MODE="signal_baseline_tb11_options_phase2_transition_controller"
+RECON_MODE="signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation"
 
 mkdir -p "${LOG_DIR}"
 cd "${APP_DIR}"
@@ -93,9 +95,30 @@ push_generated_outputs() {
         if [[ -e "${APP_DIR}/${relative_path}" ]]; then
             if [[ -d "${APP_DIR}/${relative_path}" ]]; then
                 mkdir -p "${work_dir}/${relative_path}"
-                cp -a "${APP_DIR}/${relative_path}/." "${work_dir}/${relative_path}/"
+                local tar_excludes=()
+                local exclude_pattern
+                for exclude_pattern in ${GENERATED_OUTPUT_EXCLUDE_PATTERNS}; do
+                    tar_excludes+=(--exclude="${exclude_pattern}")
+                done
+                tar "${tar_excludes[@]}" -C "${APP_DIR}/${relative_path}" -cf - . \
+                    | tar -C "${work_dir}/${relative_path}" -xf -
             else
                 mkdir -p "${work_dir}/$(dirname "${relative_path}")"
+                local base_name
+                base_name="$(basename "${relative_path}")"
+                local skip_file=0
+                local exclude_pattern
+                for exclude_pattern in ${GENERATED_OUTPUT_EXCLUDE_PATTERNS}; do
+                    case "${base_name}" in
+                        ${exclude_pattern})
+                            skip_file=1
+                            ;;
+                    esac
+                done
+                if (( skip_file )); then
+                    echo "[AzureJob] generated path excluded ${relative_path}" | tee -a "${LOG_FILE}"
+                    continue
+                fi
                 cp -a "${APP_DIR}/${relative_path}" "${work_dir}/${relative_path}"
             fi
             echo "[AzureJob] staged generated path ${relative_path}" | tee -a "${LOG_FILE}"
@@ -140,6 +163,7 @@ case "${JOB_KIND}" in
         run_mode "${GATE_MODE}"
         run_mode "${READINESS_MODE}"
         run_mode "${TRANSITION_MODE}"
+        run_mode "${RECON_MODE}"
         ;;
     readiness)
         run_mode "${READINESS_MODE}"

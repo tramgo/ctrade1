@@ -1367,8 +1367,12 @@ def merge_signal_overlay_features(df: pd.DataFrame, ticker: Optional[str]) -> pd
     out = out.copy()
     return out
 
+def env_flag_enabled(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "n", "off"}
+
+
 # --- Place these at the top of your script (after BASE_DIR is defined) ---
-TOKEN_CACHE_FILE = BASE_DIR / "access_token_cache.txt"
+TOKEN_CACHE_FILE = Path(os.getenv("KITE_TOKEN_CACHE_FILE", str(BASE_DIR / "access_token_cache.txt")))
 
 def load_cached_token():
     if TOKEN_CACHE_FILE.exists():
@@ -1378,6 +1382,7 @@ def load_cached_token():
     return None
 
 def save_token_to_cache(token):
+    TOKEN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(TOKEN_CACHE_FILE, "w") as f:
         f.write(token)
 
@@ -1396,6 +1401,9 @@ def get_valid_kite_session():
             print(f"[Cached] Token invalid or expired: {e}. Fetching new token...")
 
     # If no valid cached token, get a new token.
+    if not env_flag_enabled("KITE_ALLOW_TOTP_LOGIN", "1"):
+        raise RuntimeError("No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.")
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             print(f"[Attempt {attempt}] Getting access token...")
@@ -1616,6 +1624,9 @@ def prompt_manual_request_token(login_url: str) -> str:
     return extract_request_token_from_input(raw_value)
 
 def get_access_token():
+    if not env_flag_enabled("KITE_ALLOW_TOTP_LOGIN", "1"):
+        raise RuntimeError("No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.")
+
     session = requests.Session()
     login_url = f"https://kite.trade/connect/login?api_key={API_KEY}"
 
@@ -1642,6 +1653,7 @@ def get_access_token():
             requires_manual = captcha_required or ("captcha" in message_text)
         if requires_manual:
             manual_request_token = prompt_manual_request_token(login_url)
+            main_logger.warning("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, manual_request_token, api_secret=API_SECRET)
             return data["access_token"]
         raise RuntimeError(
@@ -1680,6 +1692,7 @@ def get_access_token():
             request_token = qs["request_token"][0]
             # 4. Generate the access token
             # Revised caller for generate_session using the utility function:
+            main_logger.warning("[kite] TOTP login triggered - this invalidates any other active session for this api_key.")
             data = kite_call_with_retry(kite.generate_session, request_token, api_secret=API_SECRET)
             return data["access_token"]
         if not location:
@@ -20441,12 +20454,27 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
     resolver_csv = baseline_dir / "tb11_options_current_nfo_leg_resolver_template.csv"
     phase1_ledger_summary_csv = baseline_dir / "tb11_options_phase1_observation_ledger_summary.csv"
     phase1_ledger_csv = baseline_dir / "tb11_options_phase1_observation_ledger.csv"
+    t28_collection_date = ""
+    if t28_summary_csv.exists():
+        try:
+            t28_summary_for_path = pd.read_csv(t28_summary_csv)
+        except pd.errors.EmptyDataError:
+            t28_summary_for_path = pd.DataFrame()
+        if not t28_summary_for_path.empty:
+            t28_collection_date = str(t28_summary_for_path.iloc[0].get("collection_date_ist", "")).strip()
+    dated_t28_detail_csv = baseline_dir / (
+        f"tb11_nifty_chain_band_quote_collector_detail_{t28_collection_date.replace('-', '')}.csv"
+    )
     detail_candidates = sorted(
         baseline_dir.glob("tb11_nifty_chain_band_quote_collector_detail_*.csv"),
-        key=lambda path: path.stat().st_mtime,
+        key=lambda path: path.name,
         reverse=True,
     )
-    t28_detail_csv = detail_candidates[0] if detail_candidates else None
+    t28_detail_csv = (
+        dated_t28_detail_csv
+        if t28_collection_date and dated_t28_detail_csv.exists()
+        else (detail_candidates[0] if detail_candidates else None)
+    )
 
     pd.DataFrame(
         [
@@ -20460,7 +20488,7 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
                 "phase1_ledger_summary_source": str(phase1_ledger_summary_csv),
                 "phase1_ledger_source": str(phase1_ledger_csv),
                 "mode_scope": "tb11_phase2_paper_price_reconciliation_readiness_no_order",
-                "note": "Checks whether fresh T28 and Phase 1 artifacts can support Phase 2 paper-price reconciliation. No broker calls and no orders.",
+                "note": "Checks whether fresh T28 and Phase 1 artifacts can support Phase 2 paper-price reconciliation. Selected legs prefer the immutable T28 snapshot and fall back to the mutable resolver. No broker calls and no orders.",
             }
         ]
     ).to_csv(metadata_csv, index=False)
@@ -20508,6 +20536,34 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
         ("def_long_call", "buy"),
         ("def_long_put", "buy"),
     ]
+    selected_leg_symbols = {
+        leg_key: str(resolver_row.get(f"{leg_key}_tradingsymbol", "")).strip().upper()
+        for leg_key, _ in selected_leg_keys
+    }
+    selected_leg_symbol_source = "current_nfo_leg_resolver"
+    snapshot_collection_date = str(t28_row.get("collection_date_ist", "")).strip()
+    if not t28_detail.empty and {"selection_reason", "option_type", "strike", "tradingsymbol"}.issubset(t28_detail.columns):
+        snapshot_legs = t28_detail.loc[
+            t28_detail["selection_reason"].astype(str).str.contains("selected_profile_leg", regex=False)
+        ].copy()
+        if snapshot_collection_date and "collection_date_ist" in snapshot_legs.columns:
+            snapshot_legs = snapshot_legs.loc[
+                snapshot_legs["collection_date_ist"].astype(str).eq(snapshot_collection_date)
+            ].copy()
+        snapshot_legs["option_type"] = snapshot_legs["option_type"].astype(str).str.upper()
+        snapshot_legs["tradingsymbol"] = snapshot_legs["tradingsymbol"].astype(str).str.strip().str.upper()
+        snapshot_legs["strike"] = pd.to_numeric(snapshot_legs["strike"], errors="coerce")
+        snapshot_legs = snapshot_legs.dropna(subset=["strike"]).drop_duplicates(subset=["tradingsymbol"])
+        snapshot_calls = snapshot_legs.loc[snapshot_legs["option_type"].eq("CE")].sort_values("strike")
+        snapshot_puts = snapshot_legs.loc[snapshot_legs["option_type"].eq("PE")].sort_values("strike")
+        if len(snapshot_calls) == 2 and len(snapshot_puts) == 2:
+            selected_leg_symbols = {
+                "def_short_call": str(snapshot_calls.iloc[0]["tradingsymbol"]),
+                "def_long_call": str(snapshot_calls.iloc[1]["tradingsymbol"]),
+                "def_long_put": str(snapshot_puts.iloc[0]["tradingsymbol"]),
+                "def_short_put": str(snapshot_puts.iloc[1]["tradingsymbol"]),
+            }
+            selected_leg_symbol_source = "t28_selected_profile_snapshot"
     chain_by_symbol = {}
     if not t28_detail.empty and "tradingsymbol" in t28_detail.columns:
         chain_by_symbol = {
@@ -20519,7 +20575,7 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
     t28_selected_leg_hits = 0
     observed_credit_from_t28 = 0.0
     for leg_key, side in selected_leg_keys:
-        symbol = str(resolver_row.get(f"{leg_key}_tradingsymbol", "")).upper()
+        symbol = selected_leg_symbols.get(leg_key, "")
         chain_row = chain_by_symbol.get(symbol)
         present = chain_row is not None
         bid = _num(chain_row.get("bid", np.nan), np.nan) if present else np.nan
@@ -20539,6 +20595,7 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
                 "ask": ask,
                 "quote_age_seconds": quote_age_seconds,
                 "spread_pct": spread_pct,
+                "selected_leg_symbol_source": selected_leg_symbol_source,
             }
         )
 
@@ -20589,6 +20646,7 @@ def run_tb11_options_phase2_paper_price_reconciliation_readiness(
                 "t28_selected_leg_hits": t28_selected_leg_hits,
                 "t28_selected_legs_total": selected_legs_total,
                 "t28_full_selected_leg_coverage": t28_full_selected_leg_coverage,
+                "selected_leg_symbol_source": selected_leg_symbol_source,
                 "observed_credit_points_from_t28_available_legs": observed_credit_from_t28 if t28_selected_leg_hits else np.nan,
                 "phase1_clean_observations": phase1_clean,
                 "phase1_required_clean_observations": phase1_required,
@@ -20670,8 +20728,10 @@ def _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
         "## Reconciliation Tolerances",
         "",
         "- Compare observed weighted credit against live mid-quote modeled credit recorded by the Phase 1 row.",
+        "- Require the Phase 1 observation to precede the T28 snapshot by no more than 15 minutes.",
         "- Maintain the existing 10% and 15% adverse tolerance flags.",
         "- Treat any row outside 15% adverse tolerance as review-required, not as a paper pass.",
+        "- Collect at least 15 same-window observations across at least 10 dates and 90 calendar days before human review.",
         "",
         "## Divergence Escalation",
         "",
@@ -20694,6 +20754,8 @@ def _build_tb11_phase2_paper_price_reconciliation_runbook_lines(
         "- `tb11_t28_freshness_gate_summary.csv`",
         "- `tb11_phase2_paper_price_reconciliation_readiness_summary.csv`",
         "- `tb11_phase2_paper_price_reconciliation_runbook.md`",
+        "- `tb11_phase2_no_order_paper_price_reconciliation_summary.csv`",
+        "- `tb11_phase2_no_order_paper_price_reconciliation_ledger.csv`",
         "",
         "## Broker-Block Reaffirmation",
         "",
@@ -20980,6 +21042,7 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     readiness_detail_csv = baseline_dir / "tb11_phase2_paper_price_reconciliation_readiness_detail.csv"
     transition_summary_csv = baseline_dir / "tb11_phase2_transition_controller_summary.csv"
     phase1_latest_csv = baseline_dir / "tb11_options_phase1_observation_ledger_latest_detail.csv"
+    t28_summary_csv = baseline_dir / "tb11_nifty_chain_band_quote_collector_summary.csv"
     runbook_md = baseline_dir / "tb11_phase2_paper_price_reconciliation_runbook.md"
     detail_csv = baseline_dir / f"{output_prefix}_detail_{today_tag}.csv"
     summary_csv = baseline_dir / f"{output_prefix}_summary.csv"
@@ -20990,6 +21053,10 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     profile_weight = 1.5
     max_quote_age_seconds = 300.0
     max_leg_spread_pct = 0.50
+    max_phase1_to_t28_gap_seconds = 15.0 * 60.0
+    phase2_target_observations = 15
+    phase2_min_unique_dates = 10
+    phase2_min_calendar_days = 90
     generated_at_ist = pd.Timestamp.now(tz="Asia/Kolkata").isoformat()
 
     pd.DataFrame(
@@ -21002,8 +21069,13 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
                 "readiness_detail_source": str(readiness_detail_csv),
                 "transition_summary_source": str(transition_summary_csv),
                 "phase1_latest_source": str(phase1_latest_csv),
+                "t28_summary_source": str(t28_summary_csv),
                 "runbook_source": str(runbook_md),
                 "profile_weight": profile_weight,
+                "max_phase1_to_t28_gap_seconds": max_phase1_to_t28_gap_seconds,
+                "phase2_target_observations": phase2_target_observations,
+                "phase2_min_unique_dates": phase2_min_unique_dates,
+                "phase2_min_calendar_days": phase2_min_calendar_days,
                 "mode_scope": "tb11_phase2_no_order_paper_price_reconciliation",
                 "note": "Artifact-only Phase 2 paper-price reconciliation. No broker calls and no orders.",
             }
@@ -21035,7 +21107,14 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
         print(f"[TB11-PHASE2-RECON] blocked: {status}", flush=True)
         return summary_df
 
-    required_paths = [readiness_summary_csv, readiness_detail_csv, transition_summary_csv, phase1_latest_csv, runbook_md]
+    required_paths = [
+        readiness_summary_csv,
+        readiness_detail_csv,
+        transition_summary_csv,
+        phase1_latest_csv,
+        t28_summary_csv,
+        runbook_md,
+    ]
     missing = [str(path) for path in required_paths if not path.exists()]
     if missing:
         return _write_blocked("blocked_missing_phase2_inputs", "|".join(missing))
@@ -21045,6 +21124,7 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
         readiness_detail = pd.read_csv(readiness_detail_csv)
         transition_summary = pd.read_csv(transition_summary_csv)
         phase1_latest = pd.read_csv(phase1_latest_csv)
+        t28_summary = pd.read_csv(t28_summary_csv)
     except Exception as exc:
         return _write_blocked("blocked_unreadable_phase2_inputs", str(exc))
 
@@ -21054,6 +21134,7 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     blockers = []
     readiness_row = readiness_summary.iloc[0] if not readiness_summary.empty else pd.Series(dtype=object)
     transition_row = transition_summary.iloc[0] if not transition_summary.empty else pd.Series(dtype=object)
+    t28_row = t28_summary.iloc[0] if not t28_summary.empty else pd.Series(dtype=object)
     if not _bool_text(readiness_row.get("phase2_gate_passed", False)):
         blockers.append("readiness_phase2_gate_not_passed")
     if not _bool_text(transition_row.get("transition_passed", False)):
@@ -21072,6 +21153,25 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     else:
         sort_col = "observed_timestamp_ist" if "observed_timestamp_ist" in clean_phase1.columns else clean_phase1.columns[0]
         latest_phase1 = clean_phase1.sort_values(sort_col).iloc[-1]
+
+    phase1_timestamp = str(latest_phase1.get("observed_timestamp_ist", ""))
+    t28_timestamp = str(t28_row.get("generated_at_ist", ""))
+    phase1_timestamp_parsed = pd.to_datetime(phase1_timestamp, errors="coerce", utc=True)
+    t28_timestamp_parsed = pd.to_datetime(t28_timestamp, errors="coerce", utc=True)
+    phase1_to_t28_gap_seconds = np.nan
+    same_window_passed = False
+    if pd.isna(phase1_timestamp_parsed) or pd.isna(t28_timestamp_parsed):
+        blockers.append("missing_phase1_or_t28_timestamp")
+    else:
+        phase1_to_t28_gap_seconds = float((t28_timestamp_parsed - phase1_timestamp_parsed).total_seconds())
+        same_window_passed = 0.0 <= phase1_to_t28_gap_seconds <= max_phase1_to_t28_gap_seconds
+        if not same_window_passed:
+            blockers.append("phase1_t28_timestamp_gap_outside_15_minutes")
+
+    phase1_collection_date = str(latest_phase1.get("observation_date_ist", "")).strip()
+    t28_collection_date = str(t28_row.get("collection_date_ist", "")).strip()
+    if not phase1_collection_date or not t28_collection_date or phase1_collection_date != t28_collection_date:
+        blockers.append("phase1_t28_collection_date_mismatch")
 
     if blockers:
         return _write_blocked("blocked_phase2_inputs_not_ready", "|".join(blockers))
@@ -21098,7 +21198,6 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
         pd.Series([latest_phase1.get("observed_weighted_credit_points")]), errors="coerce"
     ).iloc[0]
     phase1_modeled_credit = pd.to_numeric(pd.Series([latest_phase1.get("modeled_credit_points")]), errors="coerce").iloc[0]
-    phase1_timestamp = str(latest_phase1.get("observed_timestamp_ist", ""))
     phase2_vs_phase1_diff = phase2_weighted_credit - float(phase1_weighted_credit)
     phase2_vs_phase1_diff_pct = (
         phase2_vs_phase1_diff / float(phase1_weighted_credit)
@@ -21135,6 +21234,9 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
                 "generated_at_ist": generated_at_ist,
                 "collection_date_ist": today_ist,
                 "phase1_latest_observed_timestamp_ist": phase1_timestamp,
+                "t28_generated_at_ist": t28_timestamp,
+                "phase1_to_t28_gap_seconds": phase1_to_t28_gap_seconds,
+                "same_window_passed": same_window_passed,
                 "phase1_weighted_credit_points": phase1_weighted_credit,
                 "phase1_modeled_credit_points": phase1_modeled_credit,
                 "phase2_defensive_credit_points": phase2_defensive_credit,
@@ -21146,6 +21248,7 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
                 "within_10pct_adverse_tolerance": within_10pct_adverse,
                 "within_15pct_adverse_tolerance": within_15pct_adverse,
                 "all_legs_reconciliation_ok": all_legs_ok,
+                "phase2_reconciliation_passed": phase2_passed,
                 "broker_block_violations": broker_block_violations,
                 "broker_orders_allowed": False,
                 "reconciliation_status": status,
@@ -21155,6 +21258,42 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     existing = pd.read_csv(ledger_csv) if ledger_csv.exists() else pd.DataFrame()
     combined = pd.concat([existing, ledger_row], ignore_index=True, sort=False) if not existing.empty else ledger_row
     combined = combined.drop_duplicates(subset=["generated_at_ist"], keep="last")
+
+    bool_true = {"true", "1", "yes", "y"}
+    same_window_mask = combined.get("same_window_passed", pd.Series(False, index=combined.index)).astype(str).str.lower().isin(bool_true)
+    legs_ok_mask = combined.get("all_legs_reconciliation_ok", pd.Series(False, index=combined.index)).astype(str).str.lower().isin(bool_true)
+    no_broker_violation_mask = pd.to_numeric(
+        combined.get("broker_block_violations", pd.Series(np.nan, index=combined.index)), errors="coerce"
+    ).eq(0)
+    counted_mask = same_window_mask & legs_ok_mask & no_broker_violation_mask
+    counted = combined.loc[counted_mask].copy()
+    passed_mask = counted.get("phase2_reconciliation_passed", pd.Series(False, index=counted.index)).astype(str).str.lower().isin(bool_true)
+    passed_count = int(passed_mask.sum())
+    counted_count = int(len(counted))
+    counted_dates = pd.to_datetime(counted.get("collection_date_ist", pd.Series(dtype=str)), errors="coerce").dropna()
+    unique_dates = int(counted_dates.dt.date.nunique()) if not counted_dates.empty else 0
+    calendar_days = int((counted_dates.max() - counted_dates.min()).days + 1) if not counted_dates.empty else 0
+    all_counted_passed = counted_count > 0 and passed_count == counted_count
+    phase3_human_review_eligible = bool(
+        counted_count >= phase2_target_observations
+        and unique_dates >= phase2_min_unique_dates
+        and calendar_days >= phase2_min_calendar_days
+        and all_counted_passed
+    )
+    evidence_blockers = []
+    if counted_count < phase2_target_observations:
+        evidence_blockers.append("phase2_target_15_same_window_observations_not_reached")
+    if unique_dates < phase2_min_unique_dates:
+        evidence_blockers.append("phase2_min_10_unique_dates_not_reached")
+    if calendar_days < phase2_min_calendar_days:
+        evidence_blockers.append("phase2_min_90_calendar_days_not_reached")
+    if not all_counted_passed:
+        evidence_blockers.append("not_all_counted_reconciliations_passed")
+    evidence_status = (
+        "phase3_human_review_eligible"
+        if phase3_human_review_eligible
+        else "phase2_evidence_collection_in_progress"
+    )
     combined.to_csv(ledger_csv, index=False)
 
     summary_df = ledger_row.copy()
@@ -21163,6 +21302,17 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
     summary_df["leg_rows"] = int(len(detail))
     summary_df["leg_rows_ok"] = int(detail["leg_reconciliation_ok"].sum())
     summary_df["phase2_reconciliation_passed"] = phase2_passed
+    summary_df["phase2_counted_observations"] = counted_count
+    summary_df["phase2_passed_observations"] = passed_count
+    summary_df["phase2_unique_observation_dates"] = unique_dates
+    summary_df["phase2_calendar_days"] = calendar_days
+    summary_df["phase2_target_observations"] = phase2_target_observations
+    summary_df["phase2_min_unique_dates"] = phase2_min_unique_dates
+    summary_df["phase2_min_calendar_days"] = phase2_min_calendar_days
+    summary_df["all_counted_reconciliations_passed"] = all_counted_passed
+    summary_df["phase3_human_review_eligible"] = phase3_human_review_eligible
+    summary_df["phase2_evidence_status"] = evidence_status
+    summary_df["phase2_evidence_blockers"] = "|".join(evidence_blockers) if evidence_blockers else "none"
     summary_df["blockers"] = "" if phase2_passed else "leg_quality_or_adverse_credit_tolerance_review_required"
     summary_df.to_csv(summary_csv, index=False)
 
@@ -21176,9 +21326,18 @@ def run_tb11_options_phase2_no_order_paper_price_reconciliation(
                 f"- Phase 1 latest weighted credit: `{phase1_weighted_credit}`",
                 f"- Phase 2 T28 weighted credit: `{phase2_weighted_credit}`",
                 f"- Phase 2 vs Phase 1 drift: `{phase2_vs_phase1_diff_pct}`",
+                f"- Phase 1 to T28 timestamp gap seconds: `{phase1_to_t28_gap_seconds}`",
+                f"- same-window gate passed: `{same_window_passed}`",
                 f"- all legs reconciliation ok: `{all_legs_ok}`",
                 f"- within 10% / 15% adverse tolerance: `{within_10pct_adverse}` / `{within_15pct_adverse}`",
                 f"- broker block violations: `{broker_block_violations}`",
+                f"- counted Phase 2 observations: `{counted_count}` / `{phase2_target_observations}`",
+                f"- passed counted observations: `{passed_count}`",
+                f"- unique observation dates: `{unique_dates}` / `{phase2_min_unique_dates}`",
+                f"- calendar evidence days: `{calendar_days}` / `{phase2_min_calendar_days}`",
+                f"- Phase 2 evidence status: `{evidence_status}`",
+                f"- Phase 2 evidence blockers: `{'|'.join(evidence_blockers) if evidence_blockers else 'none'}`",
+                f"- Phase 3 human-review eligible: `{phase3_human_review_eligible}`",
                 "- broker orders allowed: `False`",
                 "",
                 "Next action: continue no-order Phase 2 paper-price observations; do not place broker orders.",

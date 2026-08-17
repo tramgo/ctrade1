@@ -53,6 +53,10 @@ properties:
             secretRef: kite-password
           - name: TOTP_KEY
             secretRef: totp-key
+          - name: KITE_TOKEN_CACHE_FILE
+            value: "/kite-token/access_token_cache.txt"
+          - name: KITE_ALLOW_TOTP_LOGIN
+            value: "0"
           - name: GITHUB_TOKEN
             secretRef: github-token
           - name: GITHUB_OUTPUT_PUSH_ENABLED
@@ -75,6 +79,8 @@ properties:
             volumeName: ctrade1-results
           - mountPath: /app/data
             volumeName: ctrade1-data
+          - mountPath: /kite-token
+            volumeName: ctrade1-kite-token
     volumes:
       - name: ctrade1-results
         storageType: AzureFile
@@ -82,3 +88,6 @@ properties:
       - name: ctrade1-data
         storageType: AzureFile
         storageName: ctrade1data
+      - name: ctrade1-kite-token
+        storageType: AzureFile
+        storageName: ctrade1kitetoken
