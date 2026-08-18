@@ -1,6 +1,6 @@
 # TB11 Phase 2 Paper-Price Reconciliation Runbook
 
-Generated at IST: `2026-08-18T12:31:21.850407+05:30`
+Generated at IST: `2026-08-18T14:46:24.526406+05:30`
 
 ## Gate Evidence
 
