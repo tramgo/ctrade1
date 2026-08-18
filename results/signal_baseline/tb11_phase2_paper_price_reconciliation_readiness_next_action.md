@@ -2,7 +2,7 @@
 
 - Status: `phase2_paper_price_reconciliation_ready`
 - T28 freshness gate passed: `True`
-- T28 fresh quote rows: `100`
+- T28 fresh quote rows: `98`
 - selected legs covered by T28 band: `4` / `4`
 - Phase 1 clean observations: `101` / `15` target
 - latest Phase 1 weighted credit: `0.6749999999999999`

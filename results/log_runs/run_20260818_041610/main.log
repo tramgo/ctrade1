@@ -1,0 +1,6 @@
+2026-08-18 04:16:02,457 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-08-18 04:16:02,488 - DEBUG - Gymnasium version: 1.3.0
+2026-08-18 04:16:02,493 - DEBUG - Optuna version: 4.9.0
+2026-08-18 04:16:02,939 - INFO - Resolved execution mode: signal_baseline_tb11_options_nifty_chain_band_quote_collector
+2026-08-18 04:16:02,941 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-08-18 04:16:02,946 - INFO - Starting TB11 T28 NIFTY chain-band quote collector. This captures current-expiry option-chain bid/ask breadth and keeps broker orders blocked.
