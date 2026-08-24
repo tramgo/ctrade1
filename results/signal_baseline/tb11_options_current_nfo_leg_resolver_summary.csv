@@ -1,2 +1,2 @@
 collection_date_ist,candidate_rows,resolved_legs,required_legs,unique_symbols_resolved,unique_symbols,broker_orders_allowed,spot_last_price,selected_expiry,days_to_expiry,expiry_source,resolver_status,blocker,spot_quote_error,nfo_instrument_error
-2026-08-21,1,8,8,4,NIFTY26AUG22300PE|NIFTY26AUG23500PE|NIFTY26AUG24950CE|NIFTY26AUG26200CE,False,24238.65,2026-08-25,4,nearest_within_max_dte,resolved_current_nfo_legs,,,
+2026-08-24,1,8,8,4,NIFTY26AUG22350PE|NIFTY26AUG23550PE|NIFTY26AUG25000CE|NIFTY26AUG26200CE,False,24280.85,2026-08-25,1,nearest_within_max_dte,resolved_current_nfo_legs,,,
