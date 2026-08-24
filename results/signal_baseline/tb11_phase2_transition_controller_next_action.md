@@ -4,7 +4,7 @@
 - Transition passed: `True`
 - Phase 1 collection date: `2026-08-24`
 - readiness collection date: `2026-08-24`
-- clean observations: `112` / `15`
+- clean observations: `113` / `15`
 - unique observation dates: `36` / `5`
 - Phase 1 evidence gate passed: `True`
 - readiness Phase 2 gate passed: `True`
