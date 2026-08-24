@@ -1,1 +1,2 @@
-candidate_id,leg_key,role,side,option_type,profile_weight,target_strike,resolved_strike,tradingsymbol,instrument_token,resolution_status,broker_order_allowed
+candidate_id,resolution_status,blocker,spot_quote_error,nfo_instrument_error
+TB11_T25_20260824_001,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only resolution.,No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.,

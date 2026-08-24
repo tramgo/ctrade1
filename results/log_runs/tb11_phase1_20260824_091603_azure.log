@@ -1,19 +1,13 @@
-[AzureJob] started_utc=20260824_070107
+[AzureJob] started_utc=20260824_091603
 [AzureJob] job_kind=phase1
 [AzureJob] app_dir=/app
 Python 3.13.15
 [AzureJob] running mode=signal_baseline_tb11_options_phase1_auto_quote_observation
-[Cached] Logged in as: Thiruvadi Rama Govinda Raja (WZ3843)
+[Cached] Token invalid or expired: Failed to call profile after 5 retries: Incorrect `api_key` or `access_token`.. Fetching new token...
 [TB11-T25] template saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
 [TB11-T25] unresolved saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260824.csv
 [TB11-T25] summary saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
-[TB11-T24] captured saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_20260824.csv
-[TB11-T24] unresolved saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_unresolved_20260824.csv
-[TB11-T24] summary saved: /app/results/signal_baseline/tb11_options_zerodha_quote_only_collector_summary.csv
-[TB11-T26] latest detail saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger_latest_detail.csv
-[TB11-T26] ledger saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger.csv
-[TB11-T26] summary saved: /app/results/signal_baseline/tb11_options_phase1_observation_ledger_summary.csv
-[TB11-T26-AUTO] summary saved: /app/results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
+[TB11-T26-AUTO] resolver blocked; summary saved: /app/results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
 [AzureJob] mode=signal_baseline_tb11_options_phase1_auto_quote_observation exit=0
 [AzureJob] running mode=signal_baseline_tb11_options_phase2_paper_price_reconciliation_readiness
 [TB11-PHASE2-READINESS] detail saved: /app/results/signal_baseline/tb11_phase2_paper_price_reconciliation_readiness_detail.csv
@@ -28,14 +22,3 @@ Python 3.13.15
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 [AzureJob] pruning logs older than 3 day(s), preserving at least 6 per pattern
 Cloning into '/tmp/ctrade1-output-push'...
-[AzureJob] staged generated path results
-[AzureJob] staged generated path data
-[main 42644aa] Record Azure scheduled job outputs
- 24 files changed, 92 insertions(+), 27 deletions(-)
- create mode 100644 results/log_runs/run_20260824_070112/main.log
- create mode 100644 results/log_runs/run_20260824_070120/main.log
- create mode 100644 results/log_runs/run_20260824_070126/main.log
- create mode 100644 results/log_runs/tb11_phase1_20260824_070107_azure.log
-To https://github.com/tramgo/ctrade1.git
-   47ef649..42644aa  main -> main
-[AzureJob] completed_utc=20260824_070136
