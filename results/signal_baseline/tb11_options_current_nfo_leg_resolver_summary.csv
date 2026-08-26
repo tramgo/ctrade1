@@ -1,2 +1,2 @@
 collection_date_ist,candidate_rows,resolved_legs,required_legs,unique_symbols_resolved,broker_orders_allowed,spot_last_price,selected_expiry,days_to_expiry,resolver_status,blocker,spot_quote_error,nfo_instrument_error
-2026-08-25,1,0,8,0,False,,,,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only resolution.,No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.,
+2026-08-26,1,0,8,0,False,,,,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only resolution.,No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.,
