@@ -1,2 +1,2 @@
 output_prefix,collection_date_ist,sequence,mode_scope,note
-tb11_options_phase1_auto_quote_observation,2026-08-27,T25 current NFO resolver -> T24 quote-only collector -> T26 append-only observation ledger,tb11_phase1_automated_quote_observation_no_order,Fully automated quote-only observation sequence. Broker orders remain blocked.
+tb11_options_phase1_auto_quote_observation,2026-08-28,T25 current NFO resolver -> T24 quote-only collector -> T26 append-only observation ledger,tb11_phase1_automated_quote_observation_no_order,Fully automated quote-only observation sequence. Broker orders remain blocked.
