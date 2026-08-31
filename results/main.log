@@ -1,6 +1,6 @@
-2026-08-31 04:17:57,426 - DEBUG - Stable Baselines3 version: 2.9.0
-2026-08-31 04:17:57,465 - DEBUG - Gymnasium version: 1.3.0
-2026-08-31 04:17:57,471 - DEBUG - Optuna version: 4.9.0
-2026-08-31 04:17:57,776 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase2_no_order_paper_price_reconciliation
-2026-08-31 04:17:57,779 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
-2026-08-31 04:17:57,784 - INFO - Starting TB11 Phase 2 no-order paper-price reconciliation. This reads quote artifacts only and never places broker orders.
+2026-08-31 07:02:47,334 - DEBUG - Stable Baselines3 version: 2.9.0
+2026-08-31 07:02:47,370 - DEBUG - Gymnasium version: 1.3.0
+2026-08-31 07:02:47,375 - DEBUG - Optuna version: 4.9.0
+2026-08-31 07:02:47,669 - INFO - Resolved execution mode: signal_baseline_tb11_options_phase2_transition_controller
+2026-08-31 07:02:47,672 - INFO - Starting pipeline for multi‐ticker training (ITC, APOLLOTYRE) and single‐ticker testing (GRINDWELL).
+2026-08-31 07:02:47,676 - INFO - Starting TB11 Phase 2 transition controller. This writes the Phase 2 runbook and advances state only after all no-order gates pass.
