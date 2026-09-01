@@ -1,11 +1,11 @@
-[AzureJob] started_utc=20260831_091602
+[AzureJob] started_utc=20260901_041057
 [AzureJob] job_kind=phase1
 [AzureJob] app_dir=/app
 Python 3.13.15
 [AzureJob] running mode=signal_baseline_tb11_options_phase1_auto_quote_observation
 [Cached] Token invalid or expired: Failed to call profile after 5 retries: Incorrect `api_key` or `access_token`.. Fetching new token...
 [TB11-T25] template saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_template.csv
-[TB11-T25] unresolved saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260831.csv
+[TB11-T25] unresolved saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_unresolved_20260901.csv
 [TB11-T25] summary saved: /app/results/signal_baseline/tb11_options_current_nfo_leg_resolver_summary.csv
 [TB11-T26-AUTO] resolver blocked; summary saved: /app/results/signal_baseline/tb11_options_phase1_auto_quote_observation_summary.csv
 [AzureJob] mode=signal_baseline_tb11_options_phase1_auto_quote_observation exit=0
@@ -20,15 +20,3 @@ Python 3.13.15
 [AzureJob] mode=signal_baseline_tb11_options_phase2_transition_controller exit=0
 [AzureJob] pruning logs older than 3 day(s), preserving at least 6 per pattern
 Cloning into '/tmp/ctrade1-output-push'...
-[AzureJob] staged generated path results
-[AzureJob] staged generated path data
-[main 973d430] Record Azure scheduled job outputs
- 13 files changed, 69 insertions(+), 12 deletions(-)
- create mode 100644 results/log_runs/run_20260831_091606/main.log
- create mode 100644 results/log_runs/run_20260831_091738/main.log
- create mode 100644 results/log_runs/run_20260831_091738/training.log
- create mode 100644 results/log_runs/run_20260831_091743/main.log
- create mode 100644 results/log_runs/tb11_phase1_20260831_091602_azure.log
-To https://github.com/tramgo/ctrade1.git
-   e8117ae..973d430  main -> main
-[AzureJob] completed_utc=20260831_091752

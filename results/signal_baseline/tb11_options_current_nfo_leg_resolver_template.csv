@@ -1,2 +1,2 @@
 candidate_id,collection_date_ist,profile,lot_size,broker_order_allowed,resolution_status,blocker
-TB11_T25_20260831_001,2026-08-31,def_full_resg0_ovg50,65,False,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only resolution.
+TB11_T25_20260901_001,2026-09-01,def_full_resg0_ovg50,65,False,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only resolution.
