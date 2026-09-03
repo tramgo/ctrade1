@@ -1,0 +1,2 @@
+collection_date_ist,collector_status,blocker,spot_quote_error,nfo_instrument_error,quote_fetch_error
+2026-09-03,blocked_kite_auth_unavailable,Zerodha Kite session could not be authenticated for quote-only chain-band collection.,No valid cached access token and KITE_ALLOW_TOTP_LOGIN=0.,,
